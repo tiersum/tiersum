@@ -61,19 +61,18 @@ summarization:
 
 # Storage configuration
 storage:
-  # Primary database
   database:
-    type: postgres
-    host: localhost
-    port: 5432
-    user: tiersum
-    password: tiersum
-    database: tiersum
-    # Connection pool
+    # Database driver: sqlite3 (default) or postgres
+    driver: sqlite3
+    
+    # Database connection string:
+    # SQLite: file path (e.g., "./data/tiersum.db" or ":memory:" for in-memory)
+    # PostgreSQL: "postgres://user:password@localhost:5432/dbname?sslmode=disable"
+    dsn: ./data/tiersum.db
+    
+    # PostgreSQL specific settings (ignored for SQLite)
     max_connections: 20
     min_connections: 5
-    # SSL mode: disable, require, verify-ca, verify-full
-    ssl_mode: disable
 
   # Local cache settings
   cache:

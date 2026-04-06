@@ -41,19 +41,19 @@ summarization:
   workers: 4
   batch_size: 10
 
+# Storage configuration
 storage:
   database:
-    type: postgres
-    host: localhost
-    port: 5432
-    user: tiersum
-    password: tiersum
-    database: tiersum
+    # Driver: sqlite3 (default) or postgres
+    driver: sqlite3
+    # For SQLite: file path
+    # For PostgreSQL: connection string
+    dsn: ./data/tiersum.db
+    # PostgreSQL specific settings (ignored for SQLite)
     max_connections: 20
     min_connections: 5
-    ssl_mode: disable
-    dsn: postgres://tiersum:tiersum@localhost:5432/tiersum
 
+  # Local cache settings
   cache:
     ttl: 1h
     max_size: 10000

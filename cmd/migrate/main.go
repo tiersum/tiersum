@@ -47,9 +47,7 @@ func upCmd() *cobra.Command {
 			logger, _ := zap.NewProduction()
 			defer logger.Sync()
 
-			store, err := storage.New(storage.Config{
-				DatabaseURL: viper.GetString("storage.database.dsn"),
-			})
+			store, err := storage.New()
 			if err != nil {
 				logger.Fatal("Failed to connect to database", zap.Error(err))
 			}
@@ -70,9 +68,7 @@ func downCmd() *cobra.Command {
 			logger, _ := zap.NewProduction()
 			defer logger.Sync()
 
-			store, err := storage.New(storage.Config{
-				DatabaseURL: viper.GetString("storage.database.dsn"),
-			})
+			store, err := storage.New()
 			if err != nil {
 				logger.Fatal("Failed to connect to database", zap.Error(err))
 			}

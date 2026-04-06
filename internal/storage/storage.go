@@ -2,44 +2,29 @@ package storage
 
 import (
 	"context"
-	"fmt"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/spf13/viper"
 )
 
-// Config holds storage configuration
-type Config struct {
-	DatabaseURL string
-}
-
 // Storage provides access to all storage backends
 type Storage struct {
-	DB    *pgxpool.Pool
+	DB    *DB
 	Cache *Cache
 }
 
 // New creates a new storage instance
-func New(cfg Config) (*Storage, error) {
-	ctx := context.Background()
+func New() (*Storage, error) {
+	// Initialize database
+	db, err := NewDB()
+	if err != nil {
+		return nil, err
+	}
 
-	// Connect to PostgreSQL
-	var db *pgxpool.Pool
-	if cfg.DatabaseURL != "" {
-		poolConfig, err := pgxpool.ParseConfig(cfg.DatabaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("parse database config: %w", err)
-		}
-
-		db, err = pgxpool.NewWithConfig(ctx, poolConfig)
-		if err != nil {
-			return nil, fmt.Errorf("connect to database: %w", err)
-		}
-
-		if err := db.Ping(ctx); err != nil {
-			return nil, fmt.Errorf("ping database: %w", err)
-		}
+	// Initialize schema
+	if err := db.InitSchema(); err != nil {
+		db.Close()
+		return nil, err
 	}
 
 	// Initialize local cache
@@ -56,20 +41,21 @@ func New(cfg Config) (*Storage, error) {
 }
 
 // Close closes all storage connections
-func (s *Storage) Close() {
-	if s.DB != nil {
-		s.DB.Close()
-	}
+func (s *Storage) Close() error {
 	if s.Cache != nil {
 		s.Cache.Clear()
 	}
+	if s.DB != nil {
+		return s.DB.Close()
+	}
+	return nil
 }
 
 // Health checks if storage is healthy
 func (s *Storage) Health(ctx context.Context) error {
 	if s.DB != nil {
-		if err := s.DB.Ping(ctx); err != nil {
-			return fmt.Errorf("database unhealthy: %w", err)
+		if err := s.DB.Health(ctx); err != nil {
+			return err
 		}
 	}
 	return nil

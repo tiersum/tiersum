@@ -46,8 +46,8 @@
 
 ### 前置条件
 
-- Go 1.23+
-- PostgreSQL 16+
+- Go 1.23+（需要 CGO 支持 SQLite）
+- 数据库：SQLite（默认）或 PostgreSQL（可选）
 
 ### 安装
 
@@ -79,22 +79,30 @@ cd deployments/docker && docker-compose up -d
 
 ### 配置
 
+**SQLite（默认 - 零配置）：**
 ```yaml
 # configs/config.yaml
 server:
   port: 8080
-  host: 0.0.0.0
 
 llm:
-  provider: openai  # 或 anthropic, local
+  provider: openai
   openai:
     api_key: ${OPENAI_API_KEY}
     model: gpt-4o-mini
 
 storage:
   database:
-    type: postgres
-    dsn: postgres://tiersum:tiersum@localhost:5432/tiersum
+    driver: sqlite3
+    dsn: ./data/tiersum.db
+```
+
+**PostgreSQL（可选 - 高并发场景）：**
+```yaml
+storage:
+  database:
+    driver: postgres
+    dsn: postgres://user:password@localhost:5432/tiersum?sslmode=disable
 ```
 
 ### 启动服务
@@ -200,7 +208,7 @@ mcpServers:
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    Storage Layer                             │
-│  PostgreSQL (docs + hierarchy) │  In-memory cache           │
+│  SQLite/PostgreSQL (docs + hierarchy) │  In-memory cache    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -249,7 +257,7 @@ tiersum/
 │   │   ├── parser/      # Markdown parser (Goldmark)
 │   │   ├── summarizer/  # LLM abstraction layer
 │   │   └── indexer/     # Hierarchical index builder
-│   ├── storage/         # PostgreSQL + in-memory cache
+│   ├── storage/         # SQLite/PostgreSQL + in-memory cache
 │   └── mcp/             # MCP protocol implementation
 ├── pkg/
 │   └── types/           # Public API types
@@ -290,7 +298,7 @@ make build-all
 
 - [x] 核心四层摘要引擎
 - [x] REST API + MCP 服务
-- [x] PostgreSQL + 内存缓存 存储
+- [x] SQLite/PostgreSQL + 内存缓存 存储
 - [ ] OpenClaw 技能包（转换 + 更新）
 - [ ] 实时协作编辑
 - [ ] 多模态支持（图片、图表）

@@ -1,5 +1,8 @@
 version: '3.8'
 
+# Default: SQLite (single container, zero external dependencies)
+# To use PostgreSQL: uncomment the postgres service and update configs/config.yaml
+
 services:
   tiersum:
     build:
@@ -13,26 +16,28 @@ services:
     volumes:
       - ../../data:/app/data
       - ../../configs/config.yaml:/app/config.yaml:ro
-    depends_on:
-      - postgres
+    # Uncomment below when using PostgreSQL
+    # depends_on:
+    #   - postgres
     networks:
       - tiersum-network
 
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: tiersum
-      POSTGRES_PASSWORD: tiersum
-      POSTGRES_DB: tiersum
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
-    networks:
-      - tiersum-network
+  # Uncomment to use PostgreSQL instead of SQLite
+  # postgres:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_USER: tiersum
+  #     POSTGRES_PASSWORD: tiersum
+  #     POSTGRES_DB: tiersum
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   networks:
+  #     - tiersum-network
 
 volumes:
-  postgres_data:
+  # postgres_data:
 
 networks:
   tiersum-network:

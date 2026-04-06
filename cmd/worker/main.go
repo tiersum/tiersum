@@ -44,9 +44,7 @@ func runWorker(cmd *cobra.Command, args []string) {
 	defer logger.Sync()
 
 	// Initialize storage
-	store, err := storage.New(storage.Config{
-		DatabaseURL: viper.GetString("storage.database.dsn"),
-	})
+	store, err := storage.New()
 	if err != nil {
 		logger.Fatal("Failed to initialize storage", zap.Error(err))
 	}

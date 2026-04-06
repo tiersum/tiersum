@@ -46,8 +46,8 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 ### Prerequisites
 
-- Go 1.23+
-- PostgreSQL 16+
+- Go 1.23+ (with CGO enabled for SQLite)
+- Database: SQLite (default) or PostgreSQL (optional)
 
 ### Installation
 
@@ -79,22 +79,30 @@ cd deployments/docker && docker-compose up -d
 
 ### Configuration
 
+**SQLite (Default - Zero Config):**
 ```yaml
 # configs/config.yaml
 server:
   port: 8080
-  host: 0.0.0.0
 
 llm:
-  provider: openai  # or anthropic, local
+  provider: openai
   openai:
     api_key: ${OPENAI_API_KEY}
     model: gpt-4o-mini
 
 storage:
   database:
-    type: postgres
-    dsn: postgres://tiersum:tiersum@localhost:5432/tiersum
+    driver: sqlite3
+    dsn: ./data/tiersum.db
+```
+
+**PostgreSQL (Optional - for high concurrency):**
+```yaml
+storage:
+  database:
+    driver: postgres
+    dsn: postgres://user:password@localhost:5432/tiersum?sslmode=disable
 ```
 
 ### Start Server
@@ -200,7 +208,7 @@ mcpServers:
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    Storage Layer                             │
-│  PostgreSQL (docs + hierarchy) │  In-memory cache           │
+│  SQLite/PostgreSQL (docs + hierarchy) │  In-memory cache    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -249,7 +257,7 @@ tiersum/
 │   │   ├── parser/      # Markdown parser (Goldmark)
 │   │   ├── summarizer/  # LLM abstraction layer
 │   │   └── indexer/     # Hierarchical index builder
-│   ├── storage/         # PostgreSQL + in-memory cache
+│   ├── storage/         # SQLite/PostgreSQL + in-memory cache
 │   └── mcp/             # MCP protocol implementation
 ├── pkg/
 │   └── types/           # Public API types
@@ -290,7 +298,7 @@ make build-all
 
 - [x] Core 4-tier summarization engine
 - [x] REST API + MCP Server
-- [x] PostgreSQL + in-memory cache storage
+- [x] SQLite/PostgreSQL + in-memory cache storage
 - [ ] OpenClaw skill pack (convert + update)
 - [ ] Real-time collaborative editing
 - [ ] Multi-modal support (images, diagrams)

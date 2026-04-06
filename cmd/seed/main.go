@@ -40,9 +40,7 @@ func runSeed(cmd *cobra.Command, args []string) {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
-	store, err := storage.New(storage.Config{
-		DatabaseURL: viper.GetString("storage.database.dsn"),
-	})
+	store, err := storage.New()
 	if err != nil {
 		logger.Fatal("Failed to connect to database", zap.Error(err))
 	}

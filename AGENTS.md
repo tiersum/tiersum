@@ -23,7 +23,7 @@ make migrate-down           # Rollback migrations
 make seed                   # Seed sample data
 
 # Docker Compose (full stack)
-cd deployments/docker && docker-compose up -d  # Starts tiersum + postgres
+cd deployments/docker && docker-compose up -d  # Starts tiersum (SQLite by default)
 ```
 
 ## Project Structure
@@ -47,7 +47,7 @@ internal/
   core/parser/    # Markdown parser (Goldmark)
   core/summarizer/# LLM abstraction
   core/indexer/   # Hierarchical index builder
-  storage/        # PostgreSQL + in-memory cache
+  storage/        # SQLite/PostgreSQL + in-memory cache
   mcp/            # MCP protocol implementation
 pkg/types/        # Public API types
 skills/           # OpenClaw skill definitions
@@ -58,7 +58,8 @@ migrations/       # Database migrations
 
 - **Web**: Gin (`github.com/gin-gonic/gin`)
 - **MCP**: `github.com/mark3labs/mcp-go`
-- **Postgres**: `github.com/jackc/pgx/v5`
+- **SQLite**: `github.com/mattn/go-sqlite3` (default)
+- **Postgres**: `github.com/jackc/pgx/v5` (optional)
 - **Markdown**: `github.com/yuin/goldmark`
 - **CLI**: `github.com/spf13/cobra` + `github.com/spf13/viper`
 
@@ -72,7 +73,7 @@ migrations/       # Database migrations
 
 - **Dual API**: REST (`/api/v1/*`) + MCP SSE (`/mcp/sse`)
 - **4-Tier Summary**: Document → Chapter → Paragraph → Source
-- **Storage**: PostgreSQL (docs + hierarchy), in-memory cache
+- **Storage**: SQLite/PostgreSQL (docs + hierarchy), in-memory cache
 - **Parser**: Goldmark for Markdown → heading hierarchy
 
 ## Build Targets
