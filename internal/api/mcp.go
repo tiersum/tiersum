@@ -1,6 +1,6 @@
-// Package mcp implements MCP protocol handlers
-// Depends only on service interfaces from ports package (same as REST API)
-package mcp
+// Package api implements API layer
+// Includes REST API and MCP protocol handlers
+package api
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	mcpserver "github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/ports"
@@ -16,20 +16,18 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// Server handles MCP protocol
-// Like api.Handler, it depends on service interfaces for business logic
-type Server struct {
+// MCPServer handles MCP protocol
+type MCPServer struct {
 	docService   ports.DocumentService
 	queryService ports.QueryService
 	topicService *service.TopicSvc
 	logger       *zap.Logger
-	mcp          *server.MCPServer
+	mcp          *mcpserver.MCPServer
 }
 
-// NewServer creates a new MCP server
-// Accepts service interfaces (same as REST API handler)
-func NewServer(docService ports.DocumentService, queryService ports.QueryService, topicService *service.TopicSvc, logger *zap.Logger) *Server {
-	s := &Server{
+// NewMCPServer creates a new MCP server
+func NewMCPServer(docService ports.DocumentService, queryService ports.QueryService, topicService *service.TopicSvc, logger *zap.Logger) *MCPServer {
+	s := &MCPServer{
 		docService:   docService,
 		queryService: queryService,
 		topicService: topicService,
@@ -37,10 +35,10 @@ func NewServer(docService ports.DocumentService, queryService ports.QueryService
 	}
 
 	// Create MCP server
-	s.mcp = server.NewMCPServer(
+	s.mcp = mcpserver.NewMCPServer(
 		"tiersum",
 		"1.0.0",
-		server.WithResourceCapabilities(true, true),
+		mcpserver.WithResourceCapabilities(true, true),
 	)
 
 	// Register tools
@@ -50,8 +48,8 @@ func NewServer(docService ports.DocumentService, queryService ports.QueryService
 }
 
 // registerTools registers all MCP tools
-func (s *Server) registerTools() {
-	// Query tool - delegates to queryService (same as REST API)
+func (s *MCPServer) registerTools() {
+	// Query tool - delegates to queryService
 	queryTool := mcp.NewTool("tiersum_query",
 		mcp.WithDescription("Query knowledge base with hierarchical precision"),
 		mcp.WithString("question",
@@ -65,7 +63,7 @@ func (s *Server) registerTools() {
 	)
 	s.mcp.AddTool(queryTool, s.handleQuery)
 
-	// GetDocument tool - delegates to docService (same as REST API)
+	// GetDocument tool - delegates to docService
 	getDocTool := mcp.NewTool("tiersum_get_document",
 		mcp.WithDescription("Retrieve a document by ID"),
 		mcp.WithString("document_id",
@@ -93,23 +91,21 @@ func (s *Server) registerTools() {
 }
 
 // GetMCPServer returns the underlying MCP server for SSE handling
-func (s *Server) GetMCPServer() *server.MCPServer {
+func (s *MCPServer) GetMCPServer() *mcpserver.MCPServer {
 	return s.mcp
 }
 
 // SSEHandler returns the SSE handler for MCP
-// Uses server.SSEServer from mcp-go for proper SSE handling
-func (s *Server) SSEHandler() gin.HandlerFunc {
+func (s *MCPServer) SSEHandler() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		s.logger.Info("MCP SSE connection established")
-		// TODO: Use server.NewSSEServer(s.mcp, baseURL) for full implementation
+		// TODO: Use mcpserver.NewSSEServer(s.mcp, baseURL) for full implementation
 		c.String(200, "MCP SSE endpoint - not fully implemented")
 	}
 }
 
 // handleQuery handles the tiersum_query tool
-// Delegates to queryService.Query (same business logic as REST API)
-func (s *Server) handleQuery(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleQuery(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	question, ok := request.Params.Arguments["question"].(string)
 	if !ok || question == "" {
 		return nil, fmt.Errorf("question is required")
@@ -128,7 +124,7 @@ func (s *Server) handleQuery(ctx context.Context, request mcp.CallToolRequest) (
 
 	s.logger.Info("MCP query", zap.String("question", question), zap.String("depth", string(depth)))
 
-	// Call query service (shared business logic with REST API)
+	// Call query service
 	results, err := s.queryService.Query(ctx, question, depth)
 	if err != nil {
 		s.logger.Error("query failed", zap.Error(err))
@@ -141,8 +137,7 @@ func (s *Server) handleQuery(ctx context.Context, request mcp.CallToolRequest) (
 }
 
 // handleGetDocument handles the tiersum_get_document tool
-// Delegates to docService.Get (same business logic as REST API)
-func (s *Server) handleGetDocument(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetDocument(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	docID, ok := request.Params.Arguments["document_id"].(string)
 	if !ok || docID == "" {
 		return nil, fmt.Errorf("document_id is required")
@@ -150,7 +145,7 @@ func (s *Server) handleGetDocument(ctx context.Context, request mcp.CallToolRequ
 
 	s.logger.Info("MCP get document", zap.String("document_id", docID))
 
-	// Call document service (shared business logic with REST API)
+	// Call document service
 	doc, err := s.docService.Get(ctx, docID)
 	if err != nil {
 		s.logger.Error("failed to get document", zap.String("id", docID), zap.Error(err))
@@ -166,17 +161,8 @@ func (s *Server) handleGetDocument(ctx context.Context, request mcp.CallToolRequ
 	return mcp.NewToolResultText(resultText), nil
 }
 
-// isValidDepth checks if the depth is valid
-func isValidDepth(depth types.SummaryTier) bool {
-	switch depth {
-	case types.TierTopic, types.TierDocument, types.TierChapter, types.TierParagraph, types.TierSource:
-		return true
-	}
-	return false
-}
-
 // handleListTopics handles the tiersum_list_topics tool
-func (s *Server) handleListTopics(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleListTopics(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	s.logger.Info("MCP list topics")
 
 	topics, err := s.topicService.ListTopics(ctx)
@@ -190,7 +176,7 @@ func (s *Server) handleListTopics(ctx context.Context, request mcp.CallToolReque
 }
 
 // handleGetTopic handles the tiersum_get_topic tool
-func (s *Server) handleGetTopic(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleGetTopic(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	topicID, ok := request.Params.Arguments["topic_id"].(string)
 	if !ok || topicID == "" {
 		return nil, fmt.Errorf("topic_id is required")
@@ -210,6 +196,15 @@ func (s *Server) handleGetTopic(ctx context.Context, request mcp.CallToolRequest
 
 	resultText := formatTopic(topic)
 	return mcp.NewToolResultText(resultText), nil
+}
+
+// isValidDepth checks if the depth is valid
+func isValidDepth(depth types.SummaryTier) bool {
+	switch depth {
+	case types.TierTopic, types.TierDocument, types.TierChapter, types.TierParagraph, types.TierSource:
+		return true
+	}
+	return false
 }
 
 // formatTopicList formats a list of topics for display

@@ -11,7 +11,6 @@ import (
 	"github.com/tiersum/tiersum/internal/client/llm"
 	"github.com/tiersum/tiersum/internal/core"
 	"github.com/tiersum/tiersum/internal/job"
-	"github.com/tiersum/tiersum/internal/mcp"
 	"github.com/tiersum/tiersum/internal/ports"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage/cache"
@@ -26,10 +25,8 @@ type Dependencies struct {
 	TopicService    *service.TopicSvc
 
 	// API Layer (thin layer, depends on services)
-	Handler *api.Handler
-
-	// MCP Server (thin layer, depends on services - same level as REST API)
-	MCP *mcp.Server
+	RESTHandler *api.Handler     // REST API handler
+	MCPServer   *api.MCPServer   // MCP protocol handler
 
 	// Job Layer (background tasks)
 	JobScheduler *job.Scheduler
@@ -61,10 +58,10 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	topicService := service.NewTopicSvc(uow.TopicSummaries, uow.Documents, summarizer, logger)
 
 	// 6. API Layer - REST API
-	handler := api.NewHandler(docService, queryService, topicService, logger)
+	restHandler := api.NewHandler(docService, queryService, topicService, logger)
 
 	// 7. API Layer - MCP Server
-	mcpServer := mcp.NewServer(docService, queryService, topicService, logger)
+	mcpServer := api.NewMCPServer(docService, queryService, topicService, logger)
 
 	// 8. Job Layer - Background tasks
 	jobScheduler := job.NewScheduler(logger)
@@ -82,8 +79,8 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 		DocumentService: docService,
 		QueryService:    queryService,
 		TopicService:    topicService,
-		Handler:         handler,
-		MCP:             mcpServer,
+		RESTHandler:     restHandler,
+		MCPServer:       mcpServer,
 		JobScheduler:    jobScheduler,
 		Logger:          logger,
 	}, nil

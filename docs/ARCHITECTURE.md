@@ -5,13 +5,17 @@
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │  Layer 1: API Layer                                             │
-│  ┌─────────────────┐    ┌─────────────────┐                    │
-│  │   REST API      │    │  MCP Tools API  │                    │
-│  │ internal/api    │    │ internal/mcp    │                    │
-│  └────────┬────────┘    └────────┬────────┘                    │
-└───────────┼──────────────────────┼──────────────────────────────┘
-            │                      │
-            ▼                      ▼
+│  ┌─────────────────────────────────────────────────────────────┐│
+│  │  internal/api/                                              ││
+│  │  ┌───────────────┐  ┌─────────────────┐                    ││
+│  │  │  REST API     │  │  MCP Server     │                    ││
+│  │  │  - Handler    │  │  - SSE handler  │                    ││
+│  │  │  - Routes     │  │  - Tools        │                    ││
+│  │  └───────────────┘  └─────────────────┘                    ││
+│  └─────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  Layer 2: Service Layer                                         │
 │  Business logic implementation, called by API layer             │
@@ -73,10 +77,8 @@
 ```
 internal/
 ├── api/                    # Layer 1: API Layer
-│   └── handler.go          # REST API handlers
-│
-├── mcp/                    # Layer 1: API Layer (MCP)
-│   └── server.go           # MCP server & tools
+│   ├── handler.go          # REST API handlers
+│   └── mcp.go             # MCP protocol handlers
 │
 ├── service/                # Layer 2: Service Layer
 │   └── document.go         # Business logic (DocumentSvc, QuerySvc, TopicSvc)
@@ -107,10 +109,10 @@ internal/
 
 ## Layer Responsibilities
 
-### Layer 1: API Layer (`internal/api/`, `internal/mcp/`)
+### Layer 1: API Layer (`internal/api/`)
 **职责**: 对外暴露接口，处理协议细节
-- **REST API**: HTTP 协议处理，路由，参数绑定，响应格式化
-- **MCP Tools**: Model Control Protocol 处理，SSE 连接，工具注册
+- **REST API** (`handler.go`): HTTP 协议处理，路由，参数绑定，响应格式化
+- **MCP Server** (`mcp.go`): Model Control Protocol 处理，SSE 连接，工具注册
 - **原则**: 薄层，只负责协议转换，业务逻辑委托给 Service 层
 
 **依赖**: Service Layer (ports 接口)
@@ -208,6 +210,31 @@ Cache                   - 缓存操作
 LLMProvider      - LLM 服务
 ```
 
+## API Layer Details
+
+### REST API (`internal/api/handler.go`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /documents | Create new document |
+| GET | /documents | List documents |
+| GET | /documents/:id | Get document by ID |
+| GET | /documents/:id/hierarchy | Get document hierarchy |
+| POST | /topics | Create topic from documents |
+| GET | /topics | List all topics |
+| GET | /topics/:id | Get topic by ID |
+| GET | /topics/by-tags | Find topics by tags |
+| GET | /query | Query knowledge base |
+
+### MCP API (`internal/api/mcp.go`)
+
+| Tool | Description |
+|------|-------------|
+| tiersum_query | Query knowledge base with hierarchical precision |
+| tiersum_get_document | Retrieve a document by ID |
+| tiersum_list_topics | List all topic summaries |
+| tiersum_get_topic | Retrieve a topic by ID |
+
 ## Data Flow Example: Document Ingestion
 
 ```
@@ -236,12 +263,13 @@ LLMProvider      - LLM 服务
 
 ## Adding New Features
 
-1. **New API Endpoint**: Add to `internal/api/handler.go` or `internal/mcp/server.go`
-2. **New Business Logic**: Add to `internal/service/`
-3. **New Core Algorithm**: Add to `internal/core/`
-4. **New Storage**: Add to `internal/storage/db/`, update `internal/ports/`
-5. **New External Client**: Add to `internal/client/`, implement port interface
-6. **New Background Job**: Add to `internal/job/jobs.go`, register in `internal/app/wire.go`
+1. **New REST Endpoint**: Add to `internal/api/handler.go`
+2. **New MCP Tool**: Add to `internal/api/mcp.go`
+3. **New Business Logic**: Add to `internal/service/`
+4. **New Core Algorithm**: Add to `internal/core/`
+5. **New Storage**: Add to `internal/storage/db/`, update `internal/ports/`
+6. **New External Client**: Add to `internal/client/`, implement port interface
+7. **New Background Job**: Add to `internal/job/jobs.go`, register in `internal/app/wire.go`
 
 ## Naming Conventions
 
@@ -249,3 +277,4 @@ LLMProvider      - LLM 服务
 - **Core Layer**: `*Svc` (e.g., `IndexerSvc`, `SummarizerSvc`)
 - **Storage Layer**: `*Repo` (e.g., `DocumentRepo`, `SummaryRepo`)
 - **Client Layer**: `*Provider` (e.g., `OpenAIProvider`)
+- **API Layer**: `Handler` (REST), `MCPServer` (MCP)
