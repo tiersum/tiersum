@@ -49,7 +49,6 @@
 - Go 1.23+
 - PostgreSQL 16+
 - Redis 7+（可选，用于缓存）
-- Meilisearch 1.7+（可选，用于搜索）
 
 ### 安装
 
@@ -100,9 +99,6 @@ storage:
   cache:
     type: redis
     addr: localhost:6379
-  search:
-    type: meilisearch
-    host: http://localhost:7700
 ```
 
 ### 启动服务
@@ -208,7 +204,7 @@ mcpServers:
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    Storage Layer                             │
-│  PostgreSQL (docs + hierarchy) │  Redis (cache) │  Meilisearch │
+│  PostgreSQL (docs + hierarchy) │  Redis (cache)             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -257,7 +253,7 @@ tiersum/
 │   │   ├── parser/      # Markdown parser (Goldmark)
 │   │   ├── summarizer/  # LLM abstraction layer
 │   │   └── indexer/     # Hierarchical index builder
-│   ├── storage/         # PostgreSQL + Redis + Meilisearch
+│   ├── storage/         # PostgreSQL + Redis
 │   └── mcp/             # MCP protocol implementation
 ├── pkg/
 │   └── types/           # Public API types
@@ -298,7 +294,7 @@ make build-all
 
 - [x] 核心四层摘要引擎
 - [x] REST API + MCP 服务
-- [x] PostgreSQL + Meilisearch 存储
+- [x] PostgreSQL + Redis 存储
 - [ ] OpenClaw 技能包（转换 + 更新）
 - [ ] 实时协作编辑
 - [ ] 多模态支持（图片、图表）
@@ -327,4 +323,4 @@ make build-all
 
 - 灵感来自 [Anthropic's Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval)
 - MCP 协议由 [Anthropic](https://modelcontextprotocol.io) 开发
-- 基于 [Gin](https://gin-gonic.com)、[Goldmark](https://github.com/yuin/goldmark)、[Meilisearch](https://meilisearch.com) 构建
+- 基于 [Gin](https://gin-gonic.com)、[Goldmark](https://github.com/yuin/goldmark) 构建

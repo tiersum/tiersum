@@ -49,7 +49,6 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 - Go 1.23+
 - PostgreSQL 16+
 - Redis 7+ (optional, for caching)
-- Meilisearch 1.7+ (optional, for search)
 
 ### Installation
 
@@ -100,9 +99,6 @@ storage:
   cache:
     type: redis
     addr: localhost:6379
-  search:
-    type: meilisearch
-    host: http://localhost:7700
 ```
 
 ### Start Server
@@ -208,7 +204,7 @@ mcpServers:
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    Storage Layer                             │
-│  PostgreSQL (docs + hierarchy) │  Redis (cache) │  Meilisearch │
+│  PostgreSQL (docs + hierarchy) │  Redis (cache)             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -257,7 +253,7 @@ tiersum/
 │   │   ├── parser/      # Markdown parser (Goldmark)
 │   │   ├── summarizer/  # LLM abstraction layer
 │   │   └── indexer/     # Hierarchical index builder
-│   ├── storage/         # PostgreSQL + Redis + Meilisearch
+│   ├── storage/         # PostgreSQL + Redis
 │   └── mcp/             # MCP protocol implementation
 ├── pkg/
 │   └── types/           # Public API types
@@ -298,7 +294,7 @@ make build-all
 
 - [x] Core 4-tier summarization engine
 - [x] REST API + MCP Server
-- [x] PostgreSQL + Meilisearch storage
+- [x] PostgreSQL + Redis storage
 - [ ] OpenClaw skill pack (convert + update)
 - [ ] Real-time collaborative editing
 - [ ] Multi-modal support (images, diagrams)
@@ -327,4 +323,4 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 - Inspired by [Anthropic's Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval)
 - MCP Protocol by [Anthropic](https://modelcontextprotocol.io)
-- Built with [Gin](https://gin-gonic.com), [Goldmark](https://github.com/yuin/goldmark), [Meilisearch](https://meilisearch.com)
+- Built with [Gin](https://gin-gonic.com), [Goldmark](https://github.com/yuin/goldmark)

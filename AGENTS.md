@@ -23,7 +23,7 @@ make migrate-down           # Rollback migrations
 make seed                   # Seed sample data
 
 # Docker Compose (full stack)
-cd deployments/docker && docker-compose up -d  # Starts tiersum + postgres + redis + meilisearch
+cd deployments/docker && docker-compose up -d  # Starts tiersum + postgres + redis
 ```
 
 ## Project Structure
@@ -47,7 +47,7 @@ internal/
   core/parser/    # Markdown parser (Goldmark)
   core/summarizer/# LLM abstraction
   core/indexer/   # Hierarchical index builder
-  storage/        # PostgreSQL + Redis + Meilisearch
+  storage/        # PostgreSQL + Redis
   mcp/            # MCP protocol implementation
 pkg/types/        # Public API types
 skills/           # OpenClaw skill definitions
@@ -60,7 +60,6 @@ migrations/       # Database migrations
 - **MCP**: `github.com/mark3labs/mcp-go`
 - **Postgres**: `github.com/jackc/pgx/v5`
 - **Redis**: `github.com/redis/go-redis/v9`
-- **Search**: `github.com/meilisearch/meilisearch-go`
 - **Markdown**: `github.com/yuin/goldmark`
 - **CLI**: `github.com/spf13/cobra` + `github.com/spf13/viper`
 
@@ -68,13 +67,13 @@ migrations/       # Database migrations
 
 - Copy `configs/config.example.yaml` → `configs/config.yaml`
 - Required env vars: `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`
-- Optional: `MEILI_MASTER_KEY`, `JWT_SECRET`
+- Optional: `JWT_SECRET`
 
 ## Architecture Notes
 
 - **Dual API**: REST (`/api/v1/*`) + MCP SSE (`/mcp/sse`)
 - **4-Tier Summary**: Document → Chapter → Paragraph → Source
-- **Storage**: PostgreSQL (docs + hierarchy), Redis (cache), Meilisearch (search)
+- **Storage**: PostgreSQL (docs + hierarchy), Redis (cache)
 - **Parser**: Goldmark for Markdown → heading hierarchy
 
 ## Build Targets

@@ -63,12 +63,6 @@ storage:
     ttl: 1h
     addr: localhost:6379
 
-  search:
-    type: meilisearch
-    host: http://localhost:7700
-    api_key: ${MEILI_MASTER_KEY}
-    index_prefix: tiersum
-
 mcp:
   enabled: true
   transport: sse

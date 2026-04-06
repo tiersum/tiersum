@@ -75,7 +75,7 @@ storage:
     # SSL mode: disable, require, verify-ca, verify-full
     ssl_mode: disable
 
-  # Cache layer
+  # Cache layer (optional)
   cache:
     type: redis
     host: localhost
@@ -84,14 +84,6 @@ storage:
     database: 0
     # Default TTL for cached summaries
     ttl: 1h
-
-  # Search index (optional but recommended)
-  search:
-    type: meilisearch
-    host: http://localhost:7700
-    api_key: ${MEILI_MASTER_KEY}
-    # Index name prefix
-    index_prefix: tiersum
 
 # MCP (Model Context Protocol) configuration
 mcp:

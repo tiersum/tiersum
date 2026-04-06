@@ -16,7 +16,6 @@ services:
     depends_on:
       - postgres
       - redis
-      - meilisearch
     networks:
       - tiersum-network
 
@@ -42,21 +41,9 @@ services:
     networks:
       - tiersum-network
 
-  meilisearch:
-    image: getmeili/meilisearch:v1.7
-    environment:
-      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-tiersum-master-key}
-    volumes:
-      - meilisearch_data:/meili_data
-    ports:
-      - "7700:7700"
-    networks:
-      - tiersum-network
-
 volumes:
   postgres_data:
   redis_data:
-  meilisearch_data:
 
 networks:
   tiersum-network:
