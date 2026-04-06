@@ -12,17 +12,19 @@
 
 ## 为什么选择 TierSum？
 
-传统 RAG 系统将文档任意切分成碎片，丢失了层级上下文和语义结构。**TierSum 通过四层摘要保留知识架构**：
+传统 RAG 系统将文档任意切分成碎片，丢失了层级上下文和语义结构。**TierSum 通过五层摘要保留知识架构**：
 
 ```
 ┌─────────────────────────────────────┐
-│  Document Summary (Bird's-eye view) │  ← 30,000ft perspective
+│  Topic Summary (跨文档主题)          │  ← 多文档主题聚合
 ├─────────────────────────────────────┤
-│  Chapter Summary (Structural map)   │  ← 10,000ft perspective  
+│  Document Summary (鸟瞰视角)         │  ← 30,000ft 全局视角
 ├─────────────────────────────────────┤
-│  Paragraph Summary (Key concepts)   │  ← 1,000ft perspective
+│  Chapter Summary (结构地图)          │  ← 10,000ft 结构视角  
 ├─────────────────────────────────────┤
-│  Source Text (Ground truth)         │  ← Original content
+│  Paragraph Summary (核心概念)        │  ← 1,000ft 细节视角
+├─────────────────────────────────────┤
+│  Source Text (原始内容)              │  ← 原文
 └─────────────────────────────────────┘
 ```
 
@@ -34,7 +36,9 @@
 
 | 特性 | 描述 |
 |:--------|:------------|
-| **四层摘要** | 文档 → 章节 → 段落 → 原文，由 LLM 自动生成 |
+| **五层摘要** | 主题 → 文档 → 章节 → 段落 → 原文，由 LLM 自动生成 |
+| **LLM 自动标签** | 未提供标签时，自动通过 LLM 分析生成标签 |
+| **主题合成** | 从多个文档生成跨文档主题摘要 |
 | **RAG 替代方案** | 零碎片切分；完整上下文保留 |
 | **双 API 架构** | REST API + MCP 工具，无缝集成智能体 |
 | **原生 Markdown** | 针对 `.md` 优化；可扩展技能支持 PDF/HTML/文档转换 |
@@ -48,6 +52,7 @@
 
 - Go 1.23+（需要 CGO 支持 SQLite）
 - 数据库：SQLite（默认）或 PostgreSQL（可选）
+- LLM API 密钥：OpenAI 或 Anthropic
 
 ### 安装
 
@@ -126,7 +131,7 @@ make run
 ### REST API
 
 ```bash
-# 录入文档
+# 录入文档（未提供标签时自动通过 LLM 生成）
 curl -X POST http://localhost:8080/api/v1/documents \
   -H "Content-Type: application/json" \
   -d '{
@@ -135,9 +140,20 @@ curl -X POST http://localhost:8080/api/v1/documents \
     "format": "markdown"
   }'
 
+# 从多个文档创建主题
+curl -X POST http://localhost:8080/api/v1/topics \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "云原生概念",
+    "document_ids": ["doc-1", "doc-2", "doc-3"]
+  }'
+
 # 查询分层摘要
 curl "http://localhost:8080/api/v1/query?question=kube-scheduler 是如何工作的？&depth=chapter"
-# depth: document | chapter | paragraph | source
+# depth: topic | document | chapter | paragraph | source
+
+# 列出主题
+curl "http://localhost:8080/api/v1/topics"
 
 # 深入钻取
 curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
@@ -150,19 +166,30 @@ curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
   "tools": [
     {
       "name": "tiersum_query",
-      "description": "Query knowledge base with hierarchical precision",
+      "description": "分层精准查询知识库",
       "inputSchema": {
         "question": "string",
-        "depth": "document|chapter|paragraph|source",
+        "depth": "topic|document|chapter|paragraph|source",
         "filters": {"tags": ["kubernetes"]}
       }
     },
     {
-      "name": "tiersum_explore",
-      "description": "Navigate document structure interactively",
+      "name": "tiersum_get_document",
+      "description": "通过 ID 获取文档",
       "inputSchema": {
-        "document_id": "string",
-        "action": "list_chapters|get_summary|drill_down"
+        "document_id": "string"
+      }
+    },
+    {
+      "name": "tiersum_list_topics",
+      "description": "列出所有主题摘要",
+      "inputSchema": {}
+    },
+    {
+      "name": "tiersum_get_topic",
+      "description": "通过 ID 获取主题摘要",
+      "inputSchema": {
+        "topic_id": "string"
       }
     }
   ]
@@ -178,60 +205,90 @@ mcpServers:
     url: http://localhost:8080/mcp/sse
     tools:
       - tiersum_query
-      - tiersum_explore
+      - tiersum_get_document
+      - tiersum_list_topics
+      - tiersum_get_topic
 ```
 
 ---
 
 ## 架构
 
+### 五层设计 + 接口+实现子包模式
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        Client Layer                          │
-│  (OpenClaw / Claude Desktop / Custom Agents / REST Clients) │
+│                        客户端层                               │
+│  (OpenClaw / Claude Desktop / 自定义智能体 / REST 客户端)    │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                      API Gateway (Go)                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐  │
-│  │   REST API   │  │  MCP Server  │  │  WebSocket (SSE) │  │
-│  └──────────────┘  └──────────────┘  └─────────────────┘  │
+│                      API 层 (internal/api)                   │
+│  ┌──────────────┐  ┌──────────────┐                         │
+│  │   REST API   │  │  MCP Server  │                         │
+│  └──────────────┘  └──────────────┘                         │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                   Core Engine (Go)                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐  │
-│  │   Parser     │  │  Summarizer  │  │  Index Manager  │  │
-│  │ (Markdown)   │  │   (LLM)      │  │  (Tree Struct)  │  │
-│  └──────────────┘  └──────────────┘  └─────────────────┘  │
+│                   服务层 (internal/service)                  │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  interface.go: I* 接口 (IDocumentService, 等)           ││
+│  └─────────────────────────────────────────────────────────┘│
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  impl/: 实现 (DocumentSvc, QuerySvc, 等)                ││
+│  │  包括：Indexer, Summarizer, Parser                      ││
+│  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                    Storage Layer                             │
-│  SQLite/PostgreSQL (docs + hierarchy) │  In-memory cache    │
+│                   存储层 (internal/storage)                  │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  interface.go: I* 接口 (IDocumentRepository, 等)        ││
+│  └─────────────────────────────────────────────────────────┘│
+│  ┌──────────────────┐    ┌──────────────────┐              ││
+│  │  db/repository.go│    │  cache/cache.go  │              ││
+│  │  (SQLite/PG)     │    │  (内存缓存)       │              ││
+│  └──────────────────┘    └──────────────────┘              ││
+└─────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                    客户端层 (internal/client)                │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  interface.go: ILLMProvider                             ││
+│  └─────────────────────────────────────────────────────────┘│
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  llm/openai.go: OpenAIProvider 实现                     ││
+│  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### 设计原则
+
+1. **接口+实现子包模式**：每层定义 `interface.go` 包含 I 前缀接口，实现在子包中
+2. **层拥有接口**：没有集中的 `ports/` 包 —— 每层管理自己的接口
+3. **依赖注入**：所有装配在 `internal/di/container.go`
+4. **统一 API**：REST 和 MCP 处理器共存于 `internal/api/`
 
 ---
 
 ## 文档处理流程
 
 ```
-Input (Markdown/PDF/HTML)
+输入 (Markdown/PDF/HTML)
     │
     ▼
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Parser    │───▶│  Structurer │───▶│ Summarizer  │
-│ (Goldmark)  │    │ (Heading    │    │  (LLM API)  │
-│             │    │  Hierarchy) │    │             │
+│   解析器     │───▶│  结构化器    │───▶│  摘要生成器  │
+│ (Goldmark)  │    │ (标题层级)   │    │  (LLM API)  │
+│             │    │             │    │             │
 └─────────────┘    └─────────────┘    └──────┬──────┘
                                              │
-                     ┌───────────────────────┼────────────────────────┐
-                     ▼                       ▼                        ▼
-             ┌─────────────┐          ┌─────────────┐          ┌─────────────┐
-             │Doc Summary  │          │Chapter Sum. │          │Para Summary │
-             │(Abstract)   │          │(Outline)    │          │(Key points) │
-             └─────────────┘          └─────────────┘          └─────────────┘
+                   ┌─────────────────────────┼─────────────────────────────────┐
+                   ▼                         ▼                                 ▼
+           ┌─────────────┐          ┌─────────────┐          ┌─────────────┐ ┌─────────────┐
+           │ 主题摘要     │          │ 文档摘要     │          │ 章节摘要     │ │ 段落摘要     │
+           │(跨文档)      │          │(摘要)       │          │(大纲)       │ │(关键点)      │
+           └─────────────┘          └─────────────┘          └─────────────┘ └─────────────┘
 ```
 
 ---
@@ -241,30 +298,41 @@ Input (Markdown/PDF/HTML)
 ```
 tiersum/
 ├── cmd/
-│   ├── server/          # API server entrypoint
-│   ├── worker/          # Background job processor
-│   ├── cli/             # CLI tools
-│   ├── migrate/         # Database migrations
-│   └── seed/            # Data seeding
-├── configs/             # Configuration files
+│   ├── server/          # API 服务器入口
+│   ├── worker/          # 后台任务处理器
+│   └── cli/             # CLI 工具
+├── configs/             # 配置文件
 │   ├── config.example.yaml
 │   └── config.yaml
 ├── deployments/
-│   └── docker/          # Docker and docker-compose files
+│   └── docker/          # Docker 和 docker-compose 文件
 ├── internal/
-│   ├── api/             # REST handlers + MCP server
-│   ├── core/
-│   │   ├── parser/      # Markdown parser (Goldmark)
-│   │   ├── summarizer/  # LLM abstraction layer
-│   │   └── indexer/     # Hierarchical index builder
-│   ├── storage/         # SQLite/PostgreSQL + in-memory cache
-│   └── mcp/             # MCP protocol implementation
+│   ├── api/             # 第 1 层：API（REST + MCP 处理器）
+│   ├── service/         # 第 2 层：业务逻辑
+│   │   ├── interface.go # I* 接口 (IDocumentService, 等)
+│   │   └── impl/        # 实现
+│   │       ├── document.go
+│   │       ├── query.go
+│   │       ├── topic.go
+│   │       └── indexer.go  # Indexer, Summarizer, Parser
+│   ├── storage/         # 第 3 层：数据持久化
+│   │   ├── interface.go # I* 接口
+│   │   ├── db/
+│   │   │   └── repository.go
+│   │   └── cache/
+│   │       └── cache.go
+│   ├── client/          # 第 4 层：外部依赖
+│   │   ├── interface.go # ILLMProvider
+│   │   └── llm/
+│   │       └── openai.go
+│   ├── job/             # 后台任务
+│   │   ├── scheduler.go
+│   │   └── jobs.go
+│   └── di/              # 依赖注入
+│       └── container.go
 ├── pkg/
-│   └── types/           # Public API types
-├── skills/              # OpenClaw skill definitions
-│   ├── convert/         # PDF/HTML → Markdown converters
-│   └── update/          # Incremental summary updaters
-├── migrations/          # Database migrations
+│   └── types/           # 公共 API 类型
+├── migrations/          # 数据库迁移
 ├── go.mod
 ├── Makefile
 ├── README.md
@@ -296,7 +364,9 @@ make build-all
 
 ## 路线图
 
-- [x] 核心四层摘要引擎
+- [x] 五层摘要引擎（主题 + 文档 + 章节 + 段落 + 原文）
+- [x] LLM 自动标签
+- [x] 多文档主题合成
 - [x] REST API + MCP 服务
 - [x] SQLite/PostgreSQL + 内存缓存 存储
 - [ ] OpenClaw 技能包（转换 + 更新）
