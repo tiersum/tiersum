@@ -16,13 +16,13 @@
 
 ```
 ┌─────────────────────────────────────┐
-│  文档摘要（鸟瞰视角）                │  ← 30,000英尺视角
+│  Document Summary (Bird's-eye view) │  ← 30,000ft perspective
 ├─────────────────────────────────────┤
-│  章节摘要（结构地图）                │  ← 10,000英尺视角  
+│  Chapter Summary (Structural map)   │  ← 10,000ft perspective  
 ├─────────────────────────────────────┤
-│  段落摘要（核心概念）                │  ← 1,000英尺视角
+│  Paragraph Summary (Key concepts)   │  ← 1,000ft perspective
 ├─────────────────────────────────────┤
-│  原始文本（事实来源）                │  ← 原始内容
+│  Source Text (Ground truth)         │  ← Original content
 └─────────────────────────────────────┘
 ```
 
@@ -150,7 +150,7 @@ curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
   "tools": [
     {
       "name": "tiersum_query",
-      "description": "使用分层精度查询知识库",
+      "description": "Query knowledge base with hierarchical precision",
       "inputSchema": {
         "question": "string",
         "depth": "document|chapter|paragraph|source",
@@ -159,7 +159,7 @@ curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
     },
     {
       "name": "tiersum_explore",
-      "description": "交互式导航文档结构",
+      "description": "Navigate document structure interactively",
       "inputSchema": {
         "document_id": "string",
         "action": "list_chapters|get_summary|drill_down"
@@ -187,28 +187,28 @@ mcpServers:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        客户端层                              │
-│  (OpenClaw / Claude Desktop / 自定义智能体 / REST 客户端)     │
+│                        Client Layer                          │
+│  (OpenClaw / Claude Desktop / Custom Agents / REST Clients) │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                      API 网关 (Go)                           │
+│                      API Gateway (Go)                        │
 │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐  │
 │  │   REST API   │  │  MCP Server  │  │  WebSocket (SSE) │  │
 │  └──────────────┘  └──────────────┘  └─────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                   核心引擎 (Go)                              │
+│                   Core Engine (Go)                           │
 │  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐  │
-│  │   解析器      │  │  摘要生成器   │  │  索引管理器      │  │
-│  │ (Markdown)   │  │   (LLM)      │  │  (树形结构)      │  │
+│  │   Parser     │  │  Summarizer  │  │  Index Manager  │  │
+│  │ (Markdown)   │  │   (LLM)      │  │  (Tree Struct)  │  │
 │  └──────────────┘  └──────────────┘  └─────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                    存储层                                    │
-│  PostgreSQL (文档 + 层级) │  Redis (缓存) │  Meilisearch │
+│                    Storage Layer                             │
+│  PostgreSQL (docs + hierarchy) │  Redis (cache) │  Meilisearch │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -217,20 +217,20 @@ mcpServers:
 ## 文档处理流程
 
 ```
-输入 (Markdown/PDF/HTML)
+Input (Markdown/PDF/HTML)
     │
     ▼
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   解析器     │───▶│  结构化器    │───▶│  摘要生成器  │
-│ (Goldmark)  │    │ (标题层级)   │    │  (LLM API)  │
-│             │    │             │    │             │
+│   Parser    │───▶│  Structurer │───▶│ Summarizer  │
+│ (Goldmark)  │    │ (Heading    │    │  (LLM API)  │
+│             │    │  Hierarchy) │    │             │
 └─────────────┘    └─────────────┘    └──────┬──────┘
                                              │
                      ┌───────────────────────┼────────────────────────┐
                      ▼                       ▼                        ▼
              ┌─────────────┐          ┌─────────────┐          ┌─────────────┐
-             │ 文档摘要     │          │ 章节摘要     │          │ 段落摘要     │
-             │ (概要)      │          │ (大纲)      │          │ (要点)      │
+             │Doc Summary  │          │Chapter Sum. │          │Para Summary │
+             │(Abstract)   │          │(Outline)    │          │(Key points) │
              └─────────────┘          └─────────────┘          └─────────────┘
 ```
 
@@ -241,30 +241,30 @@ mcpServers:
 ```
 tiersum/
 ├── cmd/
-│   ├── server/          # API 服务端入口
-│   ├── worker/          # 后台任务处理器
-│   ├── cli/             # CLI 工具
-│   ├── migrate/         # 数据库迁移
-│   └── seed/            # 数据种子
-├── configs/             # 配置文件
+│   ├── server/          # API server entrypoint
+│   ├── worker/          # Background job processor
+│   ├── cli/             # CLI tools
+│   ├── migrate/         # Database migrations
+│   └── seed/            # Data seeding
+├── configs/             # Configuration files
 │   ├── config.example.yaml
 │   └── config.yaml
 ├── deployments/
-│   └── docker/          # Docker 和 docker-compose 文件
+│   └── docker/          # Docker and docker-compose files
 ├── internal/
-│   ├── api/             # REST 处理器 + MCP 服务
+│   ├── api/             # REST handlers + MCP server
 │   ├── core/
-│   │   ├── parser/      # Markdown 解析器 (Goldmark)
-│   │   ├── summarizer/  # LLM 抽象层
-│   │   └── indexer/     # 分层索引构建器
+│   │   ├── parser/      # Markdown parser (Goldmark)
+│   │   ├── summarizer/  # LLM abstraction layer
+│   │   └── indexer/     # Hierarchical index builder
 │   ├── storage/         # PostgreSQL + Redis + Meilisearch
-│   └── mcp/             # MCP 协议实现
+│   └── mcp/             # MCP protocol implementation
 ├── pkg/
-│   └── types/           # 公共 API 类型
-├── skills/              # OpenClaw 技能定义
-│   ├── convert/         # PDF/HTML → Markdown 转换器
-│   └── update/          # 增量摘要更新器
-├── migrations/          # 数据库迁移
+│   └── types/           # Public API types
+├── skills/              # OpenClaw skill definitions
+│   ├── convert/         # PDF/HTML → Markdown converters
+│   └── update/          # Incremental summary updaters
+├── migrations/          # Database migrations
 ├── go.mod
 ├── Makefile
 ├── README.md
