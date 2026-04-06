@@ -16,25 +16,25 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// TagClusteringSvc implements service.ITagClusteringService
-type TagClusteringSvc struct {
-	globalTagRepo storage.IGlobalTagRepository
-	clusterRepo   storage.ITagClusterRepository
+// TagGroupingSvc implements service.ITagGroupingService
+type TagGroupingSvc struct {
+	tagRepo storage.ITagRepository
+	clusterRepo   storage.ITagGroupRepository
 	logRepo       storage.IClusterRefreshLogRepository
 	provider      client.ILLMProvider
 	logger        *zap.Logger
 }
 
-// NewTagClusteringSvc creates a new tag clustering service
-func NewTagClusteringSvc(
-	globalTagRepo storage.IGlobalTagRepository,
-	clusterRepo storage.ITagClusterRepository,
+// NewTagGroupingSvc creates a new tag clustering service
+func NewTagGroupingSvc(
+	tagRepo storage.ITagRepository,
+	clusterRepo storage.ITagGroupRepository,
 	logRepo storage.IClusterRefreshLogRepository,
 	provider client.ILLMProvider,
 	logger *zap.Logger,
-) *TagClusteringSvc {
-	return &TagClusteringSvc{
-		globalTagRepo: globalTagRepo,
+) *TagGroupingSvc {
+	return &TagGroupingSvc{
+		tagRepo: tagRepo,
 		clusterRepo:   clusterRepo,
 		logRepo:       logRepo,
 		provider:      provider,
@@ -43,11 +43,11 @@ func NewTagClusteringSvc(
 }
 
 // ClusterTags performs LLM-based clustering of all global tags
-func (s *TagClusteringSvc) ClusterTags(ctx context.Context) error {
+func (s *TagGroupingSvc) ClusterTags(ctx context.Context) error {
 	startTime := time.Now()
 
 	// Get all global tags
-	tags, err := s.globalTagRepo.List(ctx)
+	tags, err := s.tagRepo.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list global tags: %w", err)
 	}
@@ -85,7 +85,7 @@ func (s *TagClusteringSvc) ClusterTags(ctx context.Context) error {
 
 		// Update tags in this cluster
 		for _, tagName := range cluster.Tags {
-			tag, err := s.globalTagRepo.GetByName(ctx, tagName)
+			tag, err := s.tagRepo.GetByName(ctx, tagName)
 			if err != nil {
 				s.logger.Warn("failed to get tag", zap.String("name", tagName), zap.Error(err))
 				continue
@@ -98,7 +98,7 @@ func (s *TagClusteringSvc) ClusterTags(ctx context.Context) error {
 			// Note: We're not updating the tag directly since we don't have an Update method
 			// In a real implementation, we'd need to add an Update method or handle this differently
 			// For now, we'll recreate the tag with the new cluster ID
-			if err := s.globalTagRepo.Create(ctx, tag); err != nil {
+			if err := s.tagRepo.Create(ctx, tag); err != nil {
 				s.logger.Warn("failed to update tag cluster", zap.String("tag", tagName), zap.Error(err))
 			}
 		}
@@ -120,9 +120,9 @@ func (s *TagClusteringSvc) ClusterTags(ctx context.Context) error {
 }
 
 // ShouldRefresh checks if clustering should be performed
-func (s *TagClusteringSvc) ShouldRefresh(ctx context.Context) (bool, error) {
+func (s *TagGroupingSvc) ShouldRefresh(ctx context.Context) (bool, error) {
 	// Get current tag count
-	currentCount, err := s.globalTagRepo.GetCount(ctx)
+	currentCount, err := s.tagRepo.GetCount(ctx)
 	if err != nil {
 		return false, fmt.Errorf("get tag count: %w", err)
 	}
@@ -157,17 +157,17 @@ func (s *TagClusteringSvc) ShouldRefresh(ctx context.Context) (bool, error) {
 }
 
 // GetL1Clusters retrieves all Level 1 clusters
-func (s *TagClusteringSvc) GetL1Clusters(ctx context.Context) ([]types.TagCluster, error) {
+func (s *TagGroupingSvc) GetL1Clusters(ctx context.Context) ([]types.TagGroup, error) {
 	return s.clusterRepo.List(ctx)
 }
 
 // GetL2TagsByCluster retrieves Level 2 tags belonging to a cluster
-func (s *TagClusteringSvc) GetL2TagsByCluster(ctx context.Context, clusterID string) ([]types.GlobalTag, error) {
-	return s.globalTagRepo.ListByCluster(ctx, clusterID)
+func (s *TagGroupingSvc) GetL2TagsByCluster(ctx context.Context, clusterID string) ([]types.Tag, error) {
+	return s.tagRepo.ListByCluster(ctx, clusterID)
 }
 
 // FilterL2TagsByQuery uses LLM to filter L2 tags based on query
-func (s *TagClusteringSvc) FilterL2TagsByQuery(ctx context.Context, query string, tags []types.GlobalTag) ([]types.TagFilterResult, error) {
+func (s *TagGroupingSvc) FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
 	if len(tags) == 0 {
 		return nil, nil
 	}
@@ -202,7 +202,7 @@ Response format (JSON only):
 }
 
 // performClustering uses LLM to cluster tags into categories
-func (s *TagClusteringSvc) performClustering(ctx context.Context, tags []string) ([]types.TagCluster, error) {
+func (s *TagGroupingSvc) performClustering(ctx context.Context, tags []string) ([]types.TagGroup, error) {
 	if len(tags) == 0 {
 		return nil, nil
 	}
@@ -252,7 +252,7 @@ Make sure every tag appears in exactly one category.`, targetClusters, tagList)
 }
 
 // parseClusterResponse parses the LLM clustering response
-func (s *TagClusteringSvc) parseClusterResponse(response string) ([]types.TagCluster, error) {
+func (s *TagGroupingSvc) parseClusterResponse(response string) ([]types.TagGroup, error) {
 	jsonStart := strings.Index(response, "[")
 	jsonEnd := strings.LastIndex(response, "]")
 	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
@@ -271,9 +271,9 @@ func (s *TagClusteringSvc) parseClusterResponse(response string) ([]types.TagClu
 		return nil, fmt.Errorf("failed to parse cluster JSON: %w", err)
 	}
 
-	clusters := make([]types.TagCluster, len(rawClusters))
+	clusters := make([]types.TagGroup, len(rawClusters))
 	for i, rc := range rawClusters {
-		clusters[i] = types.TagCluster{
+		clusters[i] = types.TagGroup{
 			Name:        rc.Name,
 			Description: rc.Description,
 			Tags:        rc.Tags,
@@ -284,7 +284,7 @@ func (s *TagClusteringSvc) parseClusterResponse(response string) ([]types.TagClu
 }
 
 // parseTagFilterResults parses tag filter results from LLM response
-func (s *TagClusteringSvc) parseTagFilterResults(response string) []types.TagFilterResult {
+func (s *TagGroupingSvc) parseTagFilterResults(response string) []types.TagFilterResult {
 	jsonStart := strings.Index(response, "[")
 	jsonEnd := strings.LastIndex(response, "]")
 	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
@@ -308,7 +308,7 @@ func (s *TagClusteringSvc) parseTagFilterResults(response string) []types.TagFil
 }
 
 // fallbackTagFilter returns all tags with equal relevance
-func (s *TagClusteringSvc) fallbackTagFilter(tags []types.GlobalTag) []types.TagFilterResult {
+func (s *TagGroupingSvc) fallbackTagFilter(tags []types.Tag) []types.TagFilterResult {
 	results := make([]types.TagFilterResult, len(tags))
 	for i, tag := range tags {
 		results[i] = types.TagFilterResult{
@@ -319,4 +319,4 @@ func (s *TagClusteringSvc) fallbackTagFilter(tags []types.GlobalTag) []types.Tag
 	return results
 }
 
-var _ service.ITagClusteringService = (*TagClusteringSvc)(nil)
+var _ service.ITagGroupingService = (*TagGroupingSvc)(nil)

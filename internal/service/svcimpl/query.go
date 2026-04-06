@@ -17,8 +17,8 @@ import (
 type QuerySvc struct {
 	docRepo       storage.IDocumentRepository
 	summaryRepo   storage.ISummaryRepository
-	globalTagRepo storage.IGlobalTagRepository
-	clusterRepo   storage.ITagClusterRepository
+	tagRepo storage.ITagRepository
+	clusterRepo   storage.ITagGroupRepository
 	summarizer    service.ISummarizer
 	logger        *zap.Logger
 }
@@ -27,15 +27,15 @@ type QuerySvc struct {
 func NewQuerySvc(
 	docRepo storage.IDocumentRepository,
 	summaryRepo storage.ISummaryRepository,
-	globalTagRepo storage.IGlobalTagRepository,
-	clusterRepo storage.ITagClusterRepository,
+	tagRepo storage.ITagRepository,
+	clusterRepo storage.ITagGroupRepository,
 	summarizer service.ISummarizer,
 	logger *zap.Logger,
 ) *QuerySvc {
 	return &QuerySvc{
 		docRepo:       docRepo,
 		summaryRepo:   summaryRepo,
-		globalTagRepo: globalTagRepo,
+		tagRepo: tagRepo,
 		clusterRepo:   clusterRepo,
 		summarizer:    summarizer,
 		logger:        logger,
@@ -146,7 +146,7 @@ func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQu
 // filterL2Tags gets all L2 tags and filters them by query using LLM
 func (s *QuerySvc) filterL2Tags(ctx context.Context, query string) ([]string, error) {
 	// Get all global tags
-	allTags, err := s.globalTagRepo.List(ctx)
+	allTags, err := s.tagRepo.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list global tags: %w", err)
 	}
@@ -157,7 +157,7 @@ func (s *QuerySvc) filterL2Tags(ctx context.Context, query string) ([]string, er
 
 	// Try to filter using LLM
 	filterResults, err := s.summarizer.(interface {
-		FilterL2TagsByQuery(ctx context.Context, query string, tags []types.GlobalTag) ([]types.TagFilterResult, error)
+		FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error)
 	}).FilterL2TagsByQuery(ctx, query, allTags)
 
 	if err != nil {

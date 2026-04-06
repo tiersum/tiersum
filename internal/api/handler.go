@@ -15,7 +15,7 @@ import (
 type Handler struct {
 	DocService           service.IDocumentService
 	QueryService         service.IQueryService
-	TagClusteringService service.ITagClusteringService
+	TagGroupingService service.ITagGroupingService
 	Logger               *zap.Logger
 }
 
@@ -23,13 +23,13 @@ type Handler struct {
 func NewHandler(
 	docService service.IDocumentService,
 	queryService service.IQueryService,
-	tagClusteringService service.ITagClusteringService,
+	tagGroupingService service.ITagGroupingService,
 	logger *zap.Logger,
 ) *Handler {
 	return &Handler{
 		DocService:           docService,
 		QueryService:         queryService,
-		TagClusteringService: tagClusteringService,
+		TagGroupingService: tagGroupingService,
 		Logger:               logger,
 	}
 }
@@ -50,8 +50,8 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	router.POST("/query/progressive", h.ProgressiveQuery)
 
 	// Tag cluster endpoints
-	router.GET("/tags/clusters", h.ListTagClusters)
-	router.POST("/tags/cluster", h.TriggerTagClustering)
+	router.GET("/tags/clusters", h.ListTagGroups)
+	router.POST("/tags/cluster", h.TriggerTagGrouping)
 }
 
 // CreateDocument creates a new document
@@ -162,14 +162,14 @@ func (h *Handler) ProgressiveQuery(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// ListTagClusters lists all tag clusters (Level 1 categories)
-func (h *Handler) ListTagClusters(c *gin.Context) {
-	if h.TagClusteringService == nil {
+// ListTagGroups lists all tag clusters (Level 1 categories)
+func (h *Handler) ListTagGroups(c *gin.Context) {
+	if h.TagGroupingService == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "tag clustering service not available"})
 		return
 	}
 
-	clusters, err := h.TagClusteringService.GetL1Clusters(c.Request.Context())
+	clusters, err := h.TagGroupingService.GetL1Clusters(c.Request.Context())
 	if err != nil {
 		h.Logger.Error("failed to list tag clusters", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -179,14 +179,14 @@ func (h *Handler) ListTagClusters(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"clusters": clusters})
 }
 
-// TriggerTagClustering manually triggers tag clustering
-func (h *Handler) TriggerTagClustering(c *gin.Context) {
-	if h.TagClusteringService == nil {
+// TriggerTagGrouping manually triggers tag clustering
+func (h *Handler) TriggerTagGrouping(c *gin.Context) {
+	if h.TagGroupingService == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "tag clustering service not available"})
 		return
 	}
 
-	if err := h.TagClusteringService.ClusterTags(c.Request.Context()); err != nil {
+	if err := h.TagGroupingService.ClusterTags(c.Request.Context()); err != nil {
 		h.Logger.Error("failed to cluster tags", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

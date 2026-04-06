@@ -25,7 +25,7 @@ type Dependencies struct {
 	QueryService    service.IQueryService
 
 	// Tag Clustering Service
-	TagClusteringService service.ITagClusteringService
+	TagGroupingService service.ITagGroupingService
 
 	// API Layer
 	RESTHandler *api.Handler   // REST API
@@ -54,9 +54,9 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	indexer := svcimpl.NewIndexerSvc(summarizer, uow.Summaries, logger)
 
 	// 5. Service Layer - Tag clustering
-	tagClusteringSvc := svcimpl.NewTagClusteringSvc(
-		uow.GlobalTags,
-		uow.TagClusters,
+	tagGroupingSvc := svcimpl.NewTagGroupingSvc(
+		uow.Tags,
+		uow.TagGroups,
 		uow.ClusterRefreshLogs,
 		llmProvider,
 		logger,
@@ -66,8 +66,8 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	queryService := svcimpl.NewQuerySvc(
 		uow.Documents,
 		uow.Summaries,
-		uow.GlobalTags,
-		uow.TagClusters,
+		uow.Tags,
+		uow.TagGroups,
 		summarizer,
 		logger,
 	)
@@ -75,24 +75,24 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 		uow.Documents,
 		indexer,
 		summarizer,
-		uow.GlobalTags,
+		uow.Tags,
 		logger,
 	)
 
 	// 7. API Layer
-	restHandler := api.NewHandler(docService, queryService, tagClusteringSvc, logger)
-	mcpServer := api.NewMCPServer(docService, queryService, tagClusteringSvc, logger)
+	restHandler := api.NewHandler(docService, queryService, tagGroupingSvc, logger)
+	mcpServer := api.NewMCPServer(docService, queryService, tagGroupingSvc, logger)
 
 	// 8. Job Layer
 	jobScheduler := job.NewScheduler(logger)
 	// Register tag clustering job (runs every 30 minutes)
-	jobScheduler.Register(job.NewTagClusteringJob(tagClusteringSvc, logger))
+	jobScheduler.Register(job.NewTagGroupingJob(tagGroupingSvc, logger))
 	jobScheduler.Register(job.NewIndexerJob(uow.Documents, uow.Summaries, indexer, logger))
 
 	return &Dependencies{
 		DocumentService:      docService,
 		QueryService:         queryService,
-		TagClusteringService: tagClusteringSvc,
+		TagGroupingService: tagGroupingSvc,
 		RESTHandler:          restHandler,
 		MCPServer:            mcpServer,
 		JobScheduler:         jobScheduler,
@@ -105,15 +105,15 @@ var (
 	// Storage Layer
 	_ storage.IDocumentRepository          = (*db.DocumentRepo)(nil)
 	_ storage.ISummaryRepository           = (*db.SummaryRepo)(nil)
-	_ storage.IGlobalTagRepository         = (*db.GlobalTagRepo)(nil)
-	_ storage.ITagClusterRepository        = (*db.TagClusterRepo)(nil)
+	_ storage.ITagRepository         = (*db.TagRepo)(nil)
+	_ storage.ITagGroupRepository        = (*db.TagGroupRepo)(nil)
 	_ storage.IClusterRefreshLogRepository = (*db.ClusterRefreshLogRepo)(nil)
 	_ storage.ICache                       = (*cache.Cache)(nil)
 
 	// Service Layer
 	_ service.IDocumentService      = (*svcimpl.DocumentSvc)(nil)
 	_ service.IQueryService         = (*svcimpl.QuerySvc)(nil)
-	_ service.ITagClusteringService = (*svcimpl.TagClusteringSvc)(nil)
+	_ service.ITagGroupingService = (*svcimpl.TagGroupingSvc)(nil)
 	_ service.IIndexer              = (*svcimpl.IndexerSvc)(nil)
 	_ service.ISummarizer           = (*svcimpl.SummarizerSvc)(nil)
 	_ service.ILLMFilter            = (*svcimpl.SummarizerSvc)(nil)

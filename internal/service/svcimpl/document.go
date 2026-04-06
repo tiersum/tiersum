@@ -17,7 +17,7 @@ type DocumentSvc struct {
 	docRepo       storage.IDocumentRepository
 	indexer       service.IIndexer
 	summarizer    service.ISummarizer
-	globalTagRepo storage.IGlobalTagRepository
+	tagRepo storage.ITagRepository
 	logger        *zap.Logger
 }
 
@@ -26,14 +26,14 @@ func NewDocumentSvc(
 	docRepo storage.IDocumentRepository,
 	indexer service.IIndexer,
 	summarizer service.ISummarizer,
-	globalTagRepo storage.IGlobalTagRepository,
+	tagRepo storage.ITagRepository,
 	logger *zap.Logger,
 ) *DocumentSvc {
 	return &DocumentSvc{
 		docRepo:       docRepo,
 		indexer:       indexer,
 		summarizer:    summarizer,
-		globalTagRepo: globalTagRepo,
+		tagRepo: tagRepo,
 		logger:        logger,
 	}
 }
@@ -104,16 +104,16 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 
 	// Update global tags
 	for _, tag := range doc.Tags {
-		globalTag := &types.GlobalTag{
+		tag := &types.Tag{
 			ID:        uuid.New().String(),
 			Name:      tag,
 			ClusterID: "", // Will be assigned by clustering service
 		}
-		if err := s.globalTagRepo.Create(ctx, globalTag); err != nil {
+		if err := s.tagRepo.Create(ctx, tag); err != nil {
 			s.logger.Warn("failed to create global tag", zap.String("tag", tag), zap.Error(err))
 		} else {
 			// Increment document count
-			if err := s.globalTagRepo.IncrementDocumentCount(ctx, tag); err != nil {
+			if err := s.tagRepo.IncrementDocumentCount(ctx, tag); err != nil {
 				s.logger.Warn("failed to increment tag count", zap.String("tag", tag), zap.Error(err))
 			}
 		}

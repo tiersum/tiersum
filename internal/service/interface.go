@@ -25,19 +25,19 @@ type IQueryService interface {
 	ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error)
 }
 
-// ITagClusteringService defines tag clustering business logic
-type ITagClusteringService interface {
+// ITagGroupingService defines tag clustering business logic
+type ITagGroupingService interface {
 	// ClusterTags performs LLM-based clustering of all global tags
 	// Creates Level 1 clusters from Level 2 tags
 	ClusterTags(ctx context.Context) error
 	// ShouldRefresh checks if clustering should be performed based on tag count change
 	ShouldRefresh(ctx context.Context) (bool, error)
 	// GetL1Clusters retrieves all Level 1 clusters
-	GetL1Clusters(ctx context.Context) ([]types.TagCluster, error)
+	GetL1Clusters(ctx context.Context) ([]types.TagGroup, error)
 	// GetL2TagsByCluster retrieves Level 2 tags belonging to a cluster
-	GetL2TagsByCluster(ctx context.Context, clusterID string) ([]types.GlobalTag, error)
+	GetL2TagsByCluster(ctx context.Context, clusterID string) ([]types.Tag, error)
 	// FilterL2TagsByQuery uses LLM to filter L2 tags based on query
-	FilterL2TagsByQuery(ctx context.Context, query string, tags []types.GlobalTag) ([]types.TagFilterResult, error)
+	FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error)
 }
 
 // IIndexer defines document indexing logic

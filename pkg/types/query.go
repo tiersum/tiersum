@@ -76,14 +76,14 @@ type ProgressiveQueryStep struct {
 	Duration  int64    `json:"duration_ms"` // 耗时
 }
 
-// TagClusterFilterRequest 标签聚类过滤请求
-type TagClusterFilterRequest struct {
+// TagGroupFilterRequest 标签聚类过滤请求
+type TagGroupFilterRequest struct {
 	Question string `json:"question" binding:"required"`
 }
 
-// TagClusterFilterResponse 标签聚类过滤响应
-type TagClusterFilterResponse struct {
+// TagGroupFilterResponse 标签聚类过滤响应
+type TagGroupFilterResponse struct {
 	Question    string            `json:"question"`
-	L1Clusters  []TagCluster      `json:"l1_clusters"`  // 一级聚类（用于展示）
+	L1Clusters  []TagGroup      `json:"l1_clusters"`  // 一级聚类（用于展示）
 	L2Tags      []TagFilterResult `json:"l2_tags"`      // 二级标签过滤结果
 }

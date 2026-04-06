@@ -280,24 +280,24 @@ func (r *SummaryRepo) DeleteByDocument(ctx context.Context, docID string) error 
 
 var _ storage.ISummaryRepository = (*SummaryRepo)(nil)
 
-// GlobalTagRepo implements storage.IGlobalTagRepository
-type GlobalTagRepo struct {
+// TagRepo implements storage.ITagRepository
+type TagRepo struct {
 	db     sqlDB
 	driver string
 	cache  storage.ICache
 }
 
-// NewGlobalTagRepo creates a new global tag repository
-func NewGlobalTagRepo(db sqlDB, driver string, cache storage.ICache) *GlobalTagRepo {
-	return &GlobalTagRepo{
+// NewTagRepo creates a new global tag repository
+func NewTagRepo(db sqlDB, driver string, cache storage.ICache) *TagRepo {
+	return &TagRepo{
 		db:     db,
 		driver: driver,
 		cache:  cache,
 	}
 }
 
-// Create implements IGlobalTagRepository.Create
-func (r *GlobalTagRepo) Create(ctx context.Context, tag *types.GlobalTag) error {
+// Create implements ITagRepository.Create
+func (r *TagRepo) Create(ctx context.Context, tag *types.Tag) error {
 	if tag.ID == "" {
 		tag.ID = uuid.New().String()
 	}
@@ -319,14 +319,14 @@ func (r *GlobalTagRepo) Create(ctx context.Context, tag *types.GlobalTag) error 
 	return nil
 }
 
-// GetByName implements IGlobalTagRepository.GetByName
-func (r *GlobalTagRepo) GetByName(ctx context.Context, name string) (*types.GlobalTag, error) {
+// GetByName implements ITagRepository.GetByName
+func (r *TagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error) {
 	query := `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags WHERE name = ?`
 	if r.driver == "postgres" {
 		query = `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags WHERE name = $1`
 	}
 
-	var t types.GlobalTag
+	var t types.Tag
 	var clusterID sql.NullString
 	err := r.db.QueryRowContext(ctx, query, name).Scan(
 		&t.ID, &t.Name, &clusterID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt,
@@ -344,8 +344,8 @@ func (r *GlobalTagRepo) GetByName(ctx context.Context, name string) (*types.Glob
 	return &t, nil
 }
 
-// List implements IGlobalTagRepository.List
-func (r *GlobalTagRepo) List(ctx context.Context) ([]types.GlobalTag, error) {
+// List implements ITagRepository.List
+func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
 	query := `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags ORDER BY name`
 
 	rows, err := r.db.QueryContext(ctx, query)
@@ -354,9 +354,9 @@ func (r *GlobalTagRepo) List(ctx context.Context) ([]types.GlobalTag, error) {
 	}
 	defer rows.Close()
 
-	var tags []types.GlobalTag
+	var tags []types.Tag
 	for rows.Next() {
-		var t types.GlobalTag
+		var t types.Tag
 		var clusterID sql.NullString
 		if err := rows.Scan(&t.ID, &t.Name, &clusterID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
@@ -369,8 +369,8 @@ func (r *GlobalTagRepo) List(ctx context.Context) ([]types.GlobalTag, error) {
 	return tags, rows.Err()
 }
 
-// ListByCluster implements IGlobalTagRepository.ListByCluster
-func (r *GlobalTagRepo) ListByCluster(ctx context.Context, clusterID string) ([]types.GlobalTag, error) {
+// ListByCluster implements ITagRepository.ListByCluster
+func (r *TagRepo) ListByCluster(ctx context.Context, clusterID string) ([]types.Tag, error) {
 	query := `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags WHERE cluster_id = ? ORDER BY name`
 	if r.driver == "postgres" {
 		query = `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags WHERE cluster_id = $1 ORDER BY name`
@@ -382,9 +382,9 @@ func (r *GlobalTagRepo) ListByCluster(ctx context.Context, clusterID string) ([]
 	}
 	defer rows.Close()
 
-	var tags []types.GlobalTag
+	var tags []types.Tag
 	for rows.Next() {
-		var t types.GlobalTag
+		var t types.Tag
 		var cid sql.NullString
 		if err := rows.Scan(&t.ID, &t.Name, &cid, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
@@ -397,8 +397,8 @@ func (r *GlobalTagRepo) ListByCluster(ctx context.Context, clusterID string) ([]
 	return tags, rows.Err()
 }
 
-// IncrementDocumentCount implements IGlobalTagRepository.IncrementDocumentCount
-func (r *GlobalTagRepo) IncrementDocumentCount(ctx context.Context, tagName string) error {
+// IncrementDocumentCount implements ITagRepository.IncrementDocumentCount
+func (r *TagRepo) IncrementDocumentCount(ctx context.Context, tagName string) error {
 	query := `UPDATE global_tags SET document_count = document_count + 1, updated_at = ? WHERE name = ?`
 	if r.driver == "postgres" {
 		query = `UPDATE global_tags SET document_count = document_count + 1, updated_at = $1 WHERE name = $2`
@@ -411,8 +411,8 @@ func (r *GlobalTagRepo) IncrementDocumentCount(ctx context.Context, tagName stri
 	return nil
 }
 
-// DeleteAll implements IGlobalTagRepository.DeleteAll
-func (r *GlobalTagRepo) DeleteAll(ctx context.Context) error {
+// DeleteAll implements ITagRepository.DeleteAll
+func (r *TagRepo) DeleteAll(ctx context.Context) error {
 	query := `DELETE FROM global_tags`
 	_, err := r.db.ExecContext(ctx, query)
 	if err != nil {
@@ -421,8 +421,8 @@ func (r *GlobalTagRepo) DeleteAll(ctx context.Context) error {
 	return nil
 }
 
-// GetCount implements IGlobalTagRepository.GetCount
-func (r *GlobalTagRepo) GetCount(ctx context.Context) (int, error) {
+// GetCount implements ITagRepository.GetCount
+func (r *TagRepo) GetCount(ctx context.Context) (int, error) {
 	query := `SELECT COUNT(*) FROM global_tags`
 
 	var count int
@@ -433,26 +433,26 @@ func (r *GlobalTagRepo) GetCount(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-var _ storage.IGlobalTagRepository = (*GlobalTagRepo)(nil)
+var _ storage.ITagRepository = (*TagRepo)(nil)
 
-// TagClusterRepo implements storage.ITagClusterRepository
-type TagClusterRepo struct {
+// TagGroupRepo implements storage.ITagGroupRepository
+type TagGroupRepo struct {
 	db     sqlDB
 	driver string
 	cache  storage.ICache
 }
 
-// NewTagClusterRepo creates a new tag cluster repository
-func NewTagClusterRepo(db sqlDB, driver string, cache storage.ICache) *TagClusterRepo {
-	return &TagClusterRepo{
+// NewTagGroupRepo creates a new tag cluster repository
+func NewTagGroupRepo(db sqlDB, driver string, cache storage.ICache) *TagGroupRepo {
+	return &TagGroupRepo{
 		db:     db,
 		driver: driver,
 		cache:  cache,
 	}
 }
 
-// Create implements ITagClusterRepository.Create
-func (r *TagClusterRepo) Create(ctx context.Context, cluster *types.TagCluster) error {
+// Create implements ITagGroupRepository.Create
+func (r *TagGroupRepo) Create(ctx context.Context, cluster *types.TagGroup) error {
 	if cluster.ID == "" {
 		cluster.ID = uuid.New().String()
 	}
@@ -472,14 +472,14 @@ func (r *TagClusterRepo) Create(ctx context.Context, cluster *types.TagCluster) 
 	return nil
 }
 
-// GetByID implements ITagClusterRepository.GetByID
-func (r *TagClusterRepo) GetByID(ctx context.Context, id string) (*types.TagCluster, error) {
+// GetByID implements ITagGroupRepository.GetByID
+func (r *TagGroupRepo) GetByID(ctx context.Context, id string) (*types.TagGroup, error) {
 	query := `SELECT id, name, description, tags, created_at, updated_at FROM tag_clusters WHERE id = ?`
 	if r.driver == "postgres" {
 		query = `SELECT id, name, description, tags, created_at, updated_at FROM tag_clusters WHERE id = $1`
 	}
 
-	var c types.TagCluster
+	var c types.TagGroup
 	var tagsStr string
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&c.ID, &c.Name, &c.Description, &tagsStr, &c.CreatedAt, &c.UpdatedAt,
@@ -495,8 +495,8 @@ func (r *TagClusterRepo) GetByID(ctx context.Context, id string) (*types.TagClus
 	return &c, nil
 }
 
-// List implements ITagClusterRepository.List
-func (r *TagClusterRepo) List(ctx context.Context) ([]types.TagCluster, error) {
+// List implements ITagGroupRepository.List
+func (r *TagGroupRepo) List(ctx context.Context) ([]types.TagGroup, error) {
 	query := `SELECT id, name, description, tags, created_at, updated_at FROM tag_clusters ORDER BY name`
 
 	rows, err := r.db.QueryContext(ctx, query)
@@ -505,9 +505,9 @@ func (r *TagClusterRepo) List(ctx context.Context) ([]types.TagCluster, error) {
 	}
 	defer rows.Close()
 
-	var clusters []types.TagCluster
+	var clusters []types.TagGroup
 	for rows.Next() {
-		var c types.TagCluster
+		var c types.TagGroup
 		var tagsStr string
 		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &tagsStr, &c.CreatedAt, &c.UpdatedAt); err != nil {
 			return nil, err
@@ -518,8 +518,8 @@ func (r *TagClusterRepo) List(ctx context.Context) ([]types.TagCluster, error) {
 	return clusters, rows.Err()
 }
 
-// DeleteAll implements ITagClusterRepository.DeleteAll
-func (r *TagClusterRepo) DeleteAll(ctx context.Context) error {
+// DeleteAll implements ITagGroupRepository.DeleteAll
+func (r *TagGroupRepo) DeleteAll(ctx context.Context) error {
 	query := `DELETE FROM tag_clusters`
 	_, err := r.db.ExecContext(ctx, query)
 	if err != nil {
@@ -528,8 +528,8 @@ func (r *TagClusterRepo) DeleteAll(ctx context.Context) error {
 	return nil
 }
 
-// GetCount implements ITagClusterRepository.GetCount
-func (r *TagClusterRepo) GetCount(ctx context.Context) (int, error) {
+// GetCount implements ITagGroupRepository.GetCount
+func (r *TagGroupRepo) GetCount(ctx context.Context) (int, error) {
 	query := `SELECT COUNT(*) FROM tag_clusters`
 
 	var count int
@@ -540,7 +540,7 @@ func (r *TagClusterRepo) GetCount(ctx context.Context) (int, error) {
 	return count, nil
 }
 
-var _ storage.ITagClusterRepository = (*TagClusterRepo)(nil)
+var _ storage.ITagGroupRepository = (*TagGroupRepo)(nil)
 
 // ClusterRefreshLogRepo implements storage.IClusterRefreshLogRepository
 type ClusterRefreshLogRepo struct {
@@ -612,8 +612,8 @@ func parseStringArray(s string) []string {
 type UnitOfWork struct {
 	Documents           storage.IDocumentRepository
 	Summaries           storage.ISummaryRepository
-	GlobalTags          storage.IGlobalTagRepository
-	TagClusters         storage.ITagClusterRepository
+	Tags          storage.ITagRepository
+	TagGroups         storage.ITagGroupRepository
 	ClusterRefreshLogs  storage.IClusterRefreshLogRepository
 }
 
@@ -622,8 +622,8 @@ func NewUnitOfWork(db sqlDB, driver string, cache storage.ICache) *UnitOfWork {
 	return &UnitOfWork{
 		Documents:           NewDocumentRepo(db, driver, cache),
 		Summaries:           NewSummaryRepo(db, driver, cache),
-		GlobalTags:          NewGlobalTagRepo(db, driver, cache),
-		TagClusters:         NewTagClusterRepo(db, driver, cache),
+		Tags:          NewTagRepo(db, driver, cache),
+		TagGroups:         NewTagGroupRepo(db, driver, cache),
 		ClusterRefreshLogs:  NewClusterRefreshLogRepo(db, driver),
 	}
 }

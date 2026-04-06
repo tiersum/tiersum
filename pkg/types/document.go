@@ -55,8 +55,8 @@ type DocumentAnalysisResult struct {
 	Chapters []ChapterInfo `json:"chapters"`  // List of chapters with summaries
 }
 
-// TagCluster represents a cluster of tags (Level 1 categorization)
-type TagCluster struct {
+// TagGroup represents a cluster of tags (Level 1 categorization)
+type TagGroup struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`        // Cluster name/category
 	Description string   `json:"description"` // Cluster description
@@ -65,8 +65,8 @@ type TagCluster struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
-// GlobalTag represents a global tag with its metadata
-type GlobalTag struct {
+// Tag represents a global tag with its metadata
+type Tag struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`        // Tag name
 	ClusterID   string    `json:"cluster_id"`  // Which cluster it belongs to (Level 1)

@@ -28,16 +28,16 @@ type ISummaryRepository interface {
 	DeleteByDocument(ctx context.Context, docID string) error
 }
 
-// IGlobalTagRepository defines global tag storage operations
-type IGlobalTagRepository interface {
+// ITagRepository defines global tag storage operations
+type ITagRepository interface {
 	// Create creates a new global tag
-	Create(ctx context.Context, tag *types.GlobalTag) error
+	Create(ctx context.Context, tag *types.Tag) error
 	// GetByName retrieves a tag by name
-	GetByName(ctx context.Context, name string) (*types.GlobalTag, error)
+	GetByName(ctx context.Context, name string) (*types.Tag, error)
 	// List retrieves all global tags
-	List(ctx context.Context) ([]types.GlobalTag, error)
+	List(ctx context.Context) ([]types.Tag, error)
 	// ListByCluster retrieves tags belonging to a specific cluster
-	ListByCluster(ctx context.Context, clusterID string) ([]types.GlobalTag, error)
+	ListByCluster(ctx context.Context, clusterID string) ([]types.Tag, error)
 	// IncrementDocumentCount increments the document count for a tag
 	IncrementDocumentCount(ctx context.Context, tagName string) error
 	// DeleteAll removes all global tags (used before re-clustering)
@@ -46,14 +46,14 @@ type IGlobalTagRepository interface {
 	GetCount(ctx context.Context) (int, error)
 }
 
-// ITagClusterRepository defines tag cluster storage operations
-type ITagClusterRepository interface {
+// ITagGroupRepository defines tag cluster storage operations
+type ITagGroupRepository interface {
 	// Create creates a new tag cluster
-	Create(ctx context.Context, cluster *types.TagCluster) error
+	Create(ctx context.Context, cluster *types.TagGroup) error
 	// GetByID retrieves a cluster by ID
-	GetByID(ctx context.Context, id string) (*types.TagCluster, error)
+	GetByID(ctx context.Context, id string) (*types.TagGroup, error)
 	// List retrieves all tag clusters
-	List(ctx context.Context) ([]types.TagCluster, error)
+	List(ctx context.Context) ([]types.TagGroup, error)
 	// DeleteAll removes all clusters (used before re-clustering)
 	DeleteAll(ctx context.Context) error
 	// GetCount returns the total number of clusters
