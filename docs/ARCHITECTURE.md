@@ -160,7 +160,7 @@ type IAnalyzer interface {
 
 2. **Implement** in impl subpackage:
 ```go
-// internal/service/impl/analyzer.go
+// internal/service/svcimpl/analyzer.go
 type AnalyzerSvc struct{}
 
 func (a *AnalyzerSvc) Analyze(ctx context.Context, doc *types.Document) error {

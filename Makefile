@@ -3,7 +3,7 @@
 # Variables
 BINARY_NAME=tiersum
 BUILD_DIR=./build
-CMD_DIR=./cmd/server
+CMD_DIR=./cmd
 DOCKER_IMAGE=tiersum/tiersum
 VERSION=$(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS=-ldflags "-w -s -X main.Version=$(VERSION)"

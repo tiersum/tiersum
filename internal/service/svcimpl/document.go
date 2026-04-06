@@ -1,5 +1,5 @@
-// Package impl implements service layer interfaces
-package impl
+// Package svcimpl implements service layer interfaces
+package svcimpl
 
 import (
 	"context"

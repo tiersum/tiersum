@@ -1,4 +1,4 @@
-package impl
+package svcimpl
 
 import (
 	"context"
@@ -22,10 +22,10 @@ type TopicSvc struct {
 // NewTopicSvc creates a new topic service
 func NewTopicSvc(topicRepo storage.ITopicSummaryRepository, docRepo storage.IDocumentRepository, summarizer service.ISummarizer, logger *zap.Logger) *TopicSvc {
 	return &TopicSvc{
-		topicRepo:   topicRepo,
-		docRepo:     docRepo,
-		summarizer:  summarizer,
-		logger:      logger,
+		topicRepo:  topicRepo,
+		docRepo:    docRepo,
+		summarizer: summarizer,
+		logger:     logger,
 	}
 }
 

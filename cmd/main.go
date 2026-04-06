@@ -63,6 +63,10 @@ func runServer(cmd *cobra.Command, args []string) {
 		logger.Fatal("Failed to wire dependencies", zap.Error(err))
 	}
 
+	// Start job scheduler
+	deps.JobScheduler.Start()
+	defer deps.JobScheduler.Stop()
+
 	// Set up Gin router
 	if viper.GetString("logging.level") == "production" {
 		gin.SetMode(gin.ReleaseMode)

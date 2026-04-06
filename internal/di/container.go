@@ -12,7 +12,7 @@ import (
 	"github.com/tiersum/tiersum/internal/client/llm"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/service"
-	"github.com/tiersum/tiersum/internal/service/impl"
+	"github.com/tiersum/tiersum/internal/service/svcimpl"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/internal/storage/cache"
 	"github.com/tiersum/tiersum/internal/storage/db"
@@ -48,15 +48,15 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	llmProvider := llm.NewOpenAIProvider()
 
 	// 4. Service Layer - Core domain logic
-	parser := impl.NewParserSvc()
-	summarizer := impl.NewSummarizerSvc(llmProvider, logger)
-	indexer := impl.NewIndexerSvc(parser, summarizer, uow.Summaries, logger)
+	parser := svcimpl.NewParserSvc()
+	summarizer := svcimpl.NewSummarizerSvc(llmProvider, logger)
+	indexer := svcimpl.NewIndexerSvc(parser, summarizer, uow.Summaries, logger)
 
 	// 5. Service Layer - Business logic
 	// Note: TopicService created first as DocumentService depends on it for auto-matching
-	queryService := impl.NewQuerySvc(uow.Documents, uow.Summaries, logger)
-	topicService := impl.NewTopicSvc(uow.TopicSummaries, uow.Documents, summarizer, logger)
-	docService := impl.NewDocumentSvc(uow.Documents, indexer, summarizer, topicService, logger)
+	queryService := svcimpl.NewQuerySvc(uow.Documents, uow.Summaries, logger)
+	topicService := svcimpl.NewTopicSvc(uow.TopicSummaries, uow.Documents, summarizer, logger)
+	docService := svcimpl.NewDocumentSvc(uow.Documents, indexer, summarizer, topicService, logger)
 
 	// 6. API Layer
 	restHandler := api.NewHandler(docService, queryService, topicService, logger)
@@ -88,12 +88,12 @@ var (
 	_ storage.ICache                  = (*cache.Cache)(nil)
 
 	// Service Layer
-	_ service.IDocumentService = (*impl.DocumentSvc)(nil)
-	_ service.IQueryService    = (*impl.QuerySvc)(nil)
-	_ service.ITopicService    = (*impl.TopicSvc)(nil)
-	_ service.IIndexer         = (*impl.IndexerSvc)(nil)
-	_ service.ISummarizer      = (*impl.SummarizerSvc)(nil)
-	_ service.IParser          = (*impl.ParserSvc)(nil)
+	_ service.IDocumentService = (*svcimpl.DocumentSvc)(nil)
+	_ service.IQueryService    = (*svcimpl.QuerySvc)(nil)
+	_ service.ITopicService    = (*svcimpl.TopicSvc)(nil)
+	_ service.IIndexer         = (*svcimpl.IndexerSvc)(nil)
+	_ service.ISummarizer      = (*svcimpl.SummarizerSvc)(nil)
+	_ service.IParser          = (*svcimpl.ParserSvc)(nil)
 
 	// Client Layer
 	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)

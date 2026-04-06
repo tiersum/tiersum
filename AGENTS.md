@@ -147,7 +147,7 @@ ITopicService interface {
     AutoCreateTopicFromTag(ctx context.Context, tag string, minDocs int) (*types.TopicSummary, error)
 }
 
-// Core Domain Logic (in service/impl/)
+// Core Domain Logic (in service/svcimpl/)
 IIndexer interface {
     Index(ctx context.Context, docID string, content string) error
 }
