@@ -1,0 +1,103 @@
+# TierSum Configuration
+# Copy from config.example.yaml and modify as needed
+
+server:
+  port: 8080
+  host: 0.0.0.0
+  timeout: 30s
+  max_body_size: 10MB
+  cors:
+    enabled: true
+    allowed_origins:
+      - "http://localhost:3000"
+      - "http://localhost:8080"
+
+llm:
+  provider: openai
+
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    base_url: https://api.openai.com/v1
+    model: gpt-4o-mini
+    max_tokens: 2000
+    temperature: 0.3
+
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+    base_url: https://api.anthropic.com
+    model: claude-3-haiku-20240307
+    max_tokens: 2000
+    temperature: 0.3
+
+  local:
+    base_url: http://localhost:11434
+    model: llama3.2
+    timeout: 60s
+
+summarization:
+  document_summary_max: 500
+  chapter_summary_max: 300
+  paragraph_summary_max: 150
+  workers: 4
+  batch_size: 10
+
+storage:
+  database:
+    type: postgres
+    host: localhost
+    port: 5432
+    user: tiersum
+    password: tiersum
+    database: tiersum
+    max_connections: 20
+    min_connections: 5
+    ssl_mode: disable
+    dsn: postgres://tiersum:tiersum@localhost:5432/tiersum
+
+  cache:
+    type: redis
+    host: localhost
+    port: 6379
+    password: ""
+    database: 0
+    ttl: 1h
+    addr: localhost:6379
+
+  search:
+    type: meilisearch
+    host: http://localhost:7700
+    api_key: ${MEILI_MASTER_KEY}
+    index_prefix: tiersum
+
+mcp:
+  enabled: true
+  transport: sse
+  path: /mcp/sse
+  allowed_tools: []
+
+documents:
+  supported_formats:
+    - markdown
+    - md
+  max_size: 50MB
+  chunking:
+    enabled: true
+    max_chunk_size: 10000
+    overlap: 200
+
+logging:
+  level: info
+  format: console
+  output: stdout
+  file_path: ./logs/tiersum.log
+  caller: true
+
+security:
+  api_key: ""
+  jwt_secret: ${JWT_SECRET}
+  token_expiry: 24h
+
+features:
+  incremental_updates: true
+  auto_convert: false
+  web_ui: false

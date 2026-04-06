@@ -1,0 +1,40 @@
+name: tiersum-update
+version: 1.0.0
+description: Incremental update and synchronization commands for TierSum
+
+commands:
+  diff:
+    description: Calculate diff between document versions
+    args:
+      - name: doc_id
+        type: string
+        required: true
+        description: Document ID to diff
+      - name: new_content
+        type: string
+        required: true
+        description: New document content
+
+  update:
+    description: Incrementally update document summaries
+    args:
+      - name: doc_id
+        type: string
+        required: true
+        description: Document ID to update
+      - name: content
+        type: string
+        required: true
+        description: Updated document content
+
+  sync:
+    description: Sync documents from external source
+    args:
+      - name: source
+        type: string
+        required: true
+        description: Source directory or repository
+      - name: pattern
+        type: string
+        required: false
+        description: File pattern to match (e.g., "*.md")

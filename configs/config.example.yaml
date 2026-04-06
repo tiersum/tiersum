@@ -1,0 +1,154 @@
+# TierSum Configuration Example
+# Copy this file to config.yaml and modify as needed
+
+# Server configuration
+server:
+  # HTTP server port
+  port: 8080
+  # Bind address (0.0.0.0 for all interfaces, 127.0.0.1 for local only)
+  host: 0.0.0.0
+  # Request timeout
+  timeout: 30s
+  # Maximum request body size (10MB)
+  max_body_size: 10MB
+  # Enable CORS (for web UI development)
+  cors:
+    enabled: true
+    allowed_origins:
+      - "http://localhost:3000"
+      - "http://localhost:8080"
+
+# LLM configuration
+llm:
+  # Provider: openai, anthropic, local, azure
+  provider: openai
+
+  # OpenAI specific
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    base_url: https://api.openai.com/v1
+    model: gpt-4o-mini
+    # Max tokens for summary generation
+    max_tokens: 2000
+    temperature: 0.3
+
+  # Anthropic specific
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+    base_url: https://api.anthropic.com
+    model: claude-3-haiku-20240307
+    max_tokens: 2000
+    temperature: 0.3
+
+  # Local/Ollama specific
+  local:
+    base_url: http://localhost:11434
+    model: llama3.2
+    timeout: 60s
+
+# Summarization configuration
+summarization:
+  # Summary length limits (in characters)
+  document_summary_max: 500
+  chapter_summary_max: 300
+  paragraph_summary_max: 150
+
+  # Concurrent processing workers
+  workers: 4
+
+  # Batch size for document processing
+  batch_size: 10
+
+# Storage configuration
+storage:
+  # Primary database
+  database:
+    type: postgres
+    host: localhost
+    port: 5432
+    user: tiersum
+    password: tiersum
+    database: tiersum
+    # Connection pool
+    max_connections: 20
+    min_connections: 5
+    # SSL mode: disable, require, verify-ca, verify-full
+    ssl_mode: disable
+
+  # Cache layer
+  cache:
+    type: redis
+    host: localhost
+    port: 6379
+    password: ""
+    database: 0
+    # Default TTL for cached summaries
+    ttl: 1h
+
+  # Search index (optional but recommended)
+  search:
+    type: meilisearch
+    host: http://localhost:7700
+    api_key: ${MEILI_MASTER_KEY}
+    # Index name prefix
+    index_prefix: tiersum
+
+# MCP (Model Context Protocol) configuration
+mcp:
+  # Enable MCP server
+  enabled: true
+  # Transport type: sse (Server-Sent Events) or stdio
+  transport: sse
+  # SSE endpoint path
+  path: /mcp/sse
+  # Allowed tools (empty = all)
+  allowed_tools: []
+
+# Document processing
+documents:
+  # Supported formats for import
+  supported_formats:
+    - markdown
+    - md
+
+  # Maximum document size (50MB)
+  max_size: 50MB
+
+  # Chunking strategy for large documents
+  chunking:
+    enabled: true
+    # Max characters per chunk before splitting
+    max_chunk_size: 10000
+    # Overlap between chunks (preserve context)
+    overlap: 200
+
+# Logging configuration
+logging:
+  # Level: debug, info, warn, error
+  level: info
+  # Format: json, console
+  format: console
+  # Output: stdout, file
+  output: stdout
+  # Log file path (if output = file)
+  file_path: ./logs/tiersum.log
+  # Enable caller info
+  caller: true
+
+# Security (for production)
+security:
+  # API key for REST API authentication (optional)
+  api_key: ""
+  # JWT secret for token-based auth
+  jwt_secret: ${JWT_SECRET}
+  # Token expiration
+  token_expiry: 24h
+
+# Feature flags
+features:
+  # Enable incremental updates (only re-summarize changed sections)
+  incremental_updates: true
+  # Enable automatic document conversion skills
+  auto_convert: false
+  # Enable web UI (future feature)
+  web_ui: false

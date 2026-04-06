@@ -1,0 +1,40 @@
+name: tiersum-convert
+version: 1.0.0
+description: Convert documents to Markdown format for TierSum ingestion
+
+commands:
+  pdf-to-md:
+    description: Convert PDF to Markdown
+    args:
+      - name: input
+        type: string
+        required: true
+        description: Path to PDF file
+      - name: output
+        type: string
+        required: false
+        description: Output Markdown file path
+    
+  html-to-md:
+    description: Convert HTML to Markdown
+    args:
+      - name: input
+        type: string
+        required: true
+        description: URL or path to HTML file
+      - name: output
+        type: string
+        required: false
+        description: Output Markdown file path
+
+  docx-to-md:
+    description: Convert DOCX to Markdown
+    args:
+      - name: input
+        type: string
+        required: true
+        description: Path to DOCX file
+      - name: output
+        type: string
+        required: false
+        description: Output Markdown file path

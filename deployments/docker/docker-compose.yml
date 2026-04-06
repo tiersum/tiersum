@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  tiersum:
+    build:
+      context: ../..
+      dockerfile: deployments/docker/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - ../../data:/app/data
+      - ../../configs/config.yaml:/app/config.yaml:ro
+    depends_on:
+      - postgres
+      - redis
+      - meilisearch
+    networks:
+      - tiersum-network
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tiersum
+      POSTGRES_PASSWORD: tiersum
+      POSTGRES_DB: tiersum
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - tiersum-network
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - tiersum-network
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.7
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY:-tiersum-master-key}
+    volumes:
+      - meilisearch_data:/meili_data
+    ports:
+      - "7700:7700"
+    networks:
+      - tiersum-network
+
+volumes:
+  postgres_data:
+  redis_data:
+  meilisearch_data:
+
+networks:
+  tiersum-network:
+    driver: bridge
