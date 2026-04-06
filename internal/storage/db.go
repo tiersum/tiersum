@@ -9,7 +9,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-// DB represents a database connection
+// DB wraps sql.DB with driver information
 type DB struct {
 	*sql.DB
 	driver string

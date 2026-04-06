@@ -2,13 +2,11 @@ package types
 
 import (
 	"time"
-
-	"github.com/google/uuid"
 )
 
 // Document represents a document in the system
 type Document struct {
-	ID        uuid.UUID `json:"id"`
+	ID        string    `json:"id"`
 	Title     string    `json:"title"`
 	Content   string    `json:"content"`
 	Format    string    `json:"format"`
@@ -29,8 +27,8 @@ const (
 
 // Summary represents a summary at a specific tier
 type Summary struct {
-	ID         uuid.UUID   `json:"id"`
-	DocumentID uuid.UUID   `json:"document_id"`
+	ID         string      `json:"id"`
+	DocumentID string      `json:"document_id"`
 	Tier       SummaryTier `json:"tier"`
 	Path       string      `json:"path"`
 	Content    string      `json:"content"`
@@ -48,7 +46,7 @@ type CreateDocumentRequest struct {
 
 // CreateDocumentResponse represents the response from creating a document
 type CreateDocumentResponse struct {
-	ID        uuid.UUID `json:"id"`
+	ID        string    `json:"id"`
 	Title     string    `json:"title"`
 	Format    string    `json:"format"`
 	CreatedAt time.Time `json:"created_at"`
@@ -70,7 +68,7 @@ type QueryResponse struct {
 
 // QueryResult represents a single query result
 type QueryResult struct {
-	DocumentID    uuid.UUID   `json:"document_id"`
+	DocumentID    string      `json:"document_id"`
 	DocumentTitle string      `json:"document_title"`
 	Tier          SummaryTier `json:"tier"`
 	Path          string      `json:"path"`
@@ -89,7 +87,23 @@ type HierarchyNode struct {
 
 // HierarchyResponse represents the document hierarchy
 type HierarchyResponse struct {
-	DocumentID    uuid.UUID      `json:"document_id"`
+	DocumentID    string         `json:"document_id"`
 	DocumentTitle string         `json:"document_title"`
 	Hierarchy     *HierarchyNode `json:"hierarchy"`
+}
+
+// ParsedDocument represents a parsed document with hierarchical structure
+type ParsedDocument struct {
+	Title    string
+	Content  string
+	Root     *ParsedNode
+}
+
+// ParsedNode represents a node in the parsed document tree
+type ParsedNode struct {
+	Level    int           `json:"level"`
+	Title    string        `json:"title"`
+	Content  string        `json:"content"`
+	Path     string        `json:"path"`
+	Children []*ParsedNode `json:"children,omitempty"`
 }

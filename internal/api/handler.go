@@ -1,29 +1,35 @@
+// Package api implements HTTP handlers
+// Depends only on service interfaces from ports package
 package api
 
 import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/storage"
+	"github.com/tiersum/tiersum/internal/ports"
+	"github.com/tiersum/tiersum/pkg/types"
 )
 
 // Handler holds API dependencies
 type Handler struct {
-	store  *storage.Storage
-	logger *zap.Logger
+	docService  ports.DocumentService
+	queryService ports.QueryService
+	logger      *zap.Logger
+}
+
+// NewHandler creates a new API handler
+func NewHandler(docService ports.DocumentService, queryService ports.QueryService, logger *zap.Logger) *Handler {
+	return &Handler{
+		docService:  docService,
+		queryService: queryService,
+		logger:      logger,
+	}
 }
 
 // RegisterRoutes registers all API routes
-func RegisterRoutes(router *gin.RouterGroup, store *storage.Storage, logger *zap.Logger) {
-	h := &Handler{
-		store:  store,
-		logger: logger,
-	}
-
-	// Document routes
+func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	docs := router.Group("/documents")
 	{
 		docs.POST("", h.CreateDocument)
@@ -32,94 +38,96 @@ func RegisterRoutes(router *gin.RouterGroup, store *storage.Storage, logger *zap
 		docs.GET("/:id/hierarchy", h.GetHierarchy)
 	}
 
-	// Query routes
 	router.GET("/query", h.Query)
-}
-
-// CreateDocumentRequest represents a document creation request
-type CreateDocumentRequest struct {
-	Title   string `json:"title" binding:"required"`
-	Content string `json:"content" binding:"required"`
-	Format  string `json:"format" binding:"required,oneof=markdown md"`
 }
 
 // CreateDocument creates a new document
 func (h *Handler) CreateDocument(c *gin.Context) {
-	var req CreateDocumentRequest
+	var req types.CreateDocumentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// TODO: Implement document creation
-	h.logger.Info("Creating document", zap.String("title", req.Title))
+	doc, err := h.docService.Ingest(c.Request.Context(), req)
+	if err != nil {
+		h.logger.Error("failed to ingest document", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create document"})
+		return
+	}
 
-	c.JSON(http.StatusCreated, gin.H{
-		"id":      uuid.New().String(),
-		"title":   req.Title,
-		"message": "Document created successfully",
+	c.JSON(http.StatusCreated, types.CreateDocumentResponse{
+		ID:        doc.ID,
+		Title:     doc.Title,
+		Format:    doc.Format,
+		CreatedAt: doc.CreatedAt,
 	})
 }
 
 // ListDocuments lists all documents
 func (h *Handler) ListDocuments(c *gin.Context) {
-	// TODO: Implement document listing
+	// For now, return empty list
+	// TODO: Implement pagination
 	c.JSON(http.StatusOK, gin.H{
-		"documents": []interface{}{},
+		"documents": []types.Document{},
 	})
 }
 
 // GetDocument retrieves a document by ID
 func (h *Handler) GetDocument(c *gin.Context) {
 	id := c.Param("id")
-	// TODO: Implement document retrieval
-	h.logger.Info("Getting document", zap.String("id", id))
 
-	c.JSON(http.StatusOK, gin.H{
-		"id":    id,
-		"title": "Sample Document",
-	})
+	doc, err := h.docService.Get(c.Request.Context(), id)
+	if err != nil {
+		h.logger.Error("failed to get document", zap.String("id", id), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get document"})
+		return
+	}
+
+	if doc == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, doc)
 }
 
 // GetHierarchy retrieves the hierarchical structure of a document
 func (h *Handler) GetHierarchy(c *gin.Context) {
 	id := c.Param("id")
-	path := c.Query("path")
+	_ = c.Query("path") // TODO: Use path parameter
 
-	h.logger.Info("Getting hierarchy", zap.String("id", id), zap.String("path", path))
+	h.logger.Info("Getting hierarchy", zap.String("id", id))
 
-	// TODO: Implement hierarchy retrieval
-	c.JSON(http.StatusOK, gin.H{
-		"document_id": id,
-		"path":        path,
-		"hierarchy":   []interface{}{},
+	// TODO: Implement hierarchy retrieval using query service
+	c.JSON(http.StatusOK, types.HierarchyResponse{
+		DocumentID: id,
+		Hierarchy:  &types.HierarchyNode{Level: 0, Title: "Root"},
 	})
-}
-
-// QueryRequest represents a query request
-type QueryRequest struct {
-	Question string `form:"question" binding:"required"`
-	Depth    string `form:"depth" binding:"omitempty,oneof=document chapter paragraph source"`
 }
 
 // Query performs a hierarchical query
 func (h *Handler) Query(c *gin.Context) {
-	var req QueryRequest
+	var req types.QueryRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	if req.Depth == "" {
-		req.Depth = "chapter"
+		req.Depth = types.TierChapter
 	}
 
-	h.logger.Info("Querying", zap.String("question", req.Question), zap.String("depth", req.Depth))
+	results, err := h.queryService.Query(c.Request.Context(), req.Question, req.Depth)
+	if err != nil {
+		h.logger.Error("failed to query", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query"})
+		return
+	}
 
-	// TODO: Implement hierarchical query
-	c.JSON(http.StatusOK, gin.H{
-		"question": req.Question,
-		"depth":    req.Depth,
-		"results":  []interface{}{},
+	c.JSON(http.StatusOK, types.QueryResponse{
+		Question: req.Question,
+		Depth:    req.Depth,
+		Results:  results,
 	})
 }

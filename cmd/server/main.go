@@ -15,8 +15,7 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/api"
-	"github.com/tiersum/tiersum/internal/mcp"
+	"github.com/tiersum/tiersum/internal/app"
 	"github.com/tiersum/tiersum/internal/storage"
 )
 
@@ -50,12 +49,19 @@ func runServer(cmd *cobra.Command, args []string) {
 	logger, _ := zap.NewProduction()
 	defer logger.Sync()
 
-	// Initialize storage
+	// Initialize storage (infrastructure layer)
 	store, err := storage.New()
 	if err != nil {
 		logger.Fatal("Failed to initialize storage", zap.Error(err))
 	}
 	defer store.Close()
+
+	// Wire all dependencies using clean architecture
+	// This is the composition root where interfaces are bound to implementations
+	deps, err := app.NewDependencies(store.DB.DB, store.DB.Driver(), logger)
+	if err != nil {
+		logger.Fatal("Failed to wire dependencies", zap.Error(err))
+	}
 
 	// Set up Gin router
 	if viper.GetString("logging.level") == "production" {
@@ -73,14 +79,15 @@ func runServer(cmd *cobra.Command, args []string) {
 		})
 	})
 
-	// API routes
+	// API routes - handler depends only on service interfaces
 	apiV1 := router.Group("/api/v1")
-	api.RegisterRoutes(apiV1, store, logger)
+	deps.Handler.RegisterRoutes(apiV1)
 
 	// MCP routes
 	if viper.GetBool("mcp.enabled") {
-		mcpServer := mcp.NewServer(store, logger)
-		router.GET("/mcp/sse", mcpServer.SSEHandler())
+		// MCP server can also use service interfaces
+		// mcpServer := mcp.NewServer(deps.QueryService, logger)
+		// router.GET("/mcp/sse", mcpServer.SSEHandler())
 	}
 
 	// Start server

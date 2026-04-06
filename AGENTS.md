@@ -30,28 +30,97 @@ cd deployments/docker && docker-compose up -d  # Starts tiersum (SQLite by defau
 
 Go module: `github.com/tiersum/tiersum` (Go 1.23+)
 
+### Clean Architecture Layers
+
 ```
 cmd/
   server/         # API server entrypoint (main binary)
   worker/         # Background job processor
   cli/            # CLI tools
-  migrate/        # Database migrations
-  seed/           # Data seeding
 configs/          # Configuration files
-  config.example.yaml
-  config.yaml
 deployments/
   docker/         # Docker and docker-compose files
 internal/
-  api/            # REST handlers + MCP server
-  core/parser/    # Markdown parser (Goldmark)
-  core/summarizer/# LLM abstraction
-  core/indexer/   # Hierarchical index builder
+  ports/          # INTERFACE DEFINITIONS (all layers depend on this)
+    interfaces.go # Repository, Service, Core interfaces
+  adapters/
+    repository/   # Repository implementations (Database access)
+    llm/          # LLM provider implementations
+  domain/
+    service/      # Business logic implementations
+    core/         # Core domain services (Parser, Summarizer, Indexer)
+  api/            # REST handlers (depends on service interfaces)
+  app/            # Dependency injection / Composition root
   storage/        # SQLite/PostgreSQL + in-memory cache
   mcp/            # MCP protocol implementation
 pkg/types/        # Public API types
-skills/           # OpenClaw skill definitions
-migrations/       # Database migrations
+```
+
+## Architecture Principles
+
+### Dependency Direction
+All dependencies point **inward** toward the domain:
+
+```
+API Layer (handlers)
+    ↓ depends on
+Service Layer (business logic)
+    ↓ depends on
+Repository Layer (data access)
+    ↓ depends on
+Infrastructure (db, cache, llm)
+
+ALL layers depend on:
+    ports/ (interface definitions)
+```
+
+### Key Rules
+1. **Ports define interfaces** - All interfaces in `internal/ports/`
+2. **Adapters implement** - Concrete implementations in `internal/adapters/`
+3. **Domain is isolated** - Business logic only depends on ports
+4. **API depends on services** - Handlers use service interfaces, not repositories directly
+5. **Composition in app/** - All wiring happens in `internal/app/wire.go`
+
+## Interface Definitions (`internal/ports/`)
+
+### Repository Interfaces (Data Access)
+```go
+DocumentRepository interface {
+    Create(ctx context.Context, doc *types.Document) error
+    GetByID(ctx context.Context, id string) (*types.Document, error)
+}
+
+SummaryRepository interface {
+    Create(ctx context.Context, summary *types.Summary) error
+    GetByDocument(ctx context.Context, docID string) ([]types.Summary, error)
+}
+```
+
+### Service Interfaces (Business Logic)
+```go
+DocumentService interface {
+    Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.Document, error)
+    Get(ctx context.Context, id string) (*types.Document, error)
+}
+
+QueryService interface {
+    Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error)
+}
+```
+
+### Core Interfaces (Domain Logic)
+```go
+Parser interface {
+    Parse(content string) (*types.ParsedDocument, error)
+}
+
+Summarizer interface {
+    Summarize(ctx context.Context, content string, level types.SummaryTier) (string, error)
+}
+
+Indexer interface {
+    Index(ctx context.Context, docID string, content string) error
+}
 ```
 
 ## Key Dependencies
@@ -96,7 +165,9 @@ make docker-build           # Build container image
 | Path | Purpose |
 |------|---------|
 | `cmd/server` | Main entrypoint for server binary |
-| `internal/api` | REST + MCP handlers |
-| `internal/core` | Business logic (parser, summarizer, indexer) |
-| `migrations/` | SQL migrations (if using migrate CLI) |
-| `skills/` | OpenClaw skill YAML definitions |
+| `internal/ports` | Interface definitions (dependency inversion) |
+| `internal/adapters/repository` | Repository implementations |
+| `internal/domain/service` | Business logic implementations |
+| `internal/domain/core` | Core domain services |
+| `internal/app` | Dependency injection / composition root |
+| `pkg/types` | Public types used across all layers |

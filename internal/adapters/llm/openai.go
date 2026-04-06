@@ -1,4 +1,5 @@
-package summarizer
+// Package llm implements LLM provider interfaces defined in ports
+package llm
 
 import (
 	"bytes"
@@ -8,9 +9,11 @@ import (
 	"net/http"
 
 	"github.com/spf13/viper"
+
+	"github.com/tiersum/tiersum/internal/ports"
 )
 
-// OpenAIProvider implements Provider for OpenAI
+// OpenAIProvider implements ports.LLMProvider for OpenAI
 type OpenAIProvider struct {
 	apiKey  string
 	baseURL string
@@ -28,7 +31,6 @@ func NewOpenAIProvider() *OpenAIProvider {
 	}
 }
 
-// openAIRequest represents the request body
 type openAIRequest struct {
 	Model       string    `json:"model"`
 	Messages    []message `json:"messages"`
@@ -41,7 +43,6 @@ type message struct {
 	Content string `json:"content"`
 }
 
-// openAIResponse represents the response body
 type openAIResponse struct {
 	Choices []struct {
 		Message struct {
@@ -50,17 +51,15 @@ type openAIResponse struct {
 	} `json:"choices"`
 }
 
-// Summarize summarizes content using OpenAI
-func (p *OpenAIProvider) Summarize(ctx context.Context, content string, maxLength int) (string, error) {
-	prompt := fmt.Sprintf("Summarize the following content in %d characters or less:\n\n%s", maxLength, content)
-
+// Generate implements ports.LLMProvider.Generate
+func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
 	reqBody := openAIRequest{
 		Model: p.model,
 		Messages: []message{
-			{Role: "system", Content: "You are a helpful summarizer. Create concise, accurate summaries."},
+			{Role: "system", Content: "You are a helpful assistant."},
 			{Role: "user", Content: prompt},
 		},
-		MaxTokens:   500,
+		MaxTokens:   maxTokens,
 		Temperature: 0.3,
 	}
 
@@ -92,5 +91,8 @@ func (p *OpenAIProvider) Summarize(ctx context.Context, content string, maxLengt
 		return result.Choices[0].Message.Content, nil
 	}
 
-	return "", fmt.Errorf("no summary generated")
+	return "", fmt.Errorf("no response from OpenAI")
 }
+
+// Compile-time interface check
+var _ ports.LLMProvider = (*OpenAIProvider)(nil)
