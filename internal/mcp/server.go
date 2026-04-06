@@ -32,7 +32,6 @@ func NewServer(store *storage.Storage, logger *zap.Logger) *Server {
 		"tiersum",
 		"1.0.0",
 		server.WithResourceCapabilities(true, true),
-		server.WithToolCapabilities(true),
 	)
 
 	// Register tools
