@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/tiersum/tiersum/internal/ports"
+	"github.com/tiersum/tiersum/internal/storage"
 )
 
 // Cache is a simple in-memory cache with TTL support
@@ -23,18 +23,17 @@ type cacheItem struct {
 // NewCache creates a new cache with the specified TTL
 func NewCache(ttl time.Duration) *Cache {
 	if ttl == 0 {
-		ttl = 10 * time.Minute // default TTL
+		ttl = 10 * time.Minute
 	}
 	c := &Cache{
 		data: make(map[string]cacheItem),
 		ttl:  ttl,
 	}
-	// Start cleanup goroutine
 	go c.cleanup()
 	return c
 }
 
-// Get retrieves a value from cache (implements ports.Cache)
+// Get implements storage.ICache
 func (c *Cache) Get(key string) (interface{}, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -43,43 +42,20 @@ func (c *Cache) Get(key string) (interface{}, bool) {
 	if !exists {
 		return nil, false
 	}
-
-	// Check if expired
 	if time.Now().After(item.expiration) {
 		return nil, false
 	}
-
 	return item.value, true
 }
 
-// Set stores a value in cache with default TTL (implements ports.Cache)
+// Set implements storage.ICache
 func (c *Cache) Set(key string, value interface{}) {
-	c.SetWithTTL(key, value, c.ttl)
-}
-
-// SetWithTTL stores a value with custom TTL
-func (c *Cache) SetWithTTL(key string, value interface{}, ttl time.Duration) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
 	c.data[key] = cacheItem{
 		value:      value,
-		expiration: time.Now().Add(ttl),
+		expiration: time.Now().Add(c.ttl),
 	}
-}
-
-// Delete removes a value from cache
-func (c *Cache) Delete(key string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	delete(c.data, key)
-}
-
-// Clear removes all values from cache
-func (c *Cache) Clear() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.data = make(map[string]cacheItem)
 }
 
 // cleanup periodically removes expired items
@@ -99,5 +75,4 @@ func (c *Cache) cleanup() {
 	}
 }
 
-// Compile-time interface check
-var _ ports.Cache = (*Cache)(nil)
+var _ storage.ICache = (*Cache)(nil)

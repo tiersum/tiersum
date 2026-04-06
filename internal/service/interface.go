@@ -1,0 +1,57 @@
+// Package service defines business logic interfaces
+// Service layer interfaces with I-prefix naming convention
+package service
+
+import (
+	"context"
+
+	"github.com/tiersum/tiersum/pkg/types"
+)
+
+// IDocumentService defines document business logic
+type IDocumentService interface {
+	// Ingest processes and stores a new document
+	Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.Document, error)
+	// Get retrieves a document by ID
+	Get(ctx context.Context, id string) (*types.Document, error)
+}
+
+// IQueryService defines query business logic
+type IQueryService interface {
+	// Query performs hierarchical query
+	Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error)
+}
+
+// ITopicService defines topic management business logic
+type ITopicService interface {
+	// CreateTopicFromDocuments creates a new topic summary from documents
+	CreateTopicFromDocuments(ctx context.Context, topicName string, docIDs []string) (*types.TopicSummary, error)
+	// GetTopic retrieves a topic by ID
+	GetTopic(ctx context.Context, id string) (*types.TopicSummary, error)
+	// ListTopics lists all topics
+	ListTopics(ctx context.Context) ([]types.TopicSummary, error)
+	// FindTopicsByTags finds topics by tags
+	FindTopicsByTags(ctx context.Context, tags []string) ([]types.TopicSummary, error)
+}
+
+// IIndexer defines document indexing logic
+type IIndexer interface {
+	// Index processes and indexes a document
+	Index(ctx context.Context, docID string, content string) error
+}
+
+// ISummarizer defines summarization logic
+type ISummarizer interface {
+	// Summarize creates summary for given content
+	Summarize(ctx context.Context, content string, level types.SummaryTier) (string, error)
+	// AnalyzeDocument performs full document analysis including summary and tags
+	AnalyzeDocument(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error)
+	// GenerateTopicSummary creates a topic-level summary from multiple documents
+	GenerateTopicSummary(ctx context.Context, topicName string, documents []*types.Document) (*types.TopicSummary, error)
+}
+
+// IParser defines document parsing logic
+type IParser interface {
+	// Parse parses content into hierarchical document
+	Parse(content string) (*types.ParsedDocument, error)
+}

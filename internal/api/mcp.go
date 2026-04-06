@@ -11,22 +11,21 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/ports"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
 // MCPServer handles MCP protocol
 type MCPServer struct {
-	docService   ports.DocumentService
-	queryService ports.QueryService
-	topicService *service.TopicSvc
+	docService   service.IDocumentService
+	queryService service.IQueryService
+	topicService service.ITopicService
 	logger       *zap.Logger
 	mcp          *mcpserver.MCPServer
 }
 
 // NewMCPServer creates a new MCP server
-func NewMCPServer(docService ports.DocumentService, queryService ports.QueryService, topicService *service.TopicSvc, logger *zap.Logger) *MCPServer {
+func NewMCPServer(docService service.IDocumentService, queryService service.IQueryService, topicService service.ITopicService, logger *zap.Logger) *MCPServer {
 	s := &MCPServer{
 		docService:   docService,
 		queryService: queryService,

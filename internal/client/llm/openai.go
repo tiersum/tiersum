@@ -1,5 +1,4 @@
 // Package llm implements third-party client layer
-// External system dependencies, e.g., LLM client
 package llm
 
 import (
@@ -11,10 +10,10 @@ import (
 
 	"github.com/spf13/viper"
 
-	"github.com/tiersum/tiersum/internal/ports"
+	"github.com/tiersum/tiersum/internal/client"
 )
 
-// OpenAIProvider implements ports.LLMProvider for OpenAI
+// OpenAIProvider implements client.ILLMProvider for OpenAI
 type OpenAIProvider struct {
 	apiKey  string
 	baseURL string
@@ -52,7 +51,7 @@ type openAIResponse struct {
 	} `json:"choices"`
 }
 
-// Generate implements ports.LLMProvider.Generate
+// Generate implements ILLMProvider.Generate
 func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
 	reqBody := openAIRequest{
 		Model: p.model,
@@ -95,5 +94,4 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 	return "", fmt.Errorf("no response from OpenAI")
 }
 
-// Compile-time interface check
-var _ ports.LLMProvider = (*OpenAIProvider)(nil)
+var _ client.ILLMProvider = (*OpenAIProvider)(nil)

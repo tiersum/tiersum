@@ -1,5 +1,4 @@
 // Package api implements HTTP handlers
-// Depends only on service interfaces from ports package
 package api
 
 import (
@@ -8,21 +7,20 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/ports"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
 // Handler holds API dependencies
 type Handler struct {
-	docService   ports.DocumentService
-	queryService ports.QueryService
-	topicService *service.TopicSvc
+	docService   service.IDocumentService
+	queryService service.IQueryService
+	topicService service.ITopicService
 	logger       *zap.Logger
 }
 
 // NewHandler creates a new API handler
-func NewHandler(docService ports.DocumentService, queryService ports.QueryService, topicService *service.TopicSvc, logger *zap.Logger) *Handler {
+func NewHandler(docService service.IDocumentService, queryService service.IQueryService, topicService service.ITopicService, logger *zap.Logger) *Handler {
 	return &Handler{
 		docService:   docService,
 		queryService: queryService,

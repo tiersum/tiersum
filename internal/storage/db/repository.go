@@ -1,5 +1,4 @@
 // Package db implements database storage layer
-// Database access implementations
 package db
 
 import (
@@ -11,7 +10,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/tiersum/tiersum/internal/ports"
+	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -22,15 +21,15 @@ type sqlDB interface {
 	QueryContext(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
 }
 
-// DocumentRepo implements ports.DocumentRepository
+// DocumentRepo implements storage.IDocumentRepository
 type DocumentRepo struct {
 	db     sqlDB
 	driver string
-	cache  ports.Cache
+	cache  storage.ICache
 }
 
 // NewDocumentRepo creates a new document repository
-func NewDocumentRepo(db sqlDB, driver string, cache ports.Cache) *DocumentRepo {
+func NewDocumentRepo(db sqlDB, driver string, cache storage.ICache) *DocumentRepo {
 	return &DocumentRepo{
 		db:     db,
 		driver: driver,
@@ -38,7 +37,7 @@ func NewDocumentRepo(db sqlDB, driver string, cache ports.Cache) *DocumentRepo {
 	}
 }
 
-// Create implements ports.DocumentRepository.Create
+// Create implements IDocumentRepository.Create
 func (r *DocumentRepo) Create(ctx context.Context, doc *types.Document) error {
 	if doc.ID == "" {
 		doc.ID = uuid.New().String()
@@ -56,9 +55,8 @@ func (r *DocumentRepo) Create(ctx context.Context, doc *types.Document) error {
 	return err
 }
 
-// GetByID implements ports.DocumentRepository.GetByID
+// GetByID implements IDocumentRepository.GetByID
 func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document, error) {
-	// Try cache first
 	if r.cache != nil {
 		if cached, ok := r.cache.Get("doc:" + id); ok {
 			return cached.(*types.Document), nil
@@ -85,22 +83,23 @@ func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document,
 		return nil, err
 	}
 
-	// Cache the result
 	if r.cache != nil {
 		r.cache.Set("doc:"+id, doc)
 	}
 	return doc, nil
 }
 
-// SummaryRepo implements ports.SummaryRepository
+var _ storage.IDocumentRepository = (*DocumentRepo)(nil)
+
+// SummaryRepo implements storage.ISummaryRepository
 type SummaryRepo struct {
 	db     sqlDB
 	driver string
-	cache  ports.Cache
+	cache  storage.ICache
 }
 
 // NewSummaryRepo creates a new summary repository
-func NewSummaryRepo(db sqlDB, driver string, cache ports.Cache) *SummaryRepo {
+func NewSummaryRepo(db sqlDB, driver string, cache storage.ICache) *SummaryRepo {
 	return &SummaryRepo{
 		db:     db,
 		driver: driver,
@@ -108,7 +107,7 @@ func NewSummaryRepo(db sqlDB, driver string, cache ports.Cache) *SummaryRepo {
 	}
 }
 
-// Create implements ports.SummaryRepository.Create
+// Create implements ISummaryRepository.Create
 func (r *SummaryRepo) Create(ctx context.Context, summary *types.Summary) error {
 	if summary.ID == "" {
 		summary.ID = uuid.New().String()
@@ -127,7 +126,7 @@ func (r *SummaryRepo) Create(ctx context.Context, summary *types.Summary) error 
 	return err
 }
 
-// GetByDocument implements ports.SummaryRepository.GetByDocument
+// GetByDocument implements ISummaryRepository.GetByDocument
 func (r *SummaryRepo) GetByDocument(ctx context.Context, docID string) ([]types.Summary, error) {
 	cacheKey := "sums:" + docID
 	if r.cache != nil {
@@ -165,15 +164,17 @@ func (r *SummaryRepo) GetByDocument(ctx context.Context, docID string) ([]types.
 	return summaries, nil
 }
 
-// TopicSummaryRepo implements ports.TopicSummaryRepository
+var _ storage.ISummaryRepository = (*SummaryRepo)(nil)
+
+// TopicSummaryRepo implements storage.ITopicSummaryRepository
 type TopicSummaryRepo struct {
 	db     sqlDB
 	driver string
-	cache  ports.Cache
+	cache  storage.ICache
 }
 
 // NewTopicSummaryRepo creates a new topic summary repository
-func NewTopicSummaryRepo(db sqlDB, driver string, cache ports.Cache) *TopicSummaryRepo {
+func NewTopicSummaryRepo(db sqlDB, driver string, cache storage.ICache) *TopicSummaryRepo {
 	return &TopicSummaryRepo{
 		db:     db,
 		driver: driver,
@@ -181,7 +182,7 @@ func NewTopicSummaryRepo(db sqlDB, driver string, cache ports.Cache) *TopicSumma
 	}
 }
 
-// Create implements ports.TopicSummaryRepository.Create
+// Create implements ITopicSummaryRepository.Create
 func (r *TopicSummaryRepo) Create(ctx context.Context, topic *types.TopicSummary) error {
 	if topic.ID == "" {
 		topic.ID = uuid.New().String()
@@ -201,7 +202,6 @@ func (r *TopicSummaryRepo) Create(ctx context.Context, topic *types.TopicSummary
 		return fmt.Errorf("create topic summary: %w", err)
 	}
 
-	// Insert document relationships
 	for _, docID := range topic.DocumentIDs {
 		if err := r.AddDocument(ctx, topic.ID, docID); err != nil {
 			return fmt.Errorf("add document to topic: %w", err)
@@ -211,7 +211,7 @@ func (r *TopicSummaryRepo) Create(ctx context.Context, topic *types.TopicSummary
 	return nil
 }
 
-// GetByID implements ports.TopicSummaryRepository.GetByID
+// GetByID implements ITopicSummaryRepository.GetByID
 func (r *TopicSummaryRepo) GetByID(ctx context.Context, id string) (*types.TopicSummary, error) {
 	cacheKey := "topic:" + id
 	if r.cache != nil {
@@ -239,7 +239,6 @@ func (r *TopicSummaryRepo) GetByID(ctx context.Context, id string) (*types.Topic
 
 	topic.Tags = parseStringArray(tagsStr)
 
-	// Get associated documents
 	docIDs, err := r.getDocumentIDs(ctx, id)
 	if err != nil {
 		return nil, err
@@ -252,7 +251,7 @@ func (r *TopicSummaryRepo) GetByID(ctx context.Context, id string) (*types.Topic
 	return topic, nil
 }
 
-// GetByName implements ports.TopicSummaryRepository.GetByName
+// GetByName implements ITopicSummaryRepository.GetByName
 func (r *TopicSummaryRepo) GetByName(ctx context.Context, name string) (*types.TopicSummary, error) {
 	query := `SELECT id, name, description, summary, tags, created_at, updated_at FROM topic_summaries WHERE name = ?`
 	if r.driver == "postgres" {
@@ -282,7 +281,7 @@ func (r *TopicSummaryRepo) GetByName(ctx context.Context, name string) (*types.T
 	return topic, nil
 }
 
-// List implements ports.TopicSummaryRepository.List
+// List implements ITopicSummaryRepository.List
 func (r *TopicSummaryRepo) List(ctx context.Context) ([]types.TopicSummary, error) {
 	cacheKey := "topics:all"
 	if r.cache != nil {
@@ -319,18 +318,16 @@ func (r *TopicSummaryRepo) List(ctx context.Context) ([]types.TopicSummary, erro
 	return topics, nil
 }
 
-// FindByTags implements ports.TopicSummaryRepository.FindByTags
+// FindByTags implements ITopicSummaryRepository.FindByTags
 func (r *TopicSummaryRepo) FindByTags(ctx context.Context, tags []string) ([]types.TopicSummary, error) {
 	if len(tags) == 0 {
 		return r.List(ctx)
 	}
 
-	// Build query with tag matching
 	var query string
 	if r.driver == "postgres" {
 		query = `SELECT id, name, description, summary, tags, created_at, updated_at FROM topic_summaries WHERE tags && $1 ORDER BY name`
 	} else {
-		// SQLite doesn't have array overlap operator, use LIKE for each tag
 		query = `SELECT id, name, description, summary, tags, created_at, updated_at FROM topic_summaries WHERE `
 		for i := range tags {
 			if i > 0 {
@@ -370,7 +367,7 @@ func (r *TopicSummaryRepo) FindByTags(ctx context.Context, tags []string) ([]typ
 	return topics, nil
 }
 
-// AddDocument implements ports.TopicSummaryRepository.AddDocument
+// AddDocument implements ITopicSummaryRepository.AddDocument
 func (r *TopicSummaryRepo) AddDocument(ctx context.Context, topicID string, docID string) error {
 	query := `INSERT INTO topic_documents (topic_id, document_id) VALUES (?, ?) ON CONFLICT DO NOTHING`
 	if r.driver == "postgres" {
@@ -384,7 +381,7 @@ func (r *TopicSummaryRepo) AddDocument(ctx context.Context, topicID string, docI
 	return nil
 }
 
-// RemoveDocument implements ports.TopicSummaryRepository.RemoveDocument
+// RemoveDocument implements ITopicSummaryRepository.RemoveDocument
 func (r *TopicSummaryRepo) RemoveDocument(ctx context.Context, topicID string, docID string) error {
 	query := `DELETE FROM topic_documents WHERE topic_id = ? AND document_id = ?`
 	if r.driver == "postgres" {
@@ -398,7 +395,6 @@ func (r *TopicSummaryRepo) RemoveDocument(ctx context.Context, topicID string, d
 	return nil
 }
 
-// getDocumentIDs retrieves all document IDs associated with a topic
 func (r *TopicSummaryRepo) getDocumentIDs(ctx context.Context, topicID string) ([]string, error) {
 	query := `SELECT document_id FROM topic_documents WHERE topic_id = ?`
 	if r.driver == "postgres" {
@@ -422,12 +418,12 @@ func (r *TopicSummaryRepo) getDocumentIDs(ctx context.Context, topicID string) (
 	return docIDs, rows.Err()
 }
 
-// parseStringArray parses a string array from database
+var _ storage.ITopicSummaryRepository = (*TopicSummaryRepo)(nil)
+
 func parseStringArray(s string) []string {
 	if s == "" || s == "{}" {
 		return []string{}
 	}
-	// Remove PostgreSQL array notation {a,b,c}
 	s = strings.Trim(s, "{}")
 	if s == "" {
 		return []string{}
@@ -440,25 +436,18 @@ func parseStringArray(s string) []string {
 	return result
 }
 
-// UnitOfWork combines multiple repositories for transactional operations
+// UnitOfWork combines multiple repositories
 type UnitOfWork struct {
-	Documents      ports.DocumentRepository
-	Summaries      ports.SummaryRepository
-	TopicSummaries ports.TopicSummaryRepository
+	Documents      storage.IDocumentRepository
+	Summaries      storage.ISummaryRepository
+	TopicSummaries storage.ITopicSummaryRepository
 }
 
 // NewUnitOfWork creates a new unit of work
-func NewUnitOfWork(db sqlDB, driver string, cache ports.Cache) *UnitOfWork {
+func NewUnitOfWork(db sqlDB, driver string, cache storage.ICache) *UnitOfWork {
 	return &UnitOfWork{
 		Documents:      NewDocumentRepo(db, driver, cache),
 		Summaries:      NewSummaryRepo(db, driver, cache),
 		TopicSummaries: NewTopicSummaryRepo(db, driver, cache),
 	}
 }
-
-// Compile-time interface checks
-var (
-	_ ports.DocumentRepository     = (*DocumentRepo)(nil)
-	_ ports.SummaryRepository      = (*SummaryRepo)(nil)
-	_ ports.TopicSummaryRepository = (*TopicSummaryRepo)(nil)
-)
