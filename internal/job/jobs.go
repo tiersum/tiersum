@@ -46,67 +46,63 @@ func (j *IndexerJob) Interval() time.Duration {
 // Execute performs the indexing job
 func (j *IndexerJob) Execute(ctx context.Context) error {
 	j.logger.Info("running document indexer job")
-	// TODO: Implement actual indexing logic
+	// TODO: Implement actual indexing logic for pending documents
 	return nil
 }
 
-// TopicAggregatorJob aggregates documents into topics based on tags
-type TopicAggregatorJob struct {
-	topicSvc service.ITopicService
-	logger   *zap.Logger
+// TagClusteringJob periodically performs tag clustering
+type TagClusteringJob struct {
+	clusteringSvc service.ITagClusteringService
+	logger        *zap.Logger
 }
 
-// NewTopicAggregatorJob creates a new topic aggregator job
-func NewTopicAggregatorJob(
-	topicSvc service.ITopicService,
+// NewTagClusteringJob creates a new tag clustering job
+func NewTagClusteringJob(
+	clusteringSvc service.ITagClusteringService,
 	logger *zap.Logger,
-) *TopicAggregatorJob {
-	return &TopicAggregatorJob{
-		topicSvc: topicSvc,
-		logger:   logger,
+) *TagClusteringJob {
+	return &TagClusteringJob{
+		clusteringSvc: clusteringSvc,
+		logger:        logger,
 	}
 }
 
 // Name returns the job name
-func (j *TopicAggregatorJob) Name() string {
-	return "topic_aggregator"
+func (j *TagClusteringJob) Name() string {
+	return "tag_clustering"
 }
 
-// Interval returns the execution interval
-func (j *TopicAggregatorJob) Interval() time.Duration {
-	return 5 * time.Minute
+// Interval returns the execution interval (30 minutes)
+func (j *TagClusteringJob) Interval() time.Duration {
+	return 30 * time.Minute
 }
 
-// Execute performs the topic aggregation job
+// Execute performs the tag clustering job
 // Strategy:
-// 1. Scan all existing topics and their tags
-// 2. For topics with insufficient documents (< 3), try to find more matching documents
-// 3. Create new topics from orphaned documents that share common tags
-func (j *TopicAggregatorJob) Execute(ctx context.Context) error {
-	j.logger.Info("running topic aggregator job")
+// 1. Check if clustering is needed (tag count changed or time elapsed)
+// 2. If needed, perform LLM-based clustering
+// 3. Update Level 1 clusters and Level 2 tag assignments
+func (j *TagClusteringJob) Execute(ctx context.Context) error {
+	j.logger.Info("running tag clustering job")
 
-	// Get all existing topics
-	topics, err := j.topicSvc.ListTopics(ctx)
+	// Check if refresh is needed
+	shouldRefresh, err := j.clusteringSvc.ShouldRefresh(ctx)
 	if err != nil {
+		j.logger.Error("failed to check if refresh needed", zap.Error(err))
 		return err
 	}
 
-	// Log current state
-	totalDocs := 0
-	for _, topic := range topics {
-		totalDocs += len(topic.DocumentIDs)
+	if !shouldRefresh {
+		j.logger.Info("tag clustering not needed at this time")
+		return nil
 	}
-	j.logger.Info("topic aggregation stats",
-		zap.Int("topics", len(topics)),
-		zap.Int("total_doc_refs", totalDocs))
 
-	// TODO: Implement automatic topic creation from common tags
-	// This would require:
-	// 1. Query all documents and extract tag frequency
-	// 2. Find tag combinations that appear in 3+ documents
-	// 3. Create topics for those combinations
+	// Perform clustering
+	if err := j.clusteringSvc.ClusterTags(ctx); err != nil {
+		j.logger.Error("failed to cluster tags", zap.Error(err))
+		return err
+	}
 
+	j.logger.Info("tag clustering completed successfully")
 	return nil
 }
-
-

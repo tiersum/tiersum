@@ -1,9 +1,10 @@
-// Package svcimpl implements service layer interfaces
 package svcimpl
 
 import (
 	"context"
+	"time"
 
+	"github.com/google/uuid"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
@@ -13,77 +14,138 @@ import (
 
 // DocumentSvc implements service.IDocumentService
 type DocumentSvc struct {
-	repo       storage.IDocumentRepository
-	indexer    service.IIndexer
-	summarizer service.ISummarizer
-	topicSvc   service.ITopicService
-	logger     *zap.Logger
+	docRepo       storage.IDocumentRepository
+	indexer       service.IIndexer
+	summarizer    service.ISummarizer
+	globalTagRepo storage.IGlobalTagRepository
+	logger        *zap.Logger
 }
 
 // NewDocumentSvc creates a new document service
-func NewDocumentSvc(repo storage.IDocumentRepository, indexer service.IIndexer, summarizer service.ISummarizer, topicSvc service.ITopicService, logger *zap.Logger) *DocumentSvc {
+func NewDocumentSvc(
+	docRepo storage.IDocumentRepository,
+	indexer service.IIndexer,
+	summarizer service.ISummarizer,
+	globalTagRepo storage.IGlobalTagRepository,
+	logger *zap.Logger,
+) *DocumentSvc {
 	return &DocumentSvc{
-		repo:       repo,
-		indexer:    indexer,
-		summarizer: summarizer,
-		topicSvc:   topicSvc,
-		logger:     logger,
+		docRepo:       docRepo,
+		indexer:       indexer,
+		summarizer:    summarizer,
+		globalTagRepo: globalTagRepo,
+		logger:        logger,
 	}
 }
 
 // Ingest implements IDocumentService.Ingest
-func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.Document, error) {
+func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error) {
+	// Create document entity
 	doc := &types.Document{
+		ID:      uuid.New().String(),
 		Title:   req.Title,
 		Content: req.Content,
 		Format:  req.Format,
-		Tags:    req.Tags,
 	}
 
-	// Use LLM to generate tags if not provided
-	if len(doc.Tags) == 0 && s.summarizer != nil {
-		s.logger.Info("generating tags via LLM", zap.String("title", doc.Title))
+	// Analyze document with LLM (if no tags provided)
+	if len(req.Tags) == 0 {
 		analysis, err := s.summarizer.AnalyzeDocument(ctx, doc.Title, doc.Content)
 		if err != nil {
-			s.logger.Warn("failed to analyze document, continuing without tags", zap.Error(err))
-		} else {
-			doc.Tags = analysis.Tags
-			s.logger.Info("generated tags", zap.Strings("tags", doc.Tags))
+			s.logger.Warn("failed to analyze document", zap.Error(err))
+			// Continue with empty analysis
+			analysis = &types.DocumentAnalysisResult{
+				Summary:  truncateContent(doc.Content, 200),
+				Tags:     []string{},
+				Chapters: []types.ChapterInfo{},
+			}
+		}
+
+		doc.Tags = analysis.Tags
+
+		// Index the document with analysis results
+		if err := s.indexer.Index(ctx, doc, analysis); err != nil {
+			s.logger.Error("failed to index document", zap.Error(err))
+			// Continue even if indexing fails
+		}
+	} else {
+		doc.Tags = req.Tags
+
+		// Analyze anyway to get chapters and summary
+		analysis, err := s.summarizer.AnalyzeDocument(ctx, doc.Title, doc.Content)
+		if err == nil {
+			// Merge provided tags with generated tags (deduplicate)
+			tagSet := make(map[string]bool)
+			for _, tag := range req.Tags {
+				tagSet[tag] = true
+			}
+			for _, tag := range analysis.Tags {
+				tagSet[tag] = true
+			}
+			mergedTags := make([]string, 0, len(tagSet))
+			for tag := range tagSet {
+				mergedTags = append(mergedTags, tag)
+			}
+			doc.Tags = mergedTags
+
+			// Index with analysis
+			if err := s.indexer.Index(ctx, doc, analysis); err != nil {
+				s.logger.Error("failed to index document", zap.Error(err))
+			}
 		}
 	}
 
-	if err := s.repo.Create(ctx, doc); err != nil {
+	// Save document
+	doc.CreatedAt = time.Now()
+	doc.UpdatedAt = doc.CreatedAt
+	if err := s.docRepo.Create(ctx, doc); err != nil {
 		return nil, err
 	}
 
-	// Async indexing and topic matching
-	if s.indexer != nil {
-		go func() {
-			if err := s.indexer.Index(context.Background(), doc.ID, doc.Content); err != nil {
-				s.logger.Error("failed to index document", zap.String("id", doc.ID), zap.Error(err))
+	// Update global tags
+	for _, tag := range doc.Tags {
+		globalTag := &types.GlobalTag{
+			ID:        uuid.New().String(),
+			Name:      tag,
+			ClusterID: "", // Will be assigned by clustering service
+		}
+		if err := s.globalTagRepo.Create(ctx, globalTag); err != nil {
+			s.logger.Warn("failed to create global tag", zap.String("tag", tag), zap.Error(err))
+		} else {
+			// Increment document count
+			if err := s.globalTagRepo.IncrementDocumentCount(ctx, tag); err != nil {
+				s.logger.Warn("failed to increment tag count", zap.String("tag", tag), zap.Error(err))
 			}
-		}()
+		}
 	}
 
-	// Auto-match document to existing topics based on tags
-	if s.topicSvc != nil && len(doc.Tags) > 0 {
-		go func() {
-			added, err := s.topicSvc.AddDocumentToTopics(context.Background(), doc.ID, doc.Tags)
-			if err != nil {
-				s.logger.Warn("failed to add document to topics", zap.String("id", doc.ID), zap.Error(err))
-			} else if added > 0 {
-				s.logger.Info("auto-matched document to topics", zap.String("id", doc.ID), zap.Int("topics", added))
-			}
-		}()
-	}
+	s.logger.Info("document ingested",
+		zap.String("id", doc.ID),
+		zap.String("title", doc.Title),
+		zap.Int("tags", len(doc.Tags)))
 
-	return doc, nil
+	return &types.CreateDocumentResponse{
+		ID:           doc.ID,
+		Title:        doc.Title,
+		Format:       doc.Format,
+		Tags:         doc.Tags,
+		Summary:      "", // Could fetch from summary repo
+		ChapterCount: 0,  // Could fetch from summary repo
+		CreatedAt:    doc.CreatedAt,
+	}, nil
 }
 
 // Get implements IDocumentService.Get
 func (s *DocumentSvc) Get(ctx context.Context, id string) (*types.Document, error) {
-	return s.repo.GetByID(ctx, id)
+	return s.docRepo.GetByID(ctx, id)
 }
 
-// Compile-time interface check
+// truncateContent truncates content to max length
+func truncateContent(content string, maxLen int) string {
+	if len(content) <= maxLen {
+		return content
+	}
+	return content[:maxLen] + "..."
+}
+
 var _ service.IDocumentService = (*DocumentSvc)(nil)

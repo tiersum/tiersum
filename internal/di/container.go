@@ -23,7 +23,9 @@ type Dependencies struct {
 	// Service Layer interfaces
 	DocumentService service.IDocumentService
 	QueryService    service.IQueryService
-	TopicService    service.ITopicService
+
+	// Tag Clustering Service
+	TagClusteringService service.ITagClusteringService
 
 	// API Layer
 	RESTHandler *api.Handler   // REST API
@@ -50,50 +52,71 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	// 4. Service Layer - Core domain logic
 	summarizer := svcimpl.NewSummarizerSvc(llmProvider, logger)
 	indexer := svcimpl.NewIndexerSvc(summarizer, uow.Summaries, logger)
-	llmFilter := svcimpl.NewLLMFilterSvc(llmProvider, logger)
 
-	// 5. Service Layer - Business logic
-	// Note: TopicService created first as DocumentService depends on it for auto-matching
-	queryService := svcimpl.NewQuerySvc(uow.Documents, uow.Summaries, uow.TopicSummaries, llmFilter, logger)
-	topicService := svcimpl.NewTopicSvc(uow.TopicSummaries, uow.Documents, summarizer, logger)
-	docService := svcimpl.NewDocumentSvc(uow.Documents, indexer, summarizer, topicService, logger)
+	// 5. Service Layer - Tag clustering
+	tagClusteringSvc := svcimpl.NewTagClusteringSvc(
+		uow.GlobalTags,
+		uow.TagClusters,
+		uow.ClusterRefreshLogs,
+		llmProvider,
+		logger,
+	)
 
-	// 6. API Layer
-	restHandler := api.NewHandler(docService, queryService, topicService, logger)
-	mcpServer := api.NewMCPServer(docService, queryService, topicService, logger)
+	// 6. Service Layer - Business logic
+	queryService := svcimpl.NewQuerySvc(
+		uow.Documents,
+		uow.Summaries,
+		uow.GlobalTags,
+		uow.TagClusters,
+		summarizer,
+		logger,
+	)
+	docService := svcimpl.NewDocumentSvc(
+		uow.Documents,
+		indexer,
+		summarizer,
+		uow.GlobalTags,
+		logger,
+	)
 
-	// 7. Job Layer
+	// 7. API Layer
+	restHandler := api.NewHandler(docService, queryService, tagClusteringSvc, logger)
+	mcpServer := api.NewMCPServer(docService, queryService, tagClusteringSvc, logger)
+
+	// 8. Job Layer
 	jobScheduler := job.NewScheduler(logger)
+	// Register tag clustering job (runs every 30 minutes)
+	jobScheduler.Register(job.NewTagClusteringJob(tagClusteringSvc, logger))
 	jobScheduler.Register(job.NewIndexerJob(uow.Documents, uow.Summaries, indexer, logger))
-	jobScheduler.Register(job.NewTopicAggregatorJob(topicService, logger))
 
 	return &Dependencies{
-		DocumentService: docService,
-		QueryService:    queryService,
-		TopicService:    topicService,
-		RESTHandler:     restHandler,
-		MCPServer:       mcpServer,
-		JobScheduler:    jobScheduler,
-		Logger:          logger,
+		DocumentService:      docService,
+		QueryService:         queryService,
+		TagClusteringService: tagClusteringSvc,
+		RESTHandler:          restHandler,
+		MCPServer:            mcpServer,
+		JobScheduler:         jobScheduler,
+		Logger:               logger,
 	}, nil
 }
 
 // Interface compliance checks
 var (
 	// Storage Layer
-	_ storage.IDocumentRepository     = (*db.DocumentRepo)(nil)
-	_ storage.ISummaryRepository      = (*db.SummaryRepo)(nil)
-	_ storage.ITopicSummaryRepository = (*db.TopicSummaryRepo)(nil)
-	_ storage.ICache                  = (*cache.Cache)(nil)
+	_ storage.IDocumentRepository          = (*db.DocumentRepo)(nil)
+	_ storage.ISummaryRepository           = (*db.SummaryRepo)(nil)
+	_ storage.IGlobalTagRepository         = (*db.GlobalTagRepo)(nil)
+	_ storage.ITagClusterRepository        = (*db.TagClusterRepo)(nil)
+	_ storage.IClusterRefreshLogRepository = (*db.ClusterRefreshLogRepo)(nil)
+	_ storage.ICache                       = (*cache.Cache)(nil)
 
 	// Service Layer
-	_ service.IDocumentService          = (*svcimpl.DocumentSvc)(nil)
-	_ service.IQueryService             = (*svcimpl.QuerySvc)(nil)
-	_ service.IHierarchicalQueryService = (*svcimpl.QuerySvc)(nil)
-	_ service.ITopicService             = (*svcimpl.TopicSvc)(nil)
-	_ service.IIndexer                  = (*svcimpl.IndexerSvc)(nil)
-	_ service.ISummarizer               = (*svcimpl.SummarizerSvc)(nil)
-	_ service.ILLMFilter                = (*svcimpl.LLMFilterSvc)(nil)
+	_ service.IDocumentService      = (*svcimpl.DocumentSvc)(nil)
+	_ service.IQueryService         = (*svcimpl.QuerySvc)(nil)
+	_ service.ITagClusteringService = (*svcimpl.TagClusteringSvc)(nil)
+	_ service.IIndexer              = (*svcimpl.IndexerSvc)(nil)
+	_ service.ISummarizer           = (*svcimpl.SummarizerSvc)(nil)
+	_ service.ILLMFilter            = (*svcimpl.SummarizerSvc)(nil)
 
 	// Client Layer
 	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)

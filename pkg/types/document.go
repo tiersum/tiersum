@@ -16,15 +16,14 @@ type Document struct {
 }
 
 // SummaryTier represents the level of summarization
-// Hierarchy: Topic > Document > Chapter > Paragraph > Source
+// Hierarchy: Document > Chapter > Source
+// Note: Topic and Paragraph tiers are removed in the new architecture
 type SummaryTier string
 
 const (
-	TierTopic     SummaryTier = "topic"     // Highest level - theme/topic summary across documents
-	TierDocument  SummaryTier = "document"  // Document level summary
-	TierChapter   SummaryTier = "chapter"   // Chapter/section level
-	TierParagraph SummaryTier = "paragraph" // Paragraph level
-	TierSource    SummaryTier = "source"    // Original source text
+	TierDocument SummaryTier = "document" // Document level summary
+	TierChapter  SummaryTier = "chapter"  // Chapter/section level summary
+	TierSource   SummaryTier = "source"   // Original source text
 )
 
 // Summary represents a summary at a specific tier
@@ -32,40 +31,48 @@ type Summary struct {
 	ID         string      `json:"id"`
 	DocumentID string      `json:"document_id"`
 	Tier       SummaryTier `json:"tier"`
-	Path       string      `json:"path"`
-	Content    string      `json:"content"`
-	IsSource   bool        `json:"is_source"` // 是否已经是原文（true=不能再深入，false=可以深入）
+	Path       string      `json:"path"`    // Format: doc_id or doc_id/chapter_title
+	Content    string      `json:"content"` // Summary content or source content
+	IsSource   bool        `json:"is_source"`
 	CreatedAt  time.Time   `json:"created_at"`
 	UpdatedAt  time.Time   `json:"updated_at"`
 }
 
-// TopicSource represents the source of topic creation
-type TopicSource string
-
-const (
-	TopicSourceManual TopicSource = "manual" // Created via API by user
-	TopicSourceAuto   TopicSource = "auto"   // Created automatically by job based on tags
-)
-
-// TopicSummary represents a theme/topic level summary that spans multiple documents
-type TopicSummary struct {
-	ID          string      `json:"id"`
-	Name        string      `json:"name"`         // Topic name/title
-	Description string      `json:"description"`  // Brief description
-	Summary     string      `json:"summary"`      // LLM-generated summary
-	Tags        []string    `json:"tags"`         // Related tags
-	DocumentIDs []string    `json:"document_ids"` // Associated document IDs
-	Source      TopicSource `json:"source"`       // Creation source: manual or auto
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+// ChapterInfo represents a chapter/section in a document
+type ChapterInfo struct {
+	Title       string `json:"title"`       // Chapter title
+	Level       int    `json:"level"`       // Header level (1=#, 2=##, 3=###)
+	Summary     string `json:"summary"`     // Chapter summary
+	Content     string `json:"content"`     // Chapter original content
+	StartOffset int    `json:"start_offset"` // Start position in document
+	EndOffset   int    `json:"end_offset"`   // End position in document
 }
 
 // DocumentAnalysisResult holds LLM analysis results for a document
 type DocumentAnalysisResult struct {
-	Summary   string   `json:"summary"`    // Document-level summary
-	Tags      []string `json:"tags"`       // Generated tags
-	Topic     string   `json:"topic"`      // Suggested topic/theme
-	KeyPoints []string `json:"key_points"` // Key takeaways
+	Summary  string        `json:"summary"`   // Document-level summary
+	Tags     []string      `json:"tags"`      // Generated tags (max 10)
+	Chapters []ChapterInfo `json:"chapters"`  // List of chapters with summaries
+}
+
+// TagCluster represents a cluster of tags (Level 1 categorization)
+type TagCluster struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`        // Cluster name/category
+	Description string   `json:"description"` // Cluster description
+	Tags        []string `json:"tags"`        // Tags in this cluster
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// GlobalTag represents a global tag with its metadata
+type GlobalTag struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`        // Tag name
+	ClusterID   string    `json:"cluster_id"`  // Which cluster it belongs to (Level 1)
+	DocumentCount int     `json:"document_count"` // Number of documents with this tag
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // CreateDocumentRequest represents a request to create a document
@@ -81,14 +88,17 @@ type CreateDocumentResponse struct {
 	ID        string    `json:"id"`
 	Title     string    `json:"title"`
 	Format    string    `json:"format"`
+	Tags      []string  `json:"tags"`
+	Summary   string    `json:"summary"`
+	ChapterCount int    `json:"chapter_count"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
 // QueryRequest represents a query request
 type QueryRequest struct {
 	Question string      `form:"question" binding:"required"`
-	Depth    SummaryTier `form:"depth" binding:"omitempty,oneof=topic document chapter paragraph source"`
-	Tags     []string    `form:"tags,omitempty"`
+	Depth    SummaryTier `form:"depth" binding:"omitempty,oneof=document chapter source"`
+	Tags     []string    `form:"tags,omitempty"` // Optional tag filter
 }
 
 // QueryResponse represents a query response
@@ -106,4 +116,18 @@ type QueryResult struct {
 	Path          string      `json:"path"`
 	Content       string      `json:"content"`
 	Relevance     float64     `json:"relevance"`
+}
+
+// TagLevel represents the level of a tag in the two-level hierarchy
+type TagLevel int
+
+const (
+	TagLevel1 TagLevel = 1 // Level 1: Cluster/Category
+	TagLevel2 TagLevel = 2 // Level 2: Actual tag
+)
+
+// TagFilterResult represents a tag filter result from LLM
+type TagFilterResult struct {
+	Tag       string  `json:"tag"`
+	Relevance float64 `json:"relevance"`
 }

@@ -11,84 +11,57 @@ import (
 // IDocumentService defines document business logic
 type IDocumentService interface {
 	// Ingest processes and stores a new document
-	Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.Document, error)
+	// Automatically generates tags, summary, and chapter summaries
+	Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error)
 	// Get retrieves a document by ID
 	Get(ctx context.Context, id string) (*types.Document, error)
 }
 
 // IQueryService defines query business logic
 type IQueryService interface {
-	// Query performs hierarchical query
+	// Query performs hierarchical query with LLM filtering
 	Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error)
+	// ProgressiveQuery performs the new two-level tag-based progressive query
+	ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error)
 }
 
-// IHierarchicalQueryService defines progressive hierarchical query capabilities
-// Used for Agent-driven drill-down discovery (Scheme 2)
-type IHierarchicalQueryService interface {
-	// Query performs hierarchical query (from IQueryService)
-	Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error)
-
-	// GetTopicDocuments retrieves all documents under a topic
-	GetTopicDocuments(ctx context.Context, topicID string) ([]types.Document, error)
-
-	// GetDocumentChapters retrieves all chapters of a document
-	GetDocumentChapters(ctx context.Context, docID string) ([]types.Summary, error)
-
-	// GetChapterParagraphs retrieves all paragraphs under a chapter
-	GetChapterParagraphs(ctx context.Context, chapterPath string) ([]types.Summary, error)
-
-	// DrillDown performs a drill-down query from current level to next
-	// Returns filtered items at the next level based on the query
-	DrillDown(ctx context.Context, req types.DrillDownRequest) ([]types.QueryItem, error)
-
-	// GetSource retrieves the original source content for a path
-	GetSource(ctx context.Context, docID string, path string) (*types.QueryItem, error)
-}
-
-// ITopicService defines topic management business logic
-type ITopicService interface {
-	// CreateTopicFromDocuments creates a new topic summary from documents
-	CreateTopicFromDocuments(ctx context.Context, topicName string, docIDs []string, source types.TopicSource) (*types.TopicSummary, error)
-	// GetTopic retrieves a topic by ID
-	GetTopic(ctx context.Context, id string) (*types.TopicSummary, error)
-	// ListTopics lists all topics
-	ListTopics(ctx context.Context) ([]types.TopicSummary, error)
-	// FindTopicsByTags finds topics by tags
-	FindTopicsByTags(ctx context.Context, tags []string) ([]types.TopicSummary, error)
-	// AddDocumentToTopics adds a document to matching topics based on tag overlap
-	// Returns the number of topics the document was added to
-	AddDocumentToTopics(ctx context.Context, docID string, docTags []string) (int, error)
-	// AutoCreateTopicFromTag creates a new topic from documents sharing a specific tag
-	AutoCreateTopicFromTag(ctx context.Context, tag string, minDocs int) (*types.TopicSummary, error)
+// ITagClusteringService defines tag clustering business logic
+type ITagClusteringService interface {
+	// ClusterTags performs LLM-based clustering of all global tags
+	// Creates Level 1 clusters from Level 2 tags
+	ClusterTags(ctx context.Context) error
+	// ShouldRefresh checks if clustering should be performed based on tag count change
+	ShouldRefresh(ctx context.Context) (bool, error)
+	// GetL1Clusters retrieves all Level 1 clusters
+	GetL1Clusters(ctx context.Context) ([]types.TagCluster, error)
+	// GetL2TagsByCluster retrieves Level 2 tags belonging to a cluster
+	GetL2TagsByCluster(ctx context.Context, clusterID string) ([]types.GlobalTag, error)
+	// FilterL2TagsByQuery uses LLM to filter L2 tags based on query
+	FilterL2TagsByQuery(ctx context.Context, query string, tags []types.GlobalTag) ([]types.TagFilterResult, error)
 }
 
 // IIndexer defines document indexing logic
 type IIndexer interface {
 	// Index processes and indexes a document
-	Index(ctx context.Context, docID string, content string) error
+	// Creates document summary, chapter summaries, and stores source content
+	Index(ctx context.Context, doc *types.Document, analysis *types.DocumentAnalysisResult) error
 }
 
 // ISummarizer defines summarization logic
 type ISummarizer interface {
-	// Summarize creates summary for given content
-	Summarize(ctx context.Context, content string, level types.SummaryTier) (string, error)
-	// AnalyzeDocument performs full document analysis including summary and tags
+	// AnalyzeDocument performs full document analysis
+	// Returns document summary, tags (max 10), and chapter summaries
 	AnalyzeDocument(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error)
-	// GenerateTopicSummary creates a topic-level summary from multiple documents
-	GenerateTopicSummary(ctx context.Context, topicName string, documents []*types.Document, source types.TopicSource) (*types.TopicSummary, error)
-}
-
-// ILLMFilter defines LLM-based filtering capabilities for hierarchical queries
-type ILLMFilter interface {
-	// FilterTopics selects relevant topics based on the query
-	// Returns list of topic IDs sorted by relevance
-	FilterTopics(ctx context.Context, query string, topics []types.TopicSummary) ([]types.LLMFilterResult, error)
-	// FilterDocuments selects relevant documents based on the query
-	// Returns list of document IDs sorted by relevance
+	// FilterDocuments selects relevant documents based on query
 	FilterDocuments(ctx context.Context, query string, docs []types.Document) ([]types.LLMFilterResult, error)
-	// FilterSummaries selects relevant summaries (chapters/paragraphs) based on the query
-	// Returns list of paths sorted by relevance
-	FilterSummaries(ctx context.Context, query string, summaries []types.Summary, tier types.SummaryTier) ([]types.LLMFilterResult, error)
+	// FilterChapters selects relevant chapters based on query
+	FilterChapters(ctx context.Context, query string, chapters []types.Summary) ([]types.LLMFilterResult, error)
 }
 
-
+// ILLMFilter is kept for backward compatibility, merged into ISummarizer
+type ILLMFilter interface {
+	// FilterDocuments selects relevant documents based on query
+	FilterDocuments(ctx context.Context, query string, docs []types.Document) ([]types.LLMFilterResult, error)
+	// FilterChapters selects relevant chapters based on query
+	FilterChapters(ctx context.Context, query string, chapters []types.Summary) ([]types.LLMFilterResult, error)
+}
