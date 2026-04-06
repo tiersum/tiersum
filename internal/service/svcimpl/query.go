@@ -667,4 +667,294 @@ func isNumber(s string) bool {
 	return s != ""
 }
 
+// GetTopicDocuments retrieves all documents under a topic
+func (s *QuerySvc) GetTopicDocuments(ctx context.Context, topicID string) ([]types.Document, error) {
+	return s.topicRepo.GetTopicDocuments(ctx, topicID)
+}
+
+// GetDocumentChapters retrieves all chapters of a document
+func (s *QuerySvc) GetDocumentChapters(ctx context.Context, docID string) ([]types.Summary, error) {
+	return s.summaryRepo.QueryByTierAndPrefix(ctx, types.TierChapter, docID)
+}
+
+// GetChapterParagraphs retrieves all paragraphs under a chapter
+func (s *QuerySvc) GetChapterParagraphs(ctx context.Context, chapterPath string) ([]types.Summary, error) {
+	return s.summaryRepo.QueryByTierAndPrefix(ctx, types.TierParagraph, chapterPath)
+}
+
+// DrillDown performs a drill-down query from current level to next
+func (s *QuerySvc) DrillDown(ctx context.Context, req types.DrillDownRequest) ([]types.QueryItem, error) {
+	switch req.CurrentTier {
+	case types.TierTopic:
+		return s.drillDownFromTopic(ctx, req)
+	case types.TierDocument:
+		return s.drillDownFromDocument(ctx, req)
+	case types.TierChapter:
+		return s.drillDownFromChapter(ctx, req)
+	case types.TierParagraph:
+		return s.drillDownFromParagraph(ctx, req)
+	default:
+		return nil, fmt.Errorf("unsupported tier for drill-down: %s", req.CurrentTier)
+	}
+}
+
+// drillDownFromTopic drills down from topic to documents
+func (s *QuerySvc) drillDownFromTopic(ctx context.Context, req types.DrillDownRequest) ([]types.QueryItem, error) {
+	// Get documents under this topic
+	docs, err := s.topicRepo.GetTopicDocuments(ctx, req.DocumentID)
+	if err != nil {
+		return nil, fmt.Errorf("get topic documents: %w", err)
+	}
+	if len(docs) == 0 {
+		return nil, nil
+	}
+
+	// LLM filter documents by question
+	filterResults, err := s.llmFilter.FilterDocuments(ctx, req.Question, docs)
+	if err != nil {
+		s.logger.Warn("LLM document filter failed, returning all documents", zap.Error(err))
+		filterResults = make([]types.LLMFilterResult, len(docs))
+		for i, d := range docs {
+			filterResults[i] = types.LLMFilterResult{ID: d.ID, Relevance: 0.5}
+		}
+	}
+
+	// Sort by relevance
+	sort.Slice(filterResults, func(i, j int) bool {
+		return filterResults[i].Relevance > filterResults[j].Relevance
+	})
+
+	// Build result items
+	var items []types.QueryItem
+	docMap := make(map[string]types.Document)
+	for _, d := range docs {
+		docMap[d.ID] = d
+	}
+
+	for _, fr := range filterResults {
+		doc, ok := docMap[fr.ID]
+		if !ok {
+			continue
+		}
+
+		// Get document summary
+		summaries, _ := s.summaryRepo.GetByDocument(ctx, doc.ID)
+		var docSummary string
+		for _, sum := range summaries {
+			if sum.Tier == types.TierDocument {
+				docSummary = sum.Content
+				break
+			}
+		}
+
+		// Count chapters
+		chapters, _ := s.summaryRepo.QueryByTierAndPrefix(ctx, types.TierChapter, doc.ID)
+
+		items = append(items, types.QueryItem{
+			ID:         doc.ID,
+			Title:      doc.Title,
+			Content:    docSummary,
+			Tier:       types.TierDocument,
+			Path:       doc.ID,
+			Relevance:  fr.Relevance,
+			IsSource:   len(chapters) == 0,
+			ChildCount: len(chapters),
+		})
+	}
+
+	return items, nil
+}
+
+// drillDownFromDocument drills down from document to chapters
+func (s *QuerySvc) drillDownFromDocument(ctx context.Context, req types.DrillDownRequest) ([]types.QueryItem, error) {
+	// Get all chapters for this document
+	chapters, err := s.summaryRepo.QueryByTierAndPrefix(ctx, types.TierChapter, req.DocumentID)
+	if err != nil {
+		return nil, fmt.Errorf("get document chapters: %w", err)
+	}
+	if len(chapters) == 0 {
+		return nil, nil
+	}
+
+	// Separate short chapters (is_source=true) and normal chapters
+	var normalChapters []types.Summary
+	var items []types.QueryItem
+
+	for _, ch := range chapters {
+		if ch.IsSource {
+			// Short chapter - include directly
+			items = append(items, types.QueryItem{
+				ID:         ch.DocumentID,
+				Title:      extractTitleFromPath(ch.Path),
+				Content:    ch.Content,
+				Tier:       types.TierChapter,
+				Path:       ch.Path,
+				Relevance:  1.0,
+				IsSource:   true,
+				ChildCount: 0,
+			})
+		} else {
+			normalChapters = append(normalChapters, ch)
+		}
+	}
+
+	// LLM filter normal chapters
+	if len(normalChapters) > 0 {
+		filterResults, err := s.llmFilter.FilterSummaries(ctx, req.Question, normalChapters, types.TierChapter)
+		if err != nil {
+			s.logger.Warn("LLM chapter filter failed", zap.Error(err))
+			filterResults = make([]types.LLMFilterResult, len(normalChapters))
+			for i, ch := range normalChapters {
+				filterResults[i] = types.LLMFilterResult{ID: ch.Path, Relevance: 0.5}
+			}
+		}
+
+		sort.Slice(filterResults, func(i, j int) bool {
+			return filterResults[i].Relevance > filterResults[j].Relevance
+		})
+
+		chapterMap := make(map[string]types.Summary)
+		for _, ch := range normalChapters {
+			chapterMap[ch.Path] = ch
+		}
+
+		for _, fr := range filterResults {
+			ch, ok := chapterMap[fr.ID]
+			if !ok {
+				continue
+			}
+
+			paragraphs, _ := s.summaryRepo.GetChildrenPaths(ctx, ch.Path, types.TierParagraph)
+
+			items = append(items, types.QueryItem{
+				ID:         ch.DocumentID,
+				Title:      extractTitleFromPath(ch.Path),
+				Content:    ch.Content,
+				Tier:       types.TierChapter,
+				Path:       ch.Path,
+				Relevance:  fr.Relevance,
+				IsSource:   len(paragraphs) == 0,
+				ChildCount: len(paragraphs),
+			})
+		}
+	}
+
+	return items, nil
+}
+
+// drillDownFromChapter drills down from chapter to paragraphs
+func (s *QuerySvc) drillDownFromChapter(ctx context.Context, req types.DrillDownRequest) ([]types.QueryItem, error) {
+	// Get all paragraphs for this chapter
+	paragraphs, err := s.summaryRepo.QueryByTierAndPrefix(ctx, types.TierParagraph, req.Path)
+	if err != nil {
+		return nil, fmt.Errorf("get chapter paragraphs: %w", err)
+	}
+	if len(paragraphs) == 0 {
+		return nil, nil
+	}
+
+	// LLM filter paragraphs
+	filterResults, err := s.llmFilter.FilterSummaries(ctx, req.Question, paragraphs, types.TierParagraph)
+	if err != nil {
+		s.logger.Warn("LLM paragraph filter failed", zap.Error(err))
+		filterResults = make([]types.LLMFilterResult, len(paragraphs))
+		for i, p := range paragraphs {
+			filterResults[i] = types.LLMFilterResult{ID: p.Path, Relevance: 0.5}
+		}
+	}
+
+	sort.Slice(filterResults, func(i, j int) bool {
+		return filterResults[i].Relevance > filterResults[j].Relevance
+	})
+
+	paraMap := make(map[string]types.Summary)
+	for _, p := range paragraphs {
+		paraMap[p.Path] = p
+	}
+
+	var items []types.QueryItem
+	for _, fr := range filterResults {
+		para, ok := paraMap[fr.ID]
+		if !ok {
+			continue
+		}
+
+		items = append(items, types.QueryItem{
+			ID:         para.DocumentID,
+			Title:      fmt.Sprintf("Paragraph %s", extractLastSegment(para.Path)),
+			Content:    para.Content,
+			Tier:       types.TierParagraph,
+			Path:       para.Path,
+			Relevance:  fr.Relevance,
+			IsSource:   false,
+			ChildCount: 1,
+		})
+	}
+
+	return items, nil
+}
+
+// drillDownFromParagraph drills down from paragraph to source
+func (s *QuerySvc) drillDownFromParagraph(ctx context.Context, req types.DrillDownRequest) ([]types.QueryItem, error) {
+	item, err := s.GetSource(ctx, req.DocumentID, req.Path)
+	if err != nil {
+		return nil, err
+	}
+	if item == nil {
+		return nil, nil
+	}
+	return []types.QueryItem{*item}, nil
+}
+
+// GetSource retrieves the original source content for a path
+func (s *QuerySvc) GetSource(ctx context.Context, docID string, path string) (*types.QueryItem, error) {
+	// Get the summary at this path
+	summary, err := s.summaryRepo.GetByPath(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("get summary: %w", err)
+	}
+	if summary == nil {
+		return nil, nil
+	}
+
+	// If it's already marked as source, return its content
+	if summary.IsSource {
+		return &types.QueryItem{
+			ID:         summary.DocumentID,
+			Title:      extractTitleFromPath(summary.Path),
+			Content:    summary.Content,
+			Tier:       types.TierSource,
+			Path:       summary.Path,
+			Relevance:  1.0,
+			IsSource:   true,
+			ChildCount: 0,
+		}, nil
+	}
+
+	// For paragraphs, extract from original document
+	if summary.Tier == types.TierParagraph {
+		doc, err := s.docRepo.GetByID(ctx, summary.DocumentID)
+		if err != nil || doc == nil {
+			s.logger.Warn("failed to get document for source extraction", zap.String("doc_id", summary.DocumentID))
+			return nil, nil
+		}
+
+		sourceContent := s.extractSourceFromDocument(doc.Content, summary.Path)
+
+		return &types.QueryItem{
+			ID:         summary.DocumentID,
+			Title:      fmt.Sprintf("Source: %s", extractTitleFromPath(summary.Path)),
+			Content:    sourceContent,
+			Tier:       types.TierSource,
+			Path:       summary.Path,
+			Relevance:  1.0,
+			IsSource:   true,
+			ChildCount: 0,
+		}, nil
+	}
+
+	return nil, fmt.Errorf("cannot get source for tier: %s", summary.Tier)
+}
+
 var _ service.IQueryService = (*QuerySvc)(nil)
+var _ service.IHierarchicalQueryService = (*QuerySvc)(nil)

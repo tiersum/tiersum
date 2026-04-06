@@ -22,6 +22,29 @@ type IQueryService interface {
 	Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error)
 }
 
+// IHierarchicalQueryService defines progressive hierarchical query capabilities
+// Used for Agent-driven drill-down discovery (Scheme 2)
+type IHierarchicalQueryService interface {
+	// Query performs hierarchical query (from IQueryService)
+	Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error)
+
+	// GetTopicDocuments retrieves all documents under a topic
+	GetTopicDocuments(ctx context.Context, topicID string) ([]types.Document, error)
+
+	// GetDocumentChapters retrieves all chapters of a document
+	GetDocumentChapters(ctx context.Context, docID string) ([]types.Summary, error)
+
+	// GetChapterParagraphs retrieves all paragraphs under a chapter
+	GetChapterParagraphs(ctx context.Context, chapterPath string) ([]types.Summary, error)
+
+	// DrillDown performs a drill-down query from current level to next
+	// Returns filtered items at the next level based on the query
+	DrillDown(ctx context.Context, req types.DrillDownRequest) ([]types.QueryItem, error)
+
+	// GetSource retrieves the original source content for a path
+	GetSource(ctx context.Context, docID string, path string) (*types.QueryItem, error)
+}
+
 // ITopicService defines topic management business logic
 type ITopicService interface {
 	// CreateTopicFromDocuments creates a new topic summary from documents

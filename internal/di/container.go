@@ -87,12 +87,13 @@ var (
 	_ storage.ICache                  = (*cache.Cache)(nil)
 
 	// Service Layer
-	_ service.IDocumentService = (*svcimpl.DocumentSvc)(nil)
-	_ service.IQueryService    = (*svcimpl.QuerySvc)(nil)
-	_ service.ITopicService    = (*svcimpl.TopicSvc)(nil)
-	_ service.IIndexer         = (*svcimpl.IndexerSvc)(nil)
-	_ service.ISummarizer      = (*svcimpl.SummarizerSvc)(nil)
-	_ service.ILLMFilter       = (*svcimpl.LLMFilterSvc)(nil)
+	_ service.IDocumentService          = (*svcimpl.DocumentSvc)(nil)
+	_ service.IQueryService             = (*svcimpl.QuerySvc)(nil)
+	_ service.IHierarchicalQueryService = (*svcimpl.QuerySvc)(nil)
+	_ service.ITopicService             = (*svcimpl.TopicSvc)(nil)
+	_ service.IIndexer                  = (*svcimpl.IndexerSvc)(nil)
+	_ service.ISummarizer               = (*svcimpl.SummarizerSvc)(nil)
+	_ service.ILLMFilter                = (*svcimpl.LLMFilterSvc)(nil)
 
 	// Client Layer
 	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)

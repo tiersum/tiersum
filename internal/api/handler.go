@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -37,6 +38,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		docs.POST("", h.CreateDocument)
 		docs.GET("", h.ListDocuments)
 		docs.GET("/:id", h.GetDocument)
+		docs.GET("/:id/chapters", h.GetDocumentChapters)
 	}
 
 	// Topic endpoints
@@ -45,6 +47,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		topics.POST("", h.CreateTopic)
 		topics.GET("", h.ListTopics)
 		topics.GET("/:id", h.GetTopic)
+		topics.GET("/:id/documents", h.GetTopicDocuments)
 		topics.GET("/by-tags", h.FindTopicsByTags)
 	}
 
@@ -133,8 +136,8 @@ func (h *Handler) Query(c *gin.Context) {
 
 // CreateTopicRequest represents a request to create a topic
 type CreateTopicRequest struct {
-	Name    string   `json:"name" binding:"required"`
-	DocIDs  []string `json:"document_ids" binding:"required,min=1"`
+	Name   string   `json:"name" binding:"required"`
+	DocIDs []string `json:"document_ids" binding:"required,min=1"`
 }
 
 // CreateTopic creates a new topic from documents
@@ -250,8 +253,32 @@ func (h *Handler) DrillDown(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement drill-down endpoint
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+	// Validate tier
+	if !isValidTier(req.CurrentTier) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid current_tier"})
+		return
+	}
+
+	// Use hierarchical query service
+	svc, ok := h.queryService.(interface {
+		DrillDown(ctx context.Context, req types.DrillDownRequest) ([]types.QueryItem, error)
+	})
+	if !ok {
+		h.logger.Error("query service does not support drill-down")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "service not available"})
+		return
+	}
+
+	items, err := svc.DrillDown(c.Request.Context(), req)
+	if err != nil {
+		h.logger.Error("failed to drill down", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"items": items,
+	})
 }
 
 // GetSource retrieves original source content
@@ -262,6 +289,90 @@ func (h *Handler) GetSource(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement source retrieval endpoint
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+	// Use hierarchical query service
+	svc, ok := h.queryService.(interface {
+		GetSource(ctx context.Context, docID string, path string) (*types.QueryItem, error)
+	})
+	if !ok {
+		h.logger.Error("query service does not support source retrieval")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "service not available"})
+		return
+	}
+
+	item, err := svc.GetSource(c.Request.Context(), req.DocumentID, req.Path)
+	if err != nil {
+		h.logger.Error("failed to get source", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	if item == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "source not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, item)
+}
+
+// GetTopicDocuments retrieves documents under a topic
+func (h *Handler) GetTopicDocuments(c *gin.Context) {
+	topicID := c.Param("id")
+	if topicID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "topic id is required"})
+		return
+	}
+
+	svc, ok := h.topicService.(interface {
+		GetTopicDocuments(ctx context.Context, topicID string) ([]types.Document, error)
+	})
+	if !ok {
+		h.logger.Error("topic service does not support GetTopicDocuments")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "service not available"})
+		return
+	}
+
+	docs, err := svc.GetTopicDocuments(c.Request.Context(), topicID)
+	if err != nil {
+		h.logger.Error("failed to get topic documents", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"documents": docs})
+}
+
+// GetDocumentChapters retrieves chapters of a document
+func (h *Handler) GetDocumentChapters(c *gin.Context) {
+	docID := c.Param("id")
+	if docID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "document id is required"})
+		return
+	}
+
+	svc, ok := h.queryService.(interface {
+		GetDocumentChapters(ctx context.Context, docID string) ([]types.Summary, error)
+	})
+	if !ok {
+		h.logger.Error("query service does not support GetDocumentChapters")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "service not available"})
+		return
+	}
+
+	chapters, err := svc.GetDocumentChapters(c.Request.Context(), docID)
+	if err != nil {
+		h.logger.Error("failed to get document chapters", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"chapters": chapters})
+}
+
+// isValidTier checks if the tier is valid
+func isValidTier(tier types.SummaryTier) bool {
+	switch tier {
+	case types.TierTopic, types.TierDocument, types.TierChapter, types.TierParagraph, types.TierSource:
+		return true
+	}
+	return false
 }
