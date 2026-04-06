@@ -48,9 +48,8 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	llmProvider := llm.NewOpenAIProvider()
 
 	// 4. Service Layer - Core domain logic
-	parser := svcimpl.NewParserSvc()
 	summarizer := svcimpl.NewSummarizerSvc(llmProvider, logger)
-	indexer := svcimpl.NewIndexerSvc(parser, summarizer, uow.Summaries, logger)
+	indexer := svcimpl.NewIndexerSvc(summarizer, uow.Summaries, logger)
 
 	// 5. Service Layer - Business logic
 	// Note: TopicService created first as DocumentService depends on it for auto-matching
@@ -66,7 +65,6 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	jobScheduler := job.NewScheduler(logger)
 	jobScheduler.Register(job.NewIndexerJob(uow.Documents, uow.Summaries, indexer, logger))
 	jobScheduler.Register(job.NewTopicAggregatorJob(topicService, logger))
-	jobScheduler.Register(job.NewCacheCleanupJob(cacheStore, logger))
 
 	return &Dependencies{
 		DocumentService: docService,
@@ -93,7 +91,6 @@ var (
 	_ service.ITopicService    = (*svcimpl.TopicSvc)(nil)
 	_ service.IIndexer         = (*svcimpl.IndexerSvc)(nil)
 	_ service.ISummarizer      = (*svcimpl.SummarizerSvc)(nil)
-	_ service.IParser          = (*svcimpl.ParserSvc)(nil)
 
 	// Client Layer
 	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)

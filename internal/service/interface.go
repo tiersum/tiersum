@@ -55,8 +55,4 @@ type ISummarizer interface {
 	GenerateTopicSummary(ctx context.Context, topicName string, documents []*types.Document) (*types.TopicSummary, error)
 }
 
-// IParser defines document parsing logic
-type IParser interface {
-	// Parse parses content into hierarchical document
-	Parse(content string) (*types.ParsedDocument, error)
-}
+

@@ -36,7 +36,6 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		docs.POST("", h.CreateDocument)
 		docs.GET("", h.ListDocuments)
 		docs.GET("/:id", h.GetDocument)
-		docs.GET("/:id/hierarchy", h.GetHierarchy)
 	}
 
 	// Topic endpoints
@@ -100,20 +99,6 @@ func (h *Handler) GetDocument(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, doc)
-}
-
-// GetHierarchy retrieves the hierarchical structure of a document
-func (h *Handler) GetHierarchy(c *gin.Context) {
-	id := c.Param("id")
-	_ = c.Query("path") // TODO: Use path parameter
-
-	h.logger.Info("Getting hierarchy", zap.String("id", id))
-
-	// TODO: Implement hierarchy retrieval using query service
-	c.JSON(http.StatusOK, types.HierarchyResponse{
-		DocumentID: id,
-		Hierarchy:  &types.HierarchyNode{Level: 0, Title: "Root"},
-	})
 }
 
 // Query performs a hierarchical query

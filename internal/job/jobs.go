@@ -109,33 +109,4 @@ func (j *TopicAggregatorJob) Execute(ctx context.Context) error {
 	return nil
 }
 
-// CacheCleanupJob cleans up expired cache entries
-type CacheCleanupJob struct {
-	cache  storage.ICache
-	logger *zap.Logger
-}
 
-// NewCacheCleanupJob creates a new cache cleanup job
-func NewCacheCleanupJob(cache storage.ICache, logger *zap.Logger) *CacheCleanupJob {
-	return &CacheCleanupJob{
-		cache:  cache,
-		logger: logger,
-	}
-}
-
-// Name returns the job name
-func (j *CacheCleanupJob) Name() string {
-	return "cache_cleanup"
-}
-
-// Interval returns the execution interval
-func (j *CacheCleanupJob) Interval() time.Duration {
-	return 10 * time.Minute
-}
-
-// Execute performs the cache cleanup
-func (j *CacheCleanupJob) Execute(ctx context.Context) error {
-	j.logger.Info("running cache cleanup job")
-	// TODO: Implement cache cleanup logic
-	return nil
-}

@@ -15,21 +15,16 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// fieldPattern is used for extracting fields from LLM responses
-var fieldPattern = regexp.MustCompile(`(?i)([^:]+):\s*(.+?)(?=\n[^:]*:|\z)`)
-
 // IndexerSvc implements service.IIndexer
 type IndexerSvc struct {
-	parser     service.IParser
 	summarizer service.ISummarizer
 	repo       storage.ISummaryRepository
 	logger     *zap.Logger
 }
 
 // NewIndexerSvc creates a new indexer service
-func NewIndexerSvc(parser service.IParser, summarizer service.ISummarizer, repo storage.ISummaryRepository, logger *zap.Logger) *IndexerSvc {
+func NewIndexerSvc(summarizer service.ISummarizer, repo storage.ISummaryRepository, logger *zap.Logger) *IndexerSvc {
 	return &IndexerSvc{
-		parser:     parser,
 		summarizer: summarizer,
 		repo:       repo,
 		logger:     logger,
@@ -38,11 +33,6 @@ func NewIndexerSvc(parser service.IParser, summarizer service.ISummarizer, repo 
 
 // Index implements IIndexer.Index
 func (i *IndexerSvc) Index(ctx context.Context, docID string, content string) error {
-	parsed, err := i.parser.Parse(content)
-	if err != nil {
-		return fmt.Errorf("parse document: %w", err)
-	}
-
 	summary, err := i.summarizer.Summarize(ctx, content, types.TierDocument)
 	if err != nil {
 		return fmt.Errorf("summarize document: %w", err)
@@ -56,51 +46,6 @@ func (i *IndexerSvc) Index(ctx context.Context, docID string, content string) er
 	}
 	if err := i.repo.Create(ctx, sum); err != nil {
 		return fmt.Errorf("create summary: %w", err)
-	}
-
-	if err := i.indexNode(ctx, docID, parsed.Root, "", 0); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (i *IndexerSvc) indexNode(ctx context.Context, docID string, node *types.ParsedNode, parentPath string, index int) error {
-	if node == nil {
-		return nil
-	}
-
-	path := fmt.Sprintf("%s.%d", parentPath, index)
-	if parentPath == "" {
-		path = fmt.Sprintf("%d", index)
-	}
-
-	if node.Content != "" {
-		level := types.TierChapter
-		if node.Level > 1 {
-			level = types.TierParagraph
-		}
-
-		summary, err := i.summarizer.Summarize(ctx, node.Content, level)
-		if err != nil {
-			i.logger.Error("failed to summarize node", zap.Error(err))
-		} else {
-			sum := &types.Summary{
-				DocumentID: docID,
-				Tier:       level,
-				Path:       path,
-				Content:    summary,
-			}
-			if err := i.repo.Create(ctx, sum); err != nil {
-				return err
-			}
-		}
-	}
-
-	for i, child := range node.Children {
-		if err := i.indexNode(ctx, docID, child, path, i); err != nil {
-			return err
-		}
 	}
 
 	return nil
@@ -237,24 +182,6 @@ Your response:`, topicName, docContext)
 }
 
 var _ service.ISummarizer = (*SummarizerSvc)(nil)
-
-// ParserSvc implements service.IParser
-type ParserSvc struct{}
-
-// NewParserSvc creates a new parser service
-func NewParserSvc() *ParserSvc {
-	return &ParserSvc{}
-}
-
-// Parse implements IParser.Parse
-func (p *ParserSvc) Parse(content string) (*types.ParsedDocument, error) {
-	return &types.ParsedDocument{
-		Content: content,
-		Root:    &types.ParsedNode{Level: 0, Title: "Root"},
-	}, nil
-}
-
-var _ service.IParser = (*ParserSvc)(nil)
 
 // Helper functions
 func truncateContent(content string, maxLen int) string {
