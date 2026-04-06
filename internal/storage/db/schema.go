@@ -23,6 +23,12 @@ var SchemaVersions = []SchemaVersion{
 		SQLite:   sqliteSchemaV3,
 		Postgres: postgresSchemaV3,
 	},
+	{
+		Version:  4,
+		Name:     "Add summary hierarchy flags",
+		SQLite:   sqliteSchemaV4,
+		Postgres: postgresSchemaV4,
+	},
 }
 
 // SchemaVersion represents a single schema migration
@@ -194,6 +200,24 @@ ALTER TABLE topic_summaries ADD COLUMN source VARCHAR(20) DEFAULT 'manual';
 
 -- Update existing topics to have manual source
 UPDATE topic_summaries SET source = 'manual' WHERE source IS NULL;
+`
+
+// sqliteSchemaV4 - Add is_source flag to summaries for SQLite
+const sqliteSchemaV4 = `
+-- Add is_source flag to summaries table
+ALTER TABLE summaries ADD COLUMN is_source BOOLEAN DEFAULT 0;
+
+-- Update existing summaries
+UPDATE summaries SET is_source = 0 WHERE is_source IS NULL;
+`
+
+// postgresSchemaV4 - Add is_source flag to summaries for PostgreSQL
+const postgresSchemaV4 = `
+-- Add is_source flag to summaries table
+ALTER TABLE summaries ADD COLUMN is_source BOOLEAN DEFAULT FALSE;
+
+-- Update existing summaries
+UPDATE summaries SET is_source = FALSE WHERE is_source IS NULL;
 `
 
 // GetSchemaForDriver returns schema for specific driver and version

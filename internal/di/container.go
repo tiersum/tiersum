@@ -50,10 +50,11 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	// 4. Service Layer - Core domain logic
 	summarizer := svcimpl.NewSummarizerSvc(llmProvider, logger)
 	indexer := svcimpl.NewIndexerSvc(summarizer, uow.Summaries, logger)
+	llmFilter := svcimpl.NewLLMFilterSvc(llmProvider, logger)
 
 	// 5. Service Layer - Business logic
 	// Note: TopicService created first as DocumentService depends on it for auto-matching
-	queryService := svcimpl.NewQuerySvc(uow.Documents, uow.Summaries, logger)
+	queryService := svcimpl.NewQuerySvc(uow.Documents, uow.Summaries, uow.TopicSummaries, llmFilter, logger)
 	topicService := svcimpl.NewTopicSvc(uow.TopicSummaries, uow.Documents, summarizer, logger)
 	docService := svcimpl.NewDocumentSvc(uow.Documents, indexer, summarizer, topicService, logger)
 
@@ -91,6 +92,7 @@ var (
 	_ service.ITopicService    = (*svcimpl.TopicSvc)(nil)
 	_ service.IIndexer         = (*svcimpl.IndexerSvc)(nil)
 	_ service.ISummarizer      = (*svcimpl.SummarizerSvc)(nil)
+	_ service.ILLMFilter       = (*svcimpl.LLMFilterSvc)(nil)
 
 	// Client Layer
 	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)

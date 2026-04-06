@@ -17,6 +17,14 @@ type IDocumentRepository interface {
 type ISummaryRepository interface {
 	Create(ctx context.Context, summary *types.Summary) error
 	GetByDocument(ctx context.Context, docID string) ([]types.Summary, error)
+	// QueryByTierAndPrefix queries summaries by tier and path prefix
+	// Used for hierarchical queries: e.g., tier=chapter, prefix="doc_001" returns all chapters of doc_001
+	QueryByTierAndPrefix(ctx context.Context, tier types.SummaryTier, pathPrefix string) ([]types.Summary, error)
+	// GetByPath retrieves a summary by its exact path
+	GetByPath(ctx context.Context, path string) (*types.Summary, error)
+	// GetChildrenPaths returns all child paths for a given parent path
+	// e.g., parent="doc_001/第一章" returns ["doc_001/第一章/1", "doc_001/第一章/2", ...]
+	GetChildrenPaths(ctx context.Context, parentPath string, tier types.SummaryTier) ([]string, error)
 }
 
 // ITopicSummaryRepository defines topic summary storage operations
@@ -28,6 +36,8 @@ type ITopicSummaryRepository interface {
 	FindByTags(ctx context.Context, tags []string) ([]types.TopicSummary, error)
 	AddDocument(ctx context.Context, topicID string, docID string) error
 	RemoveDocument(ctx context.Context, topicID string, docID string) error
+	// GetTopicDocuments returns all documents associated with a topic
+	GetTopicDocuments(ctx context.Context, topicID string) ([]types.Document, error)
 }
 
 // ICache defines cache operations

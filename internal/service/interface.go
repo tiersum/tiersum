@@ -55,4 +55,17 @@ type ISummarizer interface {
 	GenerateTopicSummary(ctx context.Context, topicName string, documents []*types.Document, source types.TopicSource) (*types.TopicSummary, error)
 }
 
+// ILLMFilter defines LLM-based filtering capabilities for hierarchical queries
+type ILLMFilter interface {
+	// FilterTopics selects relevant topics based on the query
+	// Returns list of topic IDs sorted by relevance
+	FilterTopics(ctx context.Context, query string, topics []types.TopicSummary) ([]types.LLMFilterResult, error)
+	// FilterDocuments selects relevant documents based on the query
+	// Returns list of document IDs sorted by relevance
+	FilterDocuments(ctx context.Context, query string, docs []types.Document) ([]types.LLMFilterResult, error)
+	// FilterSummaries selects relevant summaries (chapters/paragraphs) based on the query
+	// Returns list of paths sorted by relevance
+	FilterSummaries(ctx context.Context, query string, summaries []types.Summary, tier types.SummaryTier) ([]types.LLMFilterResult, error)
+}
+
 

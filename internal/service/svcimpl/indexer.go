@@ -32,23 +32,249 @@ func NewIndexerSvc(summarizer service.ISummarizer, repo storage.ISummaryReposito
 }
 
 // Index implements IIndexer.Index
+// Pre-generates multi-level summaries: Document -> Chapter -> Paragraph
 func (i *IndexerSvc) Index(ctx context.Context, docID string, content string) error {
-	summary, err := i.summarizer.Summarize(ctx, content, types.TierDocument)
+	// L1: Generate Document summary
+	docSummary, err := i.summarizer.Summarize(ctx, content, types.TierDocument)
 	if err != nil {
 		return fmt.Errorf("summarize document: %w", err)
 	}
 
-	sum := &types.Summary{
+	docSum := &types.Summary{
 		DocumentID: docID,
 		Tier:       types.TierDocument,
 		Path:       "",
-		Content:    summary,
+		Content:    docSummary,
+		IsSource:   false, // Document 层可以深入
 	}
-	if err := i.repo.Create(ctx, sum); err != nil {
-		return fmt.Errorf("create summary: %w", err)
+	if err := i.repo.Create(ctx, docSum); err != nil {
+		return fmt.Errorf("create document summary: %w", err)
 	}
 
+	// L2: Parse chapters from markdown
+	chapters := i.parseChapters(content)
+	for _, chapter := range chapters {
+		chapterPath := fmt.Sprintf("%s/%s", docID, sanitizePath(chapter.Title))
+
+		// Check if chapter is short (< 1000 chars)
+		if len(chapter.Content) < 1000 {
+			// Short chapter: store as source directly, no paragraph summaries
+			shortChapterSum := &types.Summary{
+				DocumentID: docID,
+				Tier:       types.TierChapter,
+				Path:       chapterPath,
+				Content:    chapter.Content, // Store original content
+				IsSource:   true,           // Mark as source (cannot drill down)
+			}
+			if err := i.repo.Create(ctx, shortChapterSum); err != nil {
+				return fmt.Errorf("create short chapter summary: %w", err)
+			}
+			i.logger.Debug("stored short chapter as source",
+				zap.String("path", chapterPath),
+				zap.Int("length", len(chapter.Content)))
+			continue
+		}
+
+		// Long chapter: generate summary and paragraph summaries
+		chapterSummary, err := i.summarizer.Summarize(ctx, chapter.Content, types.TierChapter)
+		if err != nil {
+			i.logger.Warn("failed to summarize chapter", zap.String("path", chapterPath), zap.Error(err))
+			continue
+		}
+
+		chapterSum := &types.Summary{
+			DocumentID: docID,
+			Tier:       types.TierChapter,
+			Path:       chapterPath,
+			Content:    chapterSummary,
+			IsSource:   false, // Long chapter can drill down to paragraphs
+		}
+		if err := i.repo.Create(ctx, chapterSum); err != nil {
+			return fmt.Errorf("create chapter summary: %w", err)
+		}
+
+		// L3: Split into paragraphs and generate summaries
+		paragraphs := i.splitParagraphsByLLM(ctx, chapter.Content)
+		for pIdx, para := range paragraphs {
+			paraPath := fmt.Sprintf("%s/%d", chapterPath, pIdx)
+
+			paraSummary, err := i.summarizer.Summarize(ctx, para.Content, types.TierParagraph)
+			if err != nil {
+				i.logger.Warn("failed to summarize paragraph", zap.String("path", paraPath), zap.Error(err))
+				continue
+			}
+
+			paraSum := &types.Summary{
+				DocumentID: docID,
+				Tier:       types.TierParagraph,
+				Path:       paraPath,
+				Content:    paraSummary,
+				IsSource:   false, // Paragraph can drill down to source
+			}
+			if err := i.repo.Create(ctx, paraSum); err != nil {
+				return fmt.Errorf("create paragraph summary: %w", err)
+			}
+		}
+
+		i.logger.Debug("indexed chapter with paragraphs",
+			zap.String("path", chapterPath),
+			zap.Int("paragraphs", len(paragraphs)))
+	}
+
+	i.logger.Info("completed multi-level indexing",
+		zap.String("doc_id", docID),
+		zap.Int("chapters", len(chapters)))
+
 	return nil
+}
+
+// parseChapters parses markdown content into chapters based on headings
+func (i *IndexerSvc) parseChapters(content string) []types.ChapterInfo {
+	var chapters []types.ChapterInfo
+
+	// Match markdown headings: ## Heading or ### Heading
+	// Group 1: heading level (number of #)
+	// Group 2: heading text
+	headingRegex := regexp.MustCompile(`(?m)^(#{2,3})\s+(.+)$`)
+	matches := headingRegex.FindAllStringIndex(content, -1)
+
+	if len(matches) == 0 {
+		// No chapters found, treat entire content as single chapter
+		return []types.ChapterInfo{{
+			Title:   "Content",
+			Level:   2,
+			Content: strings.TrimSpace(content),
+			Offset:  0,
+		}}
+	}
+
+	for i, match := range matches {
+		// Get heading line
+		headingLine := content[match[0]:match[1]]
+		parts := headingRegex.FindStringSubmatch(headingLine)
+		if len(parts) < 3 {
+			continue
+		}
+
+		level := len(parts[1]) // Number of #
+		title := strings.TrimSpace(parts[2])
+
+		// Calculate content range
+		contentStart := match[1]
+		contentEnd := len(content)
+		if i < len(matches)-1 {
+			contentEnd = matches[i+1][0]
+		}
+
+		chapterContent := strings.TrimSpace(content[contentStart:contentEnd])
+
+		chapters = append(chapters, types.ChapterInfo{
+			Title:   title,
+			Level:   level,
+			Content: chapterContent,
+			Offset:  match[0],
+		})
+	}
+
+	return chapters
+}
+
+// splitParagraphsByLLM uses LLM to intelligently split content into semantic paragraphs
+func (i *IndexerSvc) splitParagraphsByLLM(ctx context.Context, content string) []types.ParagraphInfo {
+	// For now, use simple splitting by blank lines
+	// TODO: Use LLM for semantic segmentation when needed
+
+	// Split by double newline (paragraph separator)
+	parts := regexp.MustCompile(`\n\s*\n`).Split(content, -1)
+
+	var paragraphs []types.ParagraphInfo
+	offset := 0
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			offset += len(part) + 2 // Account for separator
+			continue
+		}
+
+		paragraphs = append(paragraphs, types.ParagraphInfo{
+			Content: part,
+			Offset:  offset,
+		})
+
+		offset += len(part) + 2
+	}
+
+	// If no paragraphs found or only one, try splitting by sentences
+	if len(paragraphs) <= 1 && len(content) > 500 {
+		return i.splitBySentences(content)
+	}
+
+	return paragraphs
+}
+
+// splitBySentences splits content by sentences for very long single paragraphs
+func (i *IndexerSvc) splitBySentences(content string) []types.ParagraphInfo {
+	// Simple sentence splitting (period followed by space or newline)
+	sentenceRegex := regexp.MustCompile(`[.!?。！？]\s+`)
+	sentences := sentenceRegex.Split(content, -1)
+
+	var paragraphs []types.ParagraphInfo
+	var currentPara strings.Builder
+	offset := 0
+	paraStart := 0
+
+	for _, sentence := range sentences {
+		sentence = strings.TrimSpace(sentence)
+		if sentence == "" {
+			continue
+		}
+
+		// Add period back
+		sentence += "."
+
+		if currentPara.Len()+len(sentence) > 400 {
+			// Start new paragraph
+			if currentPara.Len() > 0 {
+				paragraphs = append(paragraphs, types.ParagraphInfo{
+					Content: strings.TrimSpace(currentPara.String()),
+					Offset:  paraStart,
+				})
+			}
+			currentPara.Reset()
+			currentPara.WriteString(sentence)
+			paraStart = offset
+		} else {
+			if currentPara.Len() > 0 {
+				currentPara.WriteString(" ")
+			}
+			currentPara.WriteString(sentence)
+		}
+
+		offset += len(sentence) + 1
+	}
+
+	// Add remaining content
+	if currentPara.Len() > 0 {
+		paragraphs = append(paragraphs, types.ParagraphInfo{
+			Content: strings.TrimSpace(currentPara.String()),
+			Offset:  paraStart,
+		})
+	}
+
+	return paragraphs
+}
+
+// sanitizePath sanitizes a string for use in path
+func sanitizePath(s string) string {
+	// Replace slashes and other special chars
+	s = strings.ReplaceAll(s, "/", "-")
+	s = strings.ReplaceAll(s, "\\", "-")
+	s = strings.TrimSpace(s)
+	// Limit length
+	if len(s) > 100 {
+		s = s[:100]
+	}
+	return s
 }
 
 var _ service.IIndexer = (*IndexerSvc)(nil)

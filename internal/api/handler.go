@@ -8,6 +8,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
+	"github.com/tiersum/tiersum/internal/service/svcimpl"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -48,6 +49,9 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	}
 
 	router.GET("/query", h.Query)
+	router.POST("/query/hierarchical", h.HierarchicalQuery)
+	router.GET("/query/drill-down", h.DrillDown)
+	router.GET("/query/source", h.GetSource)
 }
 
 // CreateDocument creates a new document
@@ -199,4 +203,65 @@ func (h *Handler) FindTopicsByTags(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"topics": topics})
+}
+
+// HierarchicalQuery performs progressive hierarchical query
+func (h *Handler) HierarchicalQuery(c *gin.Context) {
+	var req types.HierarchicalQueryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Set defaults
+	if req.StartTier == "" {
+		req.StartTier = types.TierTopic
+	}
+	if req.EndTier == "" {
+		req.EndTier = types.TierSource
+	}
+	if req.MaxResults == 0 {
+		req.MaxResults = 10
+	}
+
+	// Use query service
+	svc, ok := h.queryService.(*svcimpl.QuerySvc)
+	if !ok {
+		h.logger.Error("query service does not support hierarchical query")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "service not available"})
+		return
+	}
+
+	response, err := svc.HierarchicalQuery(c.Request.Context(), req)
+	if err != nil {
+		h.logger.Error("failed to perform hierarchical query", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query failed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, response)
+}
+
+// DrillDown drills down to next level
+func (h *Handler) DrillDown(c *gin.Context) {
+	var req types.DrillDownRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// TODO: Implement drill-down endpoint
+	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+}
+
+// GetSource retrieves original source content
+func (h *Handler) GetSource(c *gin.Context) {
+	var req types.SourceQueryRequest
+	if err := c.ShouldBindQuery(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// TODO: Implement source retrieval endpoint
+	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
 }

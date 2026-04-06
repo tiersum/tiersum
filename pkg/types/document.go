@@ -34,6 +34,7 @@ type Summary struct {
 	Tier       SummaryTier `json:"tier"`
 	Path       string      `json:"path"`
 	Content    string      `json:"content"`
+	IsSource   bool        `json:"is_source"` // 是否已经是原文（true=不能再深入，false=可以深入）
 	CreatedAt  time.Time   `json:"created_at"`
 	UpdatedAt  time.Time   `json:"updated_at"`
 }

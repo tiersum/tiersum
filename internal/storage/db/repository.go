@@ -116,13 +116,13 @@ func (r *SummaryRepo) Create(ctx context.Context, summary *types.Summary) error 
 	summary.CreatedAt = now
 	summary.UpdatedAt = now
 
-	query := `INSERT INTO summaries (id, document_id, tier, path, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO summaries (id, document_id, tier, path, content, is_source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	if r.driver == "postgres" {
-		query = `INSERT INTO summaries (id, document_id, tier, path, content, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
+		query = `INSERT INTO summaries (id, document_id, tier, path, content, is_source, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
-		summary.ID, summary.DocumentID, summary.Tier, summary.Path, summary.Content, summary.CreatedAt, summary.UpdatedAt)
+		summary.ID, summary.DocumentID, summary.Tier, summary.Path, summary.Content, summary.IsSource, summary.CreatedAt, summary.UpdatedAt)
 	return err
 }
 
@@ -162,6 +162,78 @@ func (r *SummaryRepo) GetByDocument(ctx context.Context, docID string) ([]types.
 		r.cache.Set(cacheKey, summaries)
 	}
 	return summaries, nil
+}
+
+// QueryByTierAndPrefix implements ISummaryRepository.QueryByTierAndPrefix
+func (r *SummaryRepo) QueryByTierAndPrefix(ctx context.Context, tier types.SummaryTier, pathPrefix string) ([]types.Summary, error) {
+	query := `SELECT id, document_id, tier, path, content, is_source, created_at, updated_at FROM summaries WHERE tier = ? AND path LIKE ? ORDER BY path`
+	if r.driver == "postgres" {
+		query = `SELECT id, document_id, tier, path, content, is_source, created_at, updated_at FROM summaries WHERE tier = $1 AND path LIKE $2 ORDER BY path`
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, tier, pathPrefix+"%")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summaries []types.Summary
+	for rows.Next() {
+		var s types.Summary
+		if err := rows.Scan(&s.ID, &s.DocumentID, &s.Tier, &s.Path, &s.Content, &s.IsSource, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, s)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return summaries, nil
+}
+
+// GetByPath implements ISummaryRepository.GetByPath
+func (r *SummaryRepo) GetByPath(ctx context.Context, path string) (*types.Summary, error) {
+	query := `SELECT id, document_id, tier, path, content, is_source, created_at, updated_at FROM summaries WHERE path = ?`
+	if r.driver == "postgres" {
+		query = `SELECT id, document_id, tier, path, content, is_source, created_at, updated_at FROM summaries WHERE path = $1`
+	}
+
+	var s types.Summary
+	err := r.db.QueryRowContext(ctx, query, path).Scan(
+		&s.ID, &s.DocumentID, &s.Tier, &s.Path, &s.Content, &s.IsSource, &s.CreatedAt, &s.UpdatedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// GetChildrenPaths implements ISummaryRepository.GetChildrenPaths
+func (r *SummaryRepo) GetChildrenPaths(ctx context.Context, parentPath string, tier types.SummaryTier) ([]string, error) {
+	// Children paths start with parentPath + "/"
+	query := `SELECT path FROM summaries WHERE tier = ? AND path LIKE ? AND path != ? ORDER BY path`
+	if r.driver == "postgres" {
+		query = `SELECT path FROM summaries WHERE tier = $1 AND path LIKE $2 AND path != $3 ORDER BY path`
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, tier, parentPath+"/%", parentPath)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var paths []string
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return paths, rows.Err()
 }
 
 var _ storage.ISummaryRepository = (*SummaryRepo)(nil)
@@ -425,6 +497,51 @@ func (r *TopicSummaryRepo) getDocumentIDs(ctx context.Context, topicID string) (
 		docIDs = append(docIDs, id)
 	}
 	return docIDs, rows.Err()
+}
+
+// GetTopicDocuments implements ITopicSummaryRepository.GetTopicDocuments
+func (r *TopicSummaryRepo) GetTopicDocuments(ctx context.Context, topicID string) ([]types.Document, error) {
+	docIDs, err := r.getDocumentIDs(ctx, topicID)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(docIDs) == 0 {
+		return []types.Document{}, nil
+	}
+
+	// Build IN clause
+	placeholders := make([]string, len(docIDs))
+	args := make([]interface{}, len(docIDs))
+	for i, id := range docIDs {
+		if r.driver == "postgres" {
+			placeholders[i] = fmt.Sprintf("$%d", i+1)
+		} else {
+			placeholders[i] = "?"
+		}
+		args[i] = id
+	}
+
+	query := fmt.Sprintf(`SELECT id, title, content, format, tags, created_at, updated_at FROM documents WHERE id IN (%s)`, 
+		strings.Join(placeholders, ","))
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("get topic documents: %w", err)
+	}
+	defer rows.Close()
+
+	var documents []types.Document
+	for rows.Next() {
+		var d types.Document
+		var tagsStr string
+		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, err
+		}
+		d.Tags = parseStringArray(tagsStr)
+		documents = append(documents, d)
+	}
+	return documents, rows.Err()
 }
 
 var _ storage.ITopicSummaryRepository = (*TopicSummaryRepo)(nil)
