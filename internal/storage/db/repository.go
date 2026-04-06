@@ -312,7 +312,7 @@ func (r *TagRepo) Create(ctx context.Context, tag *types.Tag) error {
 				 ON CONFLICT(name) DO UPDATE SET updated_at = $7`
 	}
 
-	_, err := r.db.ExecContext(ctx, query, tag.ID, tag.Name, tag.ClusterID, tag.DocumentCount, tag.CreatedAt, tag.UpdatedAt, tag.UpdatedAt)
+	_, err := r.db.ExecContext(ctx, query, tag.ID, tag.Name, tag.GroupID, tag.DocumentCount, tag.CreatedAt, tag.UpdatedAt, tag.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create global tag: %w", err)
 	}
@@ -339,7 +339,7 @@ func (r *TagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error
 	}
 
 	if clusterID.Valid {
-		t.ClusterID = clusterID.String
+		t.GroupID = clusterID.String
 	}
 	return &t, nil
 }
@@ -362,7 +362,7 @@ func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
 			return nil, err
 		}
 		if clusterID.Valid {
-			t.ClusterID = clusterID.String
+			t.GroupID = clusterID.String
 		}
 		tags = append(tags, t)
 	}
@@ -390,7 +390,7 @@ func (r *TagRepo) ListByCluster(ctx context.Context, clusterID string) ([]types.
 			return nil, err
 		}
 		if cid.Valid {
-			t.ClusterID = cid.String
+			t.GroupID = cid.String
 		}
 		tags = append(tags, t)
 	}

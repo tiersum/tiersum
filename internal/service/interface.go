@@ -25,8 +25,8 @@ type IQueryService interface {
 	ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error)
 }
 
-// ITagGroupingService defines tag clustering business logic
-type ITagGroupingService interface {
+// ITagGroupService defines tag clustering business logic
+type ITagGroupService interface {
 	// ClusterTags performs LLM-based clustering of all global tags
 	// Creates Level 1 clusters from Level 2 tags
 	ClusterTags(ctx context.Context) error

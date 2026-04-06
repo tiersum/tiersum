@@ -20,7 +20,7 @@ import (
 type MCPServer struct {
 	docService           service.IDocumentService
 	queryService         service.IQueryService
-	tagGroupingService service.ITagGroupingService
+	tagGroupingService service.ITagGroupService
 	logger               *zap.Logger
 	mcp                  *mcpserver.MCPServer
 }
@@ -29,7 +29,7 @@ type MCPServer struct {
 func NewMCPServer(
 	docService service.IDocumentService,
 	queryService service.IQueryService,
-	tagGroupingService service.ITagGroupingService,
+	tagGroupingService service.ITagGroupService,
 	logger *zap.Logger,
 ) *MCPServer {
 	s := &MCPServer{
@@ -107,11 +107,11 @@ func (s *MCPServer) registerTools() {
 	)
 	s.mcp.AddTool(getTagsByClusterTool, s.handleGetTagsByCluster)
 
-	// TriggerTagGrouping tool
+	// TriggerTagGroup tool
 	triggerClusteringTool := mcp.NewTool("tiersum_trigger_tag_clustering",
 		mcp.WithDescription("Manually trigger tag clustering (normally runs automatically every 30 minutes)"),
 	)
-	s.mcp.AddTool(triggerClusteringTool, s.handleTriggerTagGrouping)
+	s.mcp.AddTool(triggerClusteringTool, s.handleTriggerTagGroup)
 }
 
 // GetMCPServer returns the underlying MCP server for SSE handling
@@ -247,8 +247,8 @@ func (s *MCPServer) handleGetTagsByCluster(ctx context.Context, request mcp.Call
 	return mcp.NewToolResultText(resultText), nil
 }
 
-// handleTriggerTagGrouping handles the tiersum_trigger_tag_clustering tool
-func (s *MCPServer) handleTriggerTagGrouping(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+// handleTriggerTagGroup handles the tiersum_trigger_tag_clustering tool
+func (s *MCPServer) handleTriggerTagGroup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	s.logger.Info("MCP trigger tag clustering")
 
 	if s.tagGroupingService == nil {

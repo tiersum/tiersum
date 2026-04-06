@@ -50,30 +50,30 @@ func (j *IndexerJob) Execute(ctx context.Context) error {
 	return nil
 }
 
-// TagGroupingJob periodically performs tag clustering
-type TagGroupingJob struct {
-	clusteringSvc service.ITagGroupingService
+// TagGroupJob periodically performs tag clustering
+type TagGroupJob struct {
+	clusteringSvc service.ITagGroupService
 	logger        *zap.Logger
 }
 
-// NewTagGroupingJob creates a new tag clustering job
-func NewTagGroupingJob(
-	clusteringSvc service.ITagGroupingService,
+// NewTagGroupJob creates a new tag clustering job
+func NewTagGroupJob(
+	clusteringSvc service.ITagGroupService,
 	logger *zap.Logger,
-) *TagGroupingJob {
-	return &TagGroupingJob{
+) *TagGroupJob {
+	return &TagGroupJob{
 		clusteringSvc: clusteringSvc,
 		logger:        logger,
 	}
 }
 
 // Name returns the job name
-func (j *TagGroupingJob) Name() string {
+func (j *TagGroupJob) Name() string {
 	return "tag_clustering"
 }
 
 // Interval returns the execution interval (30 minutes)
-func (j *TagGroupingJob) Interval() time.Duration {
+func (j *TagGroupJob) Interval() time.Duration {
 	return 30 * time.Minute
 }
 
@@ -82,7 +82,7 @@ func (j *TagGroupingJob) Interval() time.Duration {
 // 1. Check if clustering is needed (tag count changed or time elapsed)
 // 2. If needed, perform LLM-based clustering
 // 3. Update Level 1 clusters and Level 2 tag assignments
-func (j *TagGroupingJob) Execute(ctx context.Context) error {
+func (j *TagGroupJob) Execute(ctx context.Context) error {
 	j.logger.Info("running tag clustering job")
 
 	// Check if refresh is needed

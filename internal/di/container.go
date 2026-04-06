@@ -25,7 +25,7 @@ type Dependencies struct {
 	QueryService    service.IQueryService
 
 	// Tag Clustering Service
-	TagGroupingService service.ITagGroupingService
+	TagGroupService service.ITagGroupService
 
 	// API Layer
 	RESTHandler *api.Handler   // REST API
@@ -54,7 +54,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	indexer := svcimpl.NewIndexerSvc(summarizer, uow.Summaries, logger)
 
 	// 5. Service Layer - Tag clustering
-	tagGroupingSvc := svcimpl.NewTagGroupingSvc(
+	tagGroupSvc := svcimpl.NewTagGroupSvc(
 		uow.Tags,
 		uow.TagGroups,
 		uow.ClusterRefreshLogs,
@@ -80,19 +80,19 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	)
 
 	// 7. API Layer
-	restHandler := api.NewHandler(docService, queryService, tagGroupingSvc, logger)
-	mcpServer := api.NewMCPServer(docService, queryService, tagGroupingSvc, logger)
+	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, logger)
+	mcpServer := api.NewMCPServer(docService, queryService, tagGroupSvc, logger)
 
 	// 8. Job Layer
 	jobScheduler := job.NewScheduler(logger)
 	// Register tag clustering job (runs every 30 minutes)
-	jobScheduler.Register(job.NewTagGroupingJob(tagGroupingSvc, logger))
+	jobScheduler.Register(job.NewTagGroupJob(tagGroupSvc, logger))
 	jobScheduler.Register(job.NewIndexerJob(uow.Documents, uow.Summaries, indexer, logger))
 
 	return &Dependencies{
 		DocumentService:      docService,
 		QueryService:         queryService,
-		TagGroupingService: tagGroupingSvc,
+		TagGroupService: tagGroupSvc,
 		RESTHandler:          restHandler,
 		MCPServer:            mcpServer,
 		JobScheduler:         jobScheduler,
@@ -113,7 +113,7 @@ var (
 	// Service Layer
 	_ service.IDocumentService      = (*svcimpl.DocumentSvc)(nil)
 	_ service.IQueryService         = (*svcimpl.QuerySvc)(nil)
-	_ service.ITagGroupingService = (*svcimpl.TagGroupingSvc)(nil)
+	_ service.ITagGroupService = (*svcimpl.TagGroupSvc)(nil)
 	_ service.IIndexer              = (*svcimpl.IndexerSvc)(nil)
 	_ service.ISummarizer           = (*svcimpl.SummarizerSvc)(nil)
 	_ service.ILLMFilter            = (*svcimpl.SummarizerSvc)(nil)

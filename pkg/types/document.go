@@ -69,7 +69,7 @@ type TagGroup struct {
 type Tag struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`        // Tag name
-	ClusterID   string    `json:"cluster_id"`  // Which cluster it belongs to (Level 1)
+	GroupID   string    `json:"group_id"`  // Which group it belongs to (Level 1)
 	DocumentCount int     `json:"document_count"` // Number of documents with this tag
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -117,14 +117,6 @@ type QueryResult struct {
 	Content       string      `json:"content"`
 	Relevance     float64     `json:"relevance"`
 }
-
-// TagLevel represents the level of a tag in the two-level hierarchy
-type TagLevel int
-
-const (
-	TagLevel1 TagLevel = 1 // Level 1: Cluster/Category
-	TagLevel2 TagLevel = 2 // Level 2: Actual tag
-)
 
 // TagFilterResult represents a tag filter result from LLM
 type TagFilterResult struct {
