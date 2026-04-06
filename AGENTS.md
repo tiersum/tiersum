@@ -34,19 +34,21 @@ Go module: `github.com/tiersum/tiersum` (Go 1.23+)
 
 ```
 cmd/
-  server/              # API server entrypoint (main binary)
-  worker/              # Background job processor
-  cli/                 # CLI tools
+  main.go              # API server entrypoint (main binary)
 configs/               # Configuration files
 deployments/
   docker/              # Docker and docker-compose files
+db/
+  migrations/          # Database migration files
+    001_initial_schema.sql
+    002_topic_summaries.sql
 internal/
   api/                 # Layer 1: API Layer
     handler.go         # REST API handlers
     mcp.go             # MCP protocol handlers
   service/             # Layer 2: Service Layer
     interface.go       # I-prefixed service interfaces
-    impl/              # Implementation subpackage
+    svcimpl/           # Implementation subpackage
       document.go      # DocumentSvc implements IDocumentService
       query.go         # QuerySvc implements IQueryService
       topic.go         # TopicSvc implements ITopicService
@@ -55,6 +57,8 @@ internal/
     interface.go       # I-prefixed storage interfaces
     db/                # Database repository implementations
       repository.go    # DocumentRepo, SummaryRepo, TopicSummaryRepo
+      schema.go        # Database schema definitions
+      migrator.go      # Schema migration manager
     cache/             # Cache implementation
       cache.go         # Cache implements ICache
   client/              # Layer 4: Client Layer
@@ -276,15 +280,17 @@ make docker-build           # Build container image
 
 | Path | Purpose |
 |------|---------|
-| `cmd/server` | Main entrypoint for server binary |
+| `cmd/main.go` | Main entrypoint for server binary |
 | `internal/api` | REST + MCP API handlers |
 | `internal/service/interface.go` | Service layer interfaces (I-prefix) |
-| `internal/service/impl` | Service implementations |
+| `internal/service/svcimpl` | Service implementations |
 | `internal/storage/interface.go` | Storage interfaces (I-prefix) |
 | `internal/storage/db` | Repository implementations |
+| `internal/storage/db/schema.go` | Database schema definitions |
 | `internal/client/interface.go` | Client interfaces (I-prefix) |
 | `internal/di` | Dependency injection / composition root |
 | `internal/job` | Background scheduled tasks |
+| `db/migrations/` | Database migration files |
 | `pkg/types` | Public types used across all layers |
 
 ## Architecture Evolution
@@ -298,10 +304,12 @@ make docker-build           # Build container image
 - `internal/mcp/` - MCP handlers
 
 ### Current Structure (Interface+Impl Pattern)
+- `cmd/main.go` - Single entry point
+- `db/migrations/` - Database migrations
 - `internal/service/interface.go` - Service interfaces (I-prefix)
-- `internal/service/impl/` - Service implementations
+- `internal/service/svcimpl/` - Service implementations
 - `internal/storage/interface.go` - Storage interfaces (I-prefix)
-- `internal/storage/db/` - Repository implementations
+- `internal/storage/db/` - Repository implementations + schema
 - `internal/client/interface.go` - Client interfaces (I-prefix)
 - `internal/di/` - Dependency injection
 - `internal/api/` - Unified API layer (REST + MCP)
