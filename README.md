@@ -6,7 +6,7 @@
 [![MCP Protocol](https://img.shields.io/badge/MCP-1.0-6E49CB)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-**English** | [中文](#中文文档)
+[English](README.md) | [中文](README_zh.md)
 
 ---
 
@@ -16,13 +16,13 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 ```
 ┌─────────────────────────────────────┐
-│  Document Summary (Bird's-eye view)   │  ← 30,000ft perspective
+│  Document Summary (Bird's-eye view) │  ← 30,000ft perspective
 ├─────────────────────────────────────┤
 │  Chapter Summary (Structural map)   │  ← 10,000ft perspective  
 ├─────────────────────────────────────┤
 │  Paragraph Summary (Key concepts)   │  ← 1,000ft perspective
 ├─────────────────────────────────────┤
-│  Source Text (Ground truth)           │  ← Original content
+│  Source Text (Ground truth)         │  ← Original content
 └─────────────────────────────────────┘
 ```
 
@@ -44,6 +44,13 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 ## Quick Start
 
+### Prerequisites
+
+- Go 1.23+
+- PostgreSQL 16+
+- Redis 7+ (optional, for caching)
+- Meilisearch 1.7+ (optional, for search)
+
 ### Installation
 
 ```bash
@@ -51,38 +58,61 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 git clone https://github.com/tiersum/tiersum.git
 cd tiersum
 
-# Build binary
-go build -o tiersum ./cmd/server
+# Install Go dependencies
+make deps
 
-# Or use Docker
-docker run -p 8080:8080 -v ./data:/data tiersum/tiersum:latest
+# Copy and edit configuration
+cp configs/config.example.yaml configs/config.yaml
+
+# Set required environment variables
+export OPENAI_API_KEY="your-api-key"
+# or
+export ANTHROPIC_API_KEY="your-api-key"
+
+# Run database migrations
+make migrate-up
+
+# Build binary
+make build
+
+# Or use Docker Compose (includes all services)
+cd deployments/docker && docker-compose up -d
 ```
 
 ### Configuration
 
 ```yaml
-# config.yaml
+# configs/config.yaml
 server:
   port: 8080
+  host: 0.0.0.0
 
 llm:
   provider: openai  # or anthropic, local
-  model: gpt-4o-mini
-  api_key: ${OPENAI_API_KEY}
+  openai:
+    api_key: ${OPENAI_API_KEY}
+    model: gpt-4o-mini
 
 storage:
-  type: postgres
-  dsn: postgres://user:pass@localhost/tiersum
-
-index:
-  type: meilisearch  # optional, for hybrid search
-  host: http://localhost:7700
+  database:
+    type: postgres
+    dsn: postgres://tiersum:tiersum@localhost:5432/tiersum
+  cache:
+    type: redis
+    addr: localhost:6379
+  search:
+    type: meilisearch
+    host: http://localhost:7700
 ```
 
 ### Start Server
 
 ```bash
-./tiersum --config config.yaml
+# Run locally
+make run
+
+# Or run binary directly
+./build/tiersum --config configs/config.yaml
 
 # Server ready
 # REST API: http://localhost:8080/api/v1
@@ -196,12 +226,12 @@ Input (Markdown/PDF/HTML)
 │             │    │  Hierarchy) │    │             │
 └─────────────┘    └─────────────┘    └──────┬──────┘
                                              │
-                    ┌────────────────────────┼────────────────────────┐
-                    ▼                        ▼                        ▼
-            ┌─────────────┐          ┌─────────────┐          ┌─────────────┐
-            │Doc Summary  │          │Chapter Sum. │          │Para Summary │
-            │(Abstract)   │          │(Outline)    │          │(Key points) │
-            └─────────────┘          └─────────────┘          └─────────────┘
+                     ┌───────────────────────┼────────────────────────┐
+                     ▼                       ▼                        ▼
+             ┌─────────────┐          ┌─────────────┐          ┌─────────────┐
+             │Doc Summary  │          │Chapter Sum. │          │Para Summary │
+             │(Abstract)   │          │(Outline)    │          │(Key points) │
+             └─────────────┘          └─────────────┘          └─────────────┘
 ```
 
 ---
@@ -211,13 +241,20 @@ Input (Markdown/PDF/HTML)
 ```
 tiersum/
 ├── cmd/
-│   ├── server/          # API server entry
+│   ├── server/          # API server entrypoint
 │   ├── worker/          # Background job processor
-│   └── cli/             # CLI tools
+│   ├── cli/             # CLI tools
+│   ├── migrate/         # Database migrations
+│   └── seed/            # Data seeding
+├── configs/             # Configuration files
+│   ├── config.example.yaml
+│   └── config.yaml
+├── deployments/
+│   └── docker/          # Docker and docker-compose files
 ├── internal/
 │   ├── api/             # REST handlers + MCP server
 │   ├── core/
-│   │   ├── parser/      # Markdown/document parsers
+│   │   ├── parser/      # Markdown parser (Goldmark)
 │   │   ├── summarizer/  # LLM abstraction layer
 │   │   └── indexer/     # Hierarchical index builder
 │   ├── storage/         # PostgreSQL + Redis + Meilisearch
@@ -227,8 +264,32 @@ tiersum/
 ├── skills/              # OpenClaw skill definitions
 │   ├── convert/         # PDF/HTML → Markdown converters
 │   └── update/          # Incremental summary updaters
-├── migrations/            # Database migrations
-└── docs/                  # Documentation
+├── migrations/          # Database migrations
+├── go.mod
+├── Makefile
+├── README.md
+└── LICENSE
+```
+
+---
+
+## Development
+
+```bash
+# Run tests
+make test
+
+# Run linter
+make lint
+
+# Format code
+make fmt
+
+# Run with hot reload (requires air)
+make dev
+
+# Build for multiple platforms
+make build-all
 ```
 
 ---
@@ -267,13 +328,3 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - Inspired by [Anthropic's Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval)
 - MCP Protocol by [Anthropic](https://modelcontextprotocol.io)
 - Built with [Gin](https://gin-gonic.com), [Goldmark](https://github.com/yuin/goldmark), [Meilisearch](https://meilisearch.com)
-
----
-
-# 中文文档
-
-TierSum 是基于**分层摘要**的知识库管理系统，用分层抽象替代传统 RAG 的碎片切块，实现精准的知识检索。
-
-**核心特点**：文档摘要 → 章节摘要 → 段落摘要 → 段落原文，四层结构由 LLM 自动生成，查询时自顶向下逐层穿透，无需向量相似度猜测。
-
-详见上方英文文档获取完整 API 说明和架构设计。
