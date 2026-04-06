@@ -46,7 +46,6 @@ func runWorker(cmd *cobra.Command, args []string) {
 	// Initialize storage
 	store, err := storage.New(storage.Config{
 		DatabaseURL: viper.GetString("storage.database.dsn"),
-		RedisAddr:   viper.GetString("storage.cache.addr"),
 	})
 	if err != nil {
 		logger.Fatal("Failed to initialize storage", zap.Error(err))
@@ -62,7 +61,6 @@ func runWorker(cmd *cobra.Command, args []string) {
 	// Start worker loop
 	go func() {
 		// TODO: Implement job processing loop
-		// - Listen for jobs from Redis queue
 		// - Process document summarization
 		// - Update index
 		logger.Info("Worker loop started")

@@ -48,7 +48,6 @@
 
 - Go 1.23+
 - PostgreSQL 16+
-- Redis 7+（可选，用于缓存）
 
 ### 安装
 
@@ -96,9 +95,6 @@ storage:
   database:
     type: postgres
     dsn: postgres://tiersum:tiersum@localhost:5432/tiersum
-  cache:
-    type: redis
-    addr: localhost:6379
 ```
 
 ### 启动服务
@@ -204,7 +200,7 @@ mcpServers:
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    Storage Layer                             │
-│  PostgreSQL (docs + hierarchy) │  Redis (cache)             │
+│  PostgreSQL (docs + hierarchy) │  In-memory cache           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -253,7 +249,7 @@ tiersum/
 │   │   ├── parser/      # Markdown parser (Goldmark)
 │   │   ├── summarizer/  # LLM abstraction layer
 │   │   └── indexer/     # Hierarchical index builder
-│   ├── storage/         # PostgreSQL + Redis
+│   ├── storage/         # PostgreSQL + in-memory cache
 │   └── mcp/             # MCP protocol implementation
 ├── pkg/
 │   └── types/           # Public API types
@@ -294,7 +290,7 @@ make build-all
 
 - [x] 核心四层摘要引擎
 - [x] REST API + MCP 服务
-- [x] PostgreSQL + Redis 存储
+- [x] PostgreSQL + 内存缓存 存储
 - [ ] OpenClaw 技能包（转换 + 更新）
 - [ ] 实时协作编辑
 - [ ] 多模态支持（图片、图表）

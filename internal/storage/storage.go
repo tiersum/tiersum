@@ -3,21 +3,21 @@ package storage
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/redis/go-redis/v9"
+	"github.com/spf13/viper"
 )
 
 // Config holds storage configuration
 type Config struct {
 	DatabaseURL string
-	RedisAddr   string
 }
 
 // Storage provides access to all storage backends
 type Storage struct {
 	DB    *pgxpool.Pool
-	Redis *redis.Client
+	Cache *Cache
 }
 
 // New creates a new storage instance
@@ -42,24 +42,16 @@ func New(cfg Config) (*Storage, error) {
 		}
 	}
 
-	// Connect to Redis
-	var rdb *redis.Client
-	if cfg.RedisAddr != "" {
-		opts := &redis.Options{
-			Addr: cfg.RedisAddr,
-		}
-		rdb = redis.NewClient(opts)
-
-		if err := rdb.Ping(ctx).Err(); err != nil {
-			// Log warning but don't fail - Redis is optional
-			fmt.Printf("Warning: Redis connection failed: %v\n", err)
-			rdb = nil
-		}
+	// Initialize local cache
+	ttl := viper.GetDuration("storage.cache.ttl")
+	if ttl == 0 {
+		ttl = 1 * time.Hour
 	}
+	cache := NewCache(ttl)
 
 	return &Storage{
 		DB:    db,
-		Redis: rdb,
+		Cache: cache,
 	}, nil
 }
 
@@ -68,8 +60,8 @@ func (s *Storage) Close() {
 	if s.DB != nil {
 		s.DB.Close()
 	}
-	if s.Redis != nil {
-		s.Redis.Close()
+	if s.Cache != nil {
+		s.Cache.Clear()
 	}
 }
 
@@ -78,11 +70,6 @@ func (s *Storage) Health(ctx context.Context) error {
 	if s.DB != nil {
 		if err := s.DB.Ping(ctx); err != nil {
 			return fmt.Errorf("database unhealthy: %w", err)
-		}
-	}
-	if s.Redis != nil {
-		if err := s.Redis.Ping(ctx).Err(); err != nil {
-			return fmt.Errorf("redis unhealthy: %w", err)
 		}
 	}
 	return nil

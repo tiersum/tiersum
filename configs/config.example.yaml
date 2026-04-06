@@ -75,15 +75,12 @@ storage:
     # SSL mode: disable, require, verify-ca, verify-full
     ssl_mode: disable
 
-  # Cache layer (optional)
+  # Local cache settings
   cache:
-    type: redis
-    host: localhost
-    port: 6379
-    password: ""
-    database: 0
     # Default TTL for cached summaries
     ttl: 1h
+    # Max cache size (number of items)
+    max_size: 10000
 
 # MCP (Model Context Protocol) configuration
 mcp:

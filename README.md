@@ -48,7 +48,6 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 - Go 1.23+
 - PostgreSQL 16+
-- Redis 7+ (optional, for caching)
 
 ### Installation
 
@@ -96,9 +95,6 @@ storage:
   database:
     type: postgres
     dsn: postgres://tiersum:tiersum@localhost:5432/tiersum
-  cache:
-    type: redis
-    addr: localhost:6379
 ```
 
 ### Start Server
@@ -204,7 +200,7 @@ mcpServers:
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    Storage Layer                             │
-│  PostgreSQL (docs + hierarchy) │  Redis (cache)             │
+│  PostgreSQL (docs + hierarchy) │  In-memory cache           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -253,7 +249,7 @@ tiersum/
 │   │   ├── parser/      # Markdown parser (Goldmark)
 │   │   ├── summarizer/  # LLM abstraction layer
 │   │   └── indexer/     # Hierarchical index builder
-│   ├── storage/         # PostgreSQL + Redis
+│   ├── storage/         # PostgreSQL + in-memory cache
 │   └── mcp/             # MCP protocol implementation
 ├── pkg/
 │   └── types/           # Public API types
@@ -294,7 +290,7 @@ make build-all
 
 - [x] Core 4-tier summarization engine
 - [x] REST API + MCP Server
-- [x] PostgreSQL + Redis storage
+- [x] PostgreSQL + in-memory cache storage
 - [ ] OpenClaw skill pack (convert + update)
 - [ ] Real-time collaborative editing
 - [ ] Multi-modal support (images, diagrams)

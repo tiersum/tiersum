@@ -55,13 +55,8 @@ storage:
     dsn: postgres://tiersum:tiersum@localhost:5432/tiersum
 
   cache:
-    type: redis
-    host: localhost
-    port: 6379
-    password: ""
-    database: 0
     ttl: 1h
-    addr: localhost:6379
+    max_size: 10000
 
 mcp:
   enabled: true
