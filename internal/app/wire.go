@@ -22,6 +22,7 @@ type Dependencies struct {
 	// Services (interfaces)
 	DocumentService ports.DocumentService
 	QueryService    ports.QueryService
+	TopicService    *service.TopicSvc
 
 	// API Layer (thin layer, depends on services)
 	Handler *api.Handler
@@ -55,18 +56,20 @@ func NewDependencies(db *sql.DB, driver string, logger *zap.Logger) (*Dependenci
 	indexer := core.NewIndexerSvc(parser, summarizer, uow.Summaries, logger)
 
 	// 5. Application Services (implements ports interfaces)
-	docService := service.NewDocumentSvc(uow.Documents, indexer, logger)
+	docService := service.NewDocumentSvc(uow.Documents, indexer, summarizer, logger)
 	queryService := service.NewQuerySvc(uow.Documents, uow.Summaries, logger)
+	topicService := service.NewTopicSvc(uow.TopicSummaries, uow.Documents, summarizer, logger)
 
 	// 6. API Layer (thin layer, depends on service interfaces)
-	handler := api.NewHandler(docService, queryService, logger)
+	handler := api.NewHandler(docService, queryService, topicService, logger)
 
 	// 7. MCP Server (thin layer, depends on service interfaces - same level as REST API)
-	mcpServer := mcp.NewServer(docService, queryService, logger)
+	mcpServer := mcp.NewServer(docService, queryService, topicService, logger)
 
 	return &Dependencies{
 		DocumentService: docService,
 		QueryService:    queryService,
+		TopicService:    topicService,
 		Handler:         handler,
 		MCP:             mcpServer,
 		Storage:         store,
@@ -78,8 +81,9 @@ func NewDependencies(db *sql.DB, driver string, logger *zap.Logger) (*Dependenci
 // Ensure all implementations satisfy their interface contracts
 var (
 	// Repositories implement ports interfaces
-	_ ports.DocumentRepository = (*repository.DocumentRepo)(nil)
-	_ ports.SummaryRepository  = (*repository.SummaryRepo)(nil)
+	_ ports.DocumentRepository     = (*repository.DocumentRepo)(nil)
+	_ ports.SummaryRepository      = (*repository.SummaryRepo)(nil)
+	_ ports.TopicSummaryRepository = (*repository.TopicSummaryRepo)(nil)
 
 	// Services implement ports interfaces
 	_ ports.DocumentService = (*service.DocumentSvc)(nil)

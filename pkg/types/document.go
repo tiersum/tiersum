@@ -16,13 +16,15 @@ type Document struct {
 }
 
 // SummaryTier represents the level of summarization
+// Hierarchy: Topic > Document > Chapter > Paragraph > Source
 type SummaryTier string
 
 const (
-	TierDocument  SummaryTier = "document"
-	TierChapter   SummaryTier = "chapter"
-	TierParagraph SummaryTier = "paragraph"
-	TierSource    SummaryTier = "source"
+	TierTopic     SummaryTier = "topic"     // Highest level - theme/topic summary across documents
+	TierDocument  SummaryTier = "document"  // Document level summary
+	TierChapter   SummaryTier = "chapter"   // Chapter/section level
+	TierParagraph SummaryTier = "paragraph" // Paragraph level
+	TierSource    SummaryTier = "source"    // Original source text
 )
 
 // Summary represents a summary at a specific tier
@@ -34,6 +36,26 @@ type Summary struct {
 	Content    string      `json:"content"`
 	CreatedAt  time.Time   `json:"created_at"`
 	UpdatedAt  time.Time   `json:"updated_at"`
+}
+
+// TopicSummary represents a theme/topic level summary that spans multiple documents
+type TopicSummary struct {
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`         // Topic name/title
+	Description string   `json:"description"`  // Brief description
+	Summary     string   `json:"summary"`      // LLM-generated summary
+	Tags        []string `json:"tags"`         // Related tags
+	DocumentIDs []string `json:"document_ids"` // Associated document IDs
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// DocumentAnalysisResult holds LLM analysis results for a document
+type DocumentAnalysisResult struct {
+	Summary     string   `json:"summary"`     // Document-level summary
+	Tags        []string `json:"tags"`        // Generated tags
+	Topic       string   `json:"topic"`       // Suggested topic/theme
+	KeyPoints   []string `json:"key_points"`  // Key takeaways
 }
 
 // CreateDocumentRequest represents a request to create a document
@@ -55,7 +77,7 @@ type CreateDocumentResponse struct {
 // QueryRequest represents a query request
 type QueryRequest struct {
 	Question string      `form:"question" binding:"required"`
-	Depth    SummaryTier `form:"depth" binding:"omitempty,oneof=document chapter paragraph source"`
+	Depth    SummaryTier `form:"depth" binding:"omitempty,oneof=topic document chapter paragraph source"`
 	Tags     []string    `form:"tags,omitempty"`
 }
 

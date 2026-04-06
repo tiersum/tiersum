@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/domain/service"
 	"github.com/tiersum/tiersum/internal/ports"
 	"github.com/tiersum/tiersum/pkg/types"
 )
@@ -20,16 +21,18 @@ import (
 type Server struct {
 	docService   ports.DocumentService
 	queryService ports.QueryService
+	topicService *service.TopicSvc
 	logger       *zap.Logger
 	mcp          *server.MCPServer
 }
 
 // NewServer creates a new MCP server
 // Accepts service interfaces (same as REST API handler)
-func NewServer(docService ports.DocumentService, queryService ports.QueryService, logger *zap.Logger) *Server {
+func NewServer(docService ports.DocumentService, queryService ports.QueryService, topicService *service.TopicSvc, logger *zap.Logger) *Server {
 	s := &Server{
 		docService:   docService,
 		queryService: queryService,
+		topicService: topicService,
 		logger:       logger,
 	}
 
@@ -56,8 +59,8 @@ func (s *Server) registerTools() {
 			mcp.Description("The question to query"),
 		),
 		mcp.WithString("depth",
-			mcp.Description("Query depth: document, chapter, paragraph, or source"),
-			mcp.Enum("document", "chapter", "paragraph", "source"),
+			mcp.Description("Query depth: topic, document, chapter, paragraph, or source"),
+			mcp.Enum("topic", "document", "chapter", "paragraph", "source"),
 		),
 	)
 	s.mcp.AddTool(queryTool, s.handleQuery)
@@ -71,6 +74,22 @@ func (s *Server) registerTools() {
 		),
 	)
 	s.mcp.AddTool(getDocTool, s.handleGetDocument)
+
+	// ListTopics tool - lists all topics
+	listTopicsTool := mcp.NewTool("tiersum_list_topics",
+		mcp.WithDescription("List all topic summaries"),
+	)
+	s.mcp.AddTool(listTopicsTool, s.handleListTopics)
+
+	// GetTopic tool - retrieves a topic by ID
+	getTopicTool := mcp.NewTool("tiersum_get_topic",
+		mcp.WithDescription("Retrieve a topic summary by ID"),
+		mcp.WithString("topic_id",
+			mcp.Required(),
+			mcp.Description("The topic ID to retrieve"),
+		),
+	)
+	s.mcp.AddTool(getTopicTool, s.handleGetTopic)
 }
 
 // GetMCPServer returns the underlying MCP server for SSE handling
@@ -150,10 +169,95 @@ func (s *Server) handleGetDocument(ctx context.Context, request mcp.CallToolRequ
 // isValidDepth checks if the depth is valid
 func isValidDepth(depth types.SummaryTier) bool {
 	switch depth {
-	case types.TierDocument, types.TierChapter, types.TierParagraph, types.TierSource:
+	case types.TierTopic, types.TierDocument, types.TierChapter, types.TierParagraph, types.TierSource:
 		return true
 	}
 	return false
+}
+
+// handleListTopics handles the tiersum_list_topics tool
+func (s *Server) handleListTopics(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.logger.Info("MCP list topics")
+
+	topics, err := s.topicService.ListTopics(ctx)
+	if err != nil {
+		s.logger.Error("failed to list topics", zap.Error(err))
+		return nil, fmt.Errorf("failed to list topics: %w", err)
+	}
+
+	resultText := formatTopicList(topics)
+	return mcp.NewToolResultText(resultText), nil
+}
+
+// handleGetTopic handles the tiersum_get_topic tool
+func (s *Server) handleGetTopic(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	topicID, ok := request.Params.Arguments["topic_id"].(string)
+	if !ok || topicID == "" {
+		return nil, fmt.Errorf("topic_id is required")
+	}
+
+	s.logger.Info("MCP get topic", zap.String("topic_id", topicID))
+
+	topic, err := s.topicService.GetTopic(ctx, topicID)
+	if err != nil {
+		s.logger.Error("failed to get topic", zap.String("id", topicID), zap.Error(err))
+		return nil, fmt.Errorf("failed to get topic: %w", err)
+	}
+
+	if topic == nil {
+		return mcp.NewToolResultText(fmt.Sprintf("Topic not found: %s", topicID)), nil
+	}
+
+	resultText := formatTopic(topic)
+	return mcp.NewToolResultText(resultText), nil
+}
+
+// formatTopicList formats a list of topics for display
+func formatTopicList(topics []types.TopicSummary) string {
+	if len(topics) == 0 {
+		return "No topics found."
+	}
+
+	text := "Available Topics:\n\n"
+	for i, t := range topics {
+		text += fmt.Sprintf("%d. %s (ID: %s)\n", i+1, t.Name, t.ID)
+		if t.Description != "" {
+			text += fmt.Sprintf("   %s\n", t.Description)
+		}
+		if len(t.Tags) > 0 {
+			text += fmt.Sprintf("   Tags: %v\n", t.Tags)
+		}
+		text += "\n"
+	}
+	return text
+}
+
+// formatTopic formats a single topic for display
+func formatTopic(topic *types.TopicSummary) string {
+	text := fmt.Sprintf(
+		"Topic: %s\nID: %s\n",
+		topic.Name,
+		topic.ID,
+	)
+
+	if topic.Description != "" {
+		text += fmt.Sprintf("Description: %s\n", topic.Description)
+	}
+
+	if len(topic.Tags) > 0 {
+		text += fmt.Sprintf("Tags: %v\n", topic.Tags)
+	}
+
+	text += fmt.Sprintf("\nSummary:\n%s\n", topic.Summary)
+
+	if len(topic.DocumentIDs) > 0 {
+		text += fmt.Sprintf("\nAssociated Documents (%d):\n", len(topic.DocumentIDs))
+		for i, docID := range topic.DocumentIDs {
+			text += fmt.Sprintf("  %d. %s\n", i+1, docID)
+		}
+	}
+
+	return text
 }
 
 // formatQueryResults formats query results for display

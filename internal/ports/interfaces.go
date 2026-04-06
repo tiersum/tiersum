@@ -28,6 +28,24 @@ type SummaryRepository interface {
 	GetByDocument(ctx context.Context, docID string) ([]types.Summary, error)
 }
 
+// TopicSummaryRepository defines topic summary storage operations
+type TopicSummaryRepository interface {
+	// Create saves a new topic summary
+	Create(ctx context.Context, topic *types.TopicSummary) error
+	// GetByID retrieves a topic summary by ID
+	GetByID(ctx context.Context, id string) (*types.TopicSummary, error)
+	// GetByName retrieves a topic summary by name
+	GetByName(ctx context.Context, name string) (*types.TopicSummary, error)
+	// List retrieves all topic summaries
+	List(ctx context.Context) ([]types.TopicSummary, error)
+	// FindByTags retrieves topic summaries matching any of the given tags
+	FindByTags(ctx context.Context, tags []string) ([]types.TopicSummary, error)
+	// AddDocument adds a document to a topic
+	AddDocument(ctx context.Context, topicID string, docID string) error
+	// RemoveDocument removes a document from a topic
+	RemoveDocument(ctx context.Context, topicID string, docID string) error
+}
+
 // Cache defines minimal cache operations
 type Cache interface {
 	// Get retrieves value by key
@@ -68,6 +86,12 @@ type Parser interface {
 type Summarizer interface {
 	// Summarize creates summary for given content
 	Summarize(ctx context.Context, content string, level types.SummaryTier) (string, error)
+	
+	// AnalyzeDocument performs full document analysis including summary and tags
+	AnalyzeDocument(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error)
+	
+	// GenerateTopicSummary creates a topic-level summary from multiple documents
+	GenerateTopicSummary(ctx context.Context, topicName string, documents []*types.Document) (*types.TopicSummary, error)
 }
 
 // Indexer defines document indexing capability

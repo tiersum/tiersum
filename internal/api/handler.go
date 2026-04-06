@@ -8,23 +8,26 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/domain/service"
 	"github.com/tiersum/tiersum/internal/ports"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
 // Handler holds API dependencies
 type Handler struct {
-	docService  ports.DocumentService
+	docService   ports.DocumentService
 	queryService ports.QueryService
-	logger      *zap.Logger
+	topicService *service.TopicSvc
+	logger       *zap.Logger
 }
 
 // NewHandler creates a new API handler
-func NewHandler(docService ports.DocumentService, queryService ports.QueryService, logger *zap.Logger) *Handler {
+func NewHandler(docService ports.DocumentService, queryService ports.QueryService, topicService *service.TopicSvc, logger *zap.Logger) *Handler {
 	return &Handler{
-		docService:  docService,
+		docService:   docService,
 		queryService: queryService,
-		logger:      logger,
+		topicService: topicService,
+		logger:       logger,
 	}
 }
 
@@ -36,6 +39,15 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		docs.GET("", h.ListDocuments)
 		docs.GET("/:id", h.GetDocument)
 		docs.GET("/:id/hierarchy", h.GetHierarchy)
+	}
+
+	// Topic endpoints
+	topics := router.Group("/topics")
+	{
+		topics.POST("", h.CreateTopic)
+		topics.GET("", h.ListTopics)
+		topics.GET("/:id", h.GetTopic)
+		topics.GET("/by-tags", h.FindTopicsByTags)
 	}
 
 	router.GET("/query", h.Query)
@@ -130,4 +142,77 @@ func (h *Handler) Query(c *gin.Context) {
 		Depth:    req.Depth,
 		Results:  results,
 	})
+}
+
+// CreateTopicRequest represents a request to create a topic
+type CreateTopicRequest struct {
+	Name    string   `json:"name" binding:"required"`
+	DocIDs  []string `json:"document_ids" binding:"required,min=1"`
+}
+
+// CreateTopic creates a new topic from documents
+func (h *Handler) CreateTopic(c *gin.Context) {
+	var req CreateTopicRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	topic, err := h.topicService.CreateTopicFromDocuments(c.Request.Context(), req.Name, req.DocIDs)
+	if err != nil {
+		h.logger.Error("failed to create topic", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusCreated, topic)
+}
+
+// ListTopics lists all topics
+func (h *Handler) ListTopics(c *gin.Context) {
+	topics, err := h.topicService.ListTopics(c.Request.Context())
+	if err != nil {
+		h.logger.Error("failed to list topics", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list topics"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"topics": topics})
+}
+
+// GetTopic retrieves a topic by ID
+func (h *Handler) GetTopic(c *gin.Context) {
+	id := c.Param("id")
+
+	topic, err := h.topicService.GetTopic(c.Request.Context(), id)
+	if err != nil {
+		h.logger.Error("failed to get topic", zap.String("id", id), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get topic"})
+		return
+	}
+
+	if topic == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "topic not found"})
+		return
+	}
+
+	c.JSON(http.StatusOK, topic)
+}
+
+// FindTopicsByTags finds topics by tags
+func (h *Handler) FindTopicsByTags(c *gin.Context) {
+	tags := c.QueryArray("tags")
+	if len(tags) == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "at least one tag is required"})
+		return
+	}
+
+	topics, err := h.topicService.FindTopicsByTags(c.Request.Context(), tags)
+	if err != nil {
+		h.logger.Error("failed to find topics by tags", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to find topics"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"topics": topics})
 }
