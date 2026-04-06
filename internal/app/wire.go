@@ -12,6 +12,7 @@ import (
 	"github.com/tiersum/tiersum/internal/api"
 	"github.com/tiersum/tiersum/internal/domain/core"
 	"github.com/tiersum/tiersum/internal/domain/service"
+	"github.com/tiersum/tiersum/internal/mcp"
 	"github.com/tiersum/tiersum/internal/ports"
 	"github.com/tiersum/tiersum/internal/storage"
 )
@@ -22,8 +23,11 @@ type Dependencies struct {
 	DocumentService ports.DocumentService
 	QueryService    ports.QueryService
 
-	// API Handler
+	// API Layer (thin layer, depends on services)
 	Handler *api.Handler
+
+	// MCP Server (thin layer, depends on services - same level as REST API)
+	MCP *mcp.Server
 
 	// Infrastructure
 	Storage *storage.Storage
@@ -54,13 +58,17 @@ func NewDependencies(db *sql.DB, driver string, logger *zap.Logger) (*Dependenci
 	docService := service.NewDocumentSvc(uow.Documents, indexer, logger)
 	queryService := service.NewQuerySvc(uow.Documents, uow.Summaries, logger)
 
-	// 6. API Layer (depends on service interfaces)
+	// 6. API Layer (thin layer, depends on service interfaces)
 	handler := api.NewHandler(docService, queryService, logger)
+
+	// 7. MCP Server (thin layer, depends on service interfaces - same level as REST API)
+	mcpServer := mcp.NewServer(docService, queryService, logger)
 
 	return &Dependencies{
 		DocumentService: docService,
 		QueryService:    queryService,
 		Handler:         handler,
+		MCP:             mcpServer,
 		Storage:         store,
 		Logger:          logger,
 	}, nil
@@ -76,6 +84,9 @@ var (
 	// Services implement ports interfaces
 	_ ports.DocumentService = (*service.DocumentSvc)(nil)
 	_ ports.QueryService    = (*service.QuerySvc)(nil)
+
+	// MCP Server is properly instantiated
+	_ *mcp.Server = (*mcp.Server)(nil)
 
 	// Core services implement ports interfaces
 	_ ports.Parser     = (*core.ParserSvc)(nil)
