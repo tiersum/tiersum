@@ -15,6 +15,9 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
+// fieldPattern is used for extracting fields from LLM responses
+var fieldPattern = regexp.MustCompile(`(?i)([^:]+):\s*(.+?)(?=\n[^:]*:|\z)`)
+
 // IndexerSvc implements service.IIndexer
 type IndexerSvc struct {
 	parser     service.IParser
@@ -286,9 +289,9 @@ func parseAnalysisResponse(response string) *types.DocumentAnalysisResult {
 }
 
 func extractField(response, fieldName string) string {
-	// Simple extraction - look for "FIELD: value" pattern
-	import "regexp"
-	pattern := regexp.MustCompile(`(?i)` + fieldName + `[:：]\s*(.+?)(?=\n\w+[:：]|\z)`)
+	// Use pre-compiled pattern and replace field name placeholder
+	patternStr := fmt.Sprintf(`(?i)%s[:：]\s*(.+?)(?=\n\w+[:：]|\z)`, regexp.QuoteMeta(fieldName))
+	pattern := regexp.MustCompile(patternStr)
 	matches := pattern.FindStringSubmatch(response)
 	if len(matches) > 1 {
 		return strings.TrimSpace(matches[1])
