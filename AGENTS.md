@@ -51,13 +51,13 @@ internal/
     svcimpl/           # Implementation subpackage
       document.go      # DocumentSvc implements IDocumentService
       query.go         # QuerySvc implements IQueryService
-      tag_clustering.go # TagGroupSvc implements ITagGroupService
+      tag_grouping.go    # TagGroupSvc implements ITagGroupService
       indexer.go       # IndexerSvc implements IIndexer
       summarizer.go    # SummarizerSvc implements ISummarizer
   storage/             # Layer 3: Storage Layer
     interface.go       # I-prefixed storage interfaces
     db/                # Database repository implementations
-      repository.go    # DocumentRepo, SummaryRepo, TagRepo, TagGroupRepo, ClusterRefreshLogRepo
+      repository.go    # DocumentRepo, SummaryRepo, TagRepo, TagGroupRepo, TagGroupRefreshLogRepo
       schema.go        # Database schema definitions
       migrator.go      # Schema migration manager
     cache/             # Cache implementation
@@ -105,8 +105,8 @@ The system uses a hierarchical tag structure for document organization and retri
 ### Tag Hierarchy
 
 ```
-Level 1: Tag Groups (Clusters)
-    ├── "Cloud Native" (cluster)
+Level 1: Tag Groups
+    ├── "Cloud Native"
     │       ├── Level 2: kubernetes
     │       ├── Level 2: docker
     │       └── Level 2: helm
@@ -142,12 +142,12 @@ Step 4: Build Results
     └──▶ Return: QueryItem list with paths and content
 ```
 
-### Tag Clustering Job
+### Tag Grouping Job
 
 The `TagGroupJob` runs every 30 minutes to:
-1. Check if clustering is needed (tag count changed or 30 min elapsed)
-2. Use LLM to cluster all L2 tags into L1 groups
-3. Update cluster assignments in database
+1. Check if grouping is needed (tag count changed or 30 min elapsed)
+2. Use LLM to group all L2 tags into L1 groups
+3. Update group assignments in database
 4. Log refresh metrics
 
 ## Interface Definitions
@@ -228,7 +228,7 @@ ITagRepository interface {
     Create(ctx context.Context, tag *types.Tag) error
     GetByName(ctx context.Context, name string) (*types.Tag, error)
     List(ctx context.Context) ([]types.Tag, error)
-    ListByCluster(ctx context.Context, clusterID string) ([]types.Tag, error)
+    ListByGroup(ctx context.Context, groupID string) ([]types.Tag, error)
     IncrementDocumentCount(ctx context.Context, tagName string) error
     DeleteAll(ctx context.Context) error
     GetCount(ctx context.Context) (int, error)
@@ -242,9 +242,9 @@ ITagGroupRepository interface {
     GetCount(ctx context.Context) (int, error)
 }
 
-IClusterRefreshLogRepository interface {
-    Create(ctx context.Context, tagCountBefore, tagCountAfter, clusterCount int, durationMs int64) error
-    GetLastRefresh(ctx context.Context) (*ClusterRefreshLog, error)
+ITagGroupRefreshLogRepository interface {
+    Create(ctx context.Context, tagCountBefore, tagCountAfter, groupCount int, durationMs int64) error
+    GetLastRefresh(ctx context.Context) (*TagGroupRefreshLog, error)
 }
 
 ICache interface {
@@ -269,13 +269,13 @@ ILLMProvider interface {
 - **Source**: Original content
 
 ### Two-Level Tag System
-- **Level 1 (Tag Groups)**: High-level categories created by LLM clustering
+- **Level 1 (Tag Groups)**: High-level categories created by LLM grouping
 - **Level 2 (Tags)**: Individual tags extracted from documents
 
 ### LLM-Powered Features
 - **Auto-generated tags**: Documents get tags via LLM analysis if not provided
 - **Document analysis**: Summary + tags + chapter summaries
-- **Tag clustering**: Automatic grouping of related tags into categories
+- **Tag grouping**: Automatic grouping of related tags into categories
 - **Progressive filtering**: LLM filters tags → documents → chapters at each step
 
 ### Dual API

@@ -36,44 +36,44 @@ type ITagRepository interface {
 	GetByName(ctx context.Context, name string) (*types.Tag, error)
 	// List retrieves all global tags
 	List(ctx context.Context) ([]types.Tag, error)
-	// ListByCluster retrieves tags belonging to a specific cluster
-	ListByCluster(ctx context.Context, clusterID string) ([]types.Tag, error)
+	// ListByGroup retrieves tags belonging to a specific group
+	ListByGroup(ctx context.Context, groupID string) ([]types.Tag, error)
 	// IncrementDocumentCount increments the document count for a tag
 	IncrementDocumentCount(ctx context.Context, tagName string) error
-	// DeleteAll removes all global tags (used before re-clustering)
+	// DeleteAll removes all global tags (used before re-grouping)
 	DeleteAll(ctx context.Context) error
 	// GetCount returns the total number of global tags
 	GetCount(ctx context.Context) (int, error)
 }
 
-// ITagGroupRepository defines tag cluster storage operations
+// ITagGroupRepository defines tag group storage operations
 type ITagGroupRepository interface {
-	// Create creates a new tag cluster
-	Create(ctx context.Context, cluster *types.TagGroup) error
-	// GetByID retrieves a cluster by ID
+	// Create creates a new tag group
+	Create(ctx context.Context, group *types.TagGroup) error
+	// GetByID retrieves a group by ID
 	GetByID(ctx context.Context, id string) (*types.TagGroup, error)
-	// List retrieves all tag clusters
+	// List retrieves all tag groups
 	List(ctx context.Context) ([]types.TagGroup, error)
-	// DeleteAll removes all clusters (used before re-clustering)
+	// DeleteAll removes all groups (used before re-grouping)
 	DeleteAll(ctx context.Context) error
-	// GetCount returns the total number of clusters
+	// GetCount returns the total number of groups
 	GetCount(ctx context.Context) (int, error)
 }
 
-// IClusterRefreshLogRepository defines cluster refresh log operations
-type IClusterRefreshLogRepository interface {
+// ITagGroupRefreshLogRepository defines tag group refresh log operations
+type ITagGroupRefreshLogRepository interface {
 	// Create creates a new log entry
-	Create(ctx context.Context, tagCountBefore, tagCountAfter, clusterCount int, durationMs int64) error
+	Create(ctx context.Context, tagCountBefore, tagCountAfter, groupCount int, durationMs int64) error
 	// GetLastRefresh retrieves the most recent refresh log
-	GetLastRefresh(ctx context.Context) (*ClusterRefreshLog, error)
+	GetLastRefresh(ctx context.Context) (*TagGroupRefreshLog, error)
 }
 
-// ClusterRefreshLog represents a cluster refresh log entry
-type ClusterRefreshLog struct {
+// TagGroupRefreshLog represents a tag group refresh log entry
+type TagGroupRefreshLog struct {
 	ID             int64
 	TagCountBefore int
 	TagCountAfter  int
-	ClusterCount   int
+	GroupCount     int
 	DurationMs     int
 	CreatedAt      interface{}
 }

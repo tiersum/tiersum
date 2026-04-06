@@ -17,8 +17,8 @@ import (
 type QuerySvc struct {
 	docRepo       storage.IDocumentRepository
 	summaryRepo   storage.ISummaryRepository
-	tagRepo storage.ITagRepository
-	clusterRepo   storage.ITagGroupRepository
+	tagRepo     storage.ITagRepository
+	groupRepo   storage.ITagGroupRepository
 	summarizer    service.ISummarizer
 	logger        *zap.Logger
 }
@@ -27,18 +27,18 @@ type QuerySvc struct {
 func NewQuerySvc(
 	docRepo storage.IDocumentRepository,
 	summaryRepo storage.ISummaryRepository,
-	tagRepo storage.ITagRepository,
-	clusterRepo storage.ITagGroupRepository,
+	tagRepo   storage.ITagRepository,
+	groupRepo storage.ITagGroupRepository,
 	summarizer service.ISummarizer,
 	logger *zap.Logger,
 ) *QuerySvc {
 	return &QuerySvc{
-		docRepo:       docRepo,
-		summaryRepo:   summaryRepo,
-		tagRepo: tagRepo,
-		clusterRepo:   clusterRepo,
-		summarizer:    summarizer,
-		logger:        logger,
+		docRepo:     docRepo,
+		summaryRepo: summaryRepo,
+		tagRepo:     tagRepo,
+		groupRepo:   groupRepo,
+		summarizer:  summarizer,
+		logger:      logger,
 	}
 }
 

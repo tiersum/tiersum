@@ -50,26 +50,26 @@ func (j *IndexerJob) Execute(ctx context.Context) error {
 	return nil
 }
 
-// TagGroupJob periodically performs tag clustering
+// TagGroupJob periodically performs tag grouping
 type TagGroupJob struct {
-	clusteringSvc service.ITagGroupService
+	groupingSvc service.ITagGroupService
 	logger        *zap.Logger
 }
 
-// NewTagGroupJob creates a new tag clustering job
+// NewTagGroupJob creates a new tag grouping job
 func NewTagGroupJob(
-	clusteringSvc service.ITagGroupService,
+	groupingSvc service.ITagGroupService,
 	logger *zap.Logger,
 ) *TagGroupJob {
 	return &TagGroupJob{
-		clusteringSvc: clusteringSvc,
-		logger:        logger,
+		groupingSvc: groupingSvc,
+		logger:      logger,
 	}
 }
 
 // Name returns the job name
 func (j *TagGroupJob) Name() string {
-	return "tag_clustering"
+	return "tag_grouping"
 }
 
 // Interval returns the execution interval (30 minutes)
@@ -77,32 +77,32 @@ func (j *TagGroupJob) Interval() time.Duration {
 	return 30 * time.Minute
 }
 
-// Execute performs the tag clustering job
+// Execute performs the tag grouping job
 // Strategy:
-// 1. Check if clustering is needed (tag count changed or time elapsed)
-// 2. If needed, perform LLM-based clustering
-// 3. Update Level 1 clusters and Level 2 tag assignments
+// 1. Check if grouping is needed (tag count changed or time elapsed)
+// 2. If needed, perform LLM-based grouping
+// 3. Update Level 1 groups and Level 2 tag assignments
 func (j *TagGroupJob) Execute(ctx context.Context) error {
-	j.logger.Info("running tag clustering job")
+	j.logger.Info("running tag grouping job")
 
 	// Check if refresh is needed
-	shouldRefresh, err := j.clusteringSvc.ShouldRefresh(ctx)
+	shouldRefresh, err := j.groupingSvc.ShouldRefresh(ctx)
 	if err != nil {
 		j.logger.Error("failed to check if refresh needed", zap.Error(err))
 		return err
 	}
 
 	if !shouldRefresh {
-		j.logger.Info("tag clustering not needed at this time")
+		j.logger.Info("tag grouping not needed at this time")
 		return nil
 	}
 
-	// Perform clustering
-	if err := j.clusteringSvc.ClusterTags(ctx); err != nil {
-		j.logger.Error("failed to cluster tags", zap.Error(err))
+	// Perform grouping
+	if err := j.groupingSvc.GroupTags(ctx); err != nil {
+		j.logger.Error("failed to group tags", zap.Error(err))
 		return err
 	}
 
-	j.logger.Info("tag clustering completed successfully")
+	j.logger.Info("tag grouping completed successfully")
 	return nil
 }

@@ -20,7 +20,7 @@ import (
 type MCPServer struct {
 	docService           service.IDocumentService
 	queryService         service.IQueryService
-	tagGroupingService service.ITagGroupService
+	tagGroupService    service.ITagGroupService
 	logger               *zap.Logger
 	mcp                  *mcpserver.MCPServer
 }
@@ -29,14 +29,14 @@ type MCPServer struct {
 func NewMCPServer(
 	docService service.IDocumentService,
 	queryService service.IQueryService,
-	tagGroupingService service.ITagGroupService,
+	tagGroupService service.ITagGroupService,
 	logger *zap.Logger,
 ) *MCPServer {
 	s := &MCPServer{
-		docService:           docService,
-		queryService:         queryService,
-		tagGroupingService: tagGroupingService,
-		logger:               logger,
+		docService:      docService,
+		queryService:    queryService,
+		tagGroupService: tagGroupService,
+		logger:          logger,
 	}
 
 	// Create MCP server
@@ -92,26 +92,26 @@ func (s *MCPServer) registerTools() {
 	s.mcp.AddTool(getDocTool, s.handleGetDocument)
 
 	// ListTagGroups tool
-	listClustersTool := mcp.NewTool("tiersum_list_tag_clusters",
-		mcp.WithDescription("List all tag clusters (Level 1 categories)"),
+	listGroupsTool := mcp.NewTool("tiersum_list_tag_groups",
+		mcp.WithDescription("List all tag groups (Level 1 categories)"),
 	)
-	s.mcp.AddTool(listClustersTool, s.handleListTagGroups)
+	s.mcp.AddTool(listGroupsTool, s.handleListTagGroups)
 
-	// GetTagsByCluster tool
-	getTagsByClusterTool := mcp.NewTool("tiersum_get_tags_by_cluster",
-		mcp.WithDescription("Get all tags (Level 2) belonging to a specific cluster"),
-		mcp.WithString("cluster_id",
+	// GetTagsByGroup tool
+	getTagsByGroupTool := mcp.NewTool("tiersum_get_tags_by_group",
+		mcp.WithDescription("Get all tags (Level 2) belonging to a specific group"),
+		mcp.WithString("group_id",
 			mcp.Required(),
-			mcp.Description("The cluster ID"),
+			mcp.Description("The group ID"),
 		),
 	)
-	s.mcp.AddTool(getTagsByClusterTool, s.handleGetTagsByCluster)
+	s.mcp.AddTool(getTagsByGroupTool, s.handleGetTagsByGroup)
 
 	// TriggerTagGroup tool
-	triggerClusteringTool := mcp.NewTool("tiersum_trigger_tag_clustering",
-		mcp.WithDescription("Manually trigger tag clustering (normally runs automatically every 30 minutes)"),
+	triggerGroupingTool := mcp.NewTool("tiersum_trigger_tag_grouping",
+		mcp.WithDescription("Manually trigger tag grouping (normally runs automatically every 30 minutes)"),
 	)
-	s.mcp.AddTool(triggerClusteringTool, s.handleTriggerTagGroup)
+	s.mcp.AddTool(triggerGroupingTool, s.handleTriggerTagGroup)
 }
 
 // GetMCPServer returns the underlying MCP server for SSE handling
@@ -206,61 +206,61 @@ func (s *MCPServer) handleGetDocument(ctx context.Context, request mcp.CallToolR
 	return mcp.NewToolResultText(resultText), nil
 }
 
-// handleListTagGroups handles the tiersum_list_tag_clusters tool
+// handleListTagGroups handles the tiersum_list_tag_groups tool
 func (s *MCPServer) handleListTagGroups(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	s.logger.Info("MCP list tag clusters")
+	s.logger.Info("MCP list tag groups")
 
-	if s.tagGroupingService == nil {
-		return nil, fmt.Errorf("tag clustering service not available")
+	if s.tagGroupService == nil {
+		return nil, fmt.Errorf("tag grouping service not available")
 	}
 
-	clusters, err := s.tagGroupingService.GetL1Clusters(ctx)
+	groups, err := s.tagGroupService.GetL1Groups(ctx)
 	if err != nil {
-		s.logger.Error("failed to list clusters", zap.Error(err))
-		return nil, fmt.Errorf("failed to list clusters: %w", err)
+		s.logger.Error("failed to list groups", zap.Error(err))
+		return nil, fmt.Errorf("failed to list groups: %w", err)
 	}
 
-	resultText := formatTagGroups(clusters)
+	resultText := formatTagGroups(groups)
 	return mcp.NewToolResultText(resultText), nil
 }
 
-// handleGetTagsByCluster handles the tiersum_get_tags_by_cluster tool
-func (s *MCPServer) handleGetTagsByCluster(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	clusterID, ok := request.Params.Arguments["cluster_id"].(string)
-	if !ok || clusterID == "" {
-		return nil, fmt.Errorf("cluster_id is required")
+// handleGetTagsByGroup handles the tiersum_get_tags_by_group tool
+func (s *MCPServer) handleGetTagsByGroup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	groupID, ok := request.Params.Arguments["group_id"].(string)
+	if !ok || groupID == "" {
+		return nil, fmt.Errorf("group_id is required")
 	}
 
-	s.logger.Info("MCP get tags by cluster", zap.String("cluster_id", clusterID))
+	s.logger.Info("MCP get tags by group", zap.String("group_id", groupID))
 
-	if s.tagGroupingService == nil {
-		return nil, fmt.Errorf("tag clustering service not available")
+	if s.tagGroupService == nil {
+		return nil, fmt.Errorf("tag grouping service not available")
 	}
 
-	tags, err := s.tagGroupingService.GetL2TagsByCluster(ctx, clusterID)
+	tags, err := s.tagGroupService.GetL2TagsByGroup(ctx, groupID)
 	if err != nil {
 		s.logger.Error("failed to get tags", zap.Error(err))
 		return nil, fmt.Errorf("failed to get tags: %w", err)
 	}
 
-	resultText := formatTagsByCluster(clusterID, tags)
+	resultText := formatTagsByGroup(groupID, tags)
 	return mcp.NewToolResultText(resultText), nil
 }
 
-// handleTriggerTagGroup handles the tiersum_trigger_tag_clustering tool
+// handleTriggerTagGroup handles the tiersum_trigger_tag_grouping tool
 func (s *MCPServer) handleTriggerTagGroup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	s.logger.Info("MCP trigger tag clustering")
+	s.logger.Info("MCP trigger tag grouping")
 
-	if s.tagGroupingService == nil {
-		return nil, fmt.Errorf("tag clustering service not available")
+	if s.tagGroupService == nil {
+		return nil, fmt.Errorf("tag grouping service not available")
 	}
 
-	if err := s.tagGroupingService.ClusterTags(ctx); err != nil {
-		s.logger.Error("failed to cluster tags", zap.Error(err))
-		return nil, fmt.Errorf("failed to cluster tags: %w", err)
+	if err := s.tagGroupService.GroupTags(ctx); err != nil {
+		s.logger.Error("failed to group tags", zap.Error(err))
+		return nil, fmt.Errorf("failed to group tags: %w", err)
 	}
 
-	return mcp.NewToolResultText("Tag clustering completed successfully"), nil
+	return mcp.NewToolResultText("Tag grouping completed successfully"), nil
 }
 
 // format functions
@@ -309,26 +309,26 @@ func formatDocument(doc *types.Document) string {
 	)
 }
 
-func formatTagGroups(clusters []types.TagGroup) string {
-	if len(clusters) == 0 {
-		return "No tag clusters found. Tags may not have been clustered yet."
+func formatTagGroups(groups []types.TagGroup) string {
+	if len(groups) == 0 {
+		return "No tag groups found. Tags may not have been grouped yet."
 	}
 
-	text := fmt.Sprintf("Tag Clusters (%d):\n\n", len(clusters))
-	for i, c := range clusters {
-		text += fmt.Sprintf("%d. %s\n", i+1, c.Name)
-		text += fmt.Sprintf("   Description: %s\n", c.Description)
-		text += fmt.Sprintf("   Tags (%d): %v\n\n", len(c.Tags), c.Tags)
+	text := fmt.Sprintf("Tag Groups (%d):\n\n", len(groups))
+	for i, g := range groups {
+		text += fmt.Sprintf("%d. %s\n", i+1, g.Name)
+		text += fmt.Sprintf("   Description: %s\n", g.Description)
+		text += fmt.Sprintf("   Tags (%d): %v\n\n", len(g.Tags), g.Tags)
 	}
 	return text
 }
 
-func formatTagsByCluster(clusterID string, tags []types.Tag) string {
+func formatTagsByGroup(groupID string, tags []types.Tag) string {
 	if len(tags) == 0 {
-		return fmt.Sprintf("No tags found in cluster %s", clusterID)
+		return fmt.Sprintf("No tags found in group %s", groupID)
 	}
 
-	text := fmt.Sprintf("Tags in Cluster (%d):\n\n", len(tags))
+	text := fmt.Sprintf("Tags in Group (%d):\n\n", len(tags))
 	for i, t := range tags {
 		text += fmt.Sprintf("%d. %s (used in %d documents)\n", i+1, t.Name, t.DocumentCount)
 	}

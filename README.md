@@ -42,9 +42,9 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 | Feature | Description |
 |:--------|:------------|
 | **3-Tier Summarization** | Document → Chapter → Source, auto-generated via LLM |
-| **Two-Level Tag Hierarchy** | L1 Tag Groups (clusters) → L2 Tags (auto-generated) |
+| **Two-Level Tag Hierarchy** | L1 Tag Groups → L2 Tags (auto-generated) |
 | **Progressive Query** | LLM filters tags → documents → chapters at each step |
-| **Auto Tag Clustering** | LLM automatically groups related tags into categories |
+| **Auto Tag Grouping** | LLM automatically groups related tags into categories |
 | **RAG Alternative** | Zero chunk fragmentation; full context preservation |
 | **Dual API** | REST API + MCP Tools for seamless agent integration |
 | **Markdown-Native** | Optimized for `.md`; extensible skills for PDF/HTML/Docs |
@@ -158,11 +158,11 @@ curl -X POST http://localhost:8080/api/v1/query/progressive \
 curl "http://localhost:8080/api/v1/query?question=How does kube-scheduler work?&depth=chapter"
 # depth: document | chapter | source
 
-# List tag clusters (Level 1)
-curl "http://localhost:8080/api/v1/tags/clusters"
+# List tag groups (Level 1)
+curl "http://localhost:8080/api/v1/tags/groups"
 
-# Trigger tag clustering manually
-curl -X POST http://localhost:8080/api/v1/tags/cluster
+# Trigger tag grouping manually
+curl -X POST http://localhost:8080/api/v1/tags/group
 
 # Get document
 curl "http://localhost:8080/api/v1/documents/{id}"
@@ -197,20 +197,20 @@ curl "http://localhost:8080/api/v1/documents/{id}"
       }
     },
     {
-      "name": "tiersum_list_tag_clusters",
-      "description": "List all tag clusters (Level 1 categories)",
+      "name": "tiersum_list_tag_groups",
+      "description": "List all tag groups (Level 1 categories)",
       "inputSchema": {}
     },
     {
-      "name": "tiersum_get_tags_by_cluster",
-      "description": "Get all tags (Level 2) belonging to a specific cluster",
+      "name": "tiersum_get_tags_by_group",
+      "description": "Get all tags (Level 2) belonging to a specific group",
       "inputSchema": {
-        "cluster_id": "string"
+        "group_id": "string"
       }
     },
     {
-      "name": "tiersum_trigger_tag_clustering",
-      "description": "Manually trigger tag clustering (runs automatically every 30 minutes)",
+      "name": "tiersum_trigger_tag_grouping",
+      "description": "Manually trigger tag grouping (runs automatically every 30 minutes)",
       "inputSchema": {}
     }
   ]
@@ -228,9 +228,9 @@ mcpServers:
       - tiersum_query
       - tiersum_progressive_query
       - tiersum_get_document
-      - tiersum_list_tag_clusters
-      - tiersum_get_tags_by_cluster
-      - tiersum_trigger_tag_clustering
+      - tiersum_list_tag_groups
+      - tiersum_get_tags_by_group
+      - tiersum_trigger_tag_grouping
 ```
 
 ---
@@ -336,7 +336,7 @@ db/
 │   │   └── svcimpl/       # Implementations
 │   │       ├── document.go
 │   │       ├── query.go
-│   │       ├── tag_clustering.go
+│   │       ├── tag_grouping.go
 │   │       ├── indexer.go
 │   │       └── summarizer.go
 │   ├── storage/           # Layer 3: Data persistence
@@ -390,7 +390,7 @@ make build-all
 ## Roadmap
 
 - [x] 3-tier summarization engine (Document + Chapter + Source)
-- [x] Two-level tag hierarchy with auto-clustering
+- [x] Two-level tag hierarchy with auto-grouping
 - [x] Progressive query with LLM filtering at each step
 - [x] LLM auto-tagging for documents
 - [x] REST API + MCP Server

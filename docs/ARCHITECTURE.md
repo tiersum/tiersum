@@ -60,7 +60,7 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │  Job Layer (internal/job/)                                      │
 │  Background tasks using layer interfaces                        │
-│  - TagGroupJob: Auto-tag clustering (every 30 min)             │
+│  - TagGroupJob: Auto-tag grouping (every 30 min)               │
 │  - IndexerJob: Document indexing (every 1 min)                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -78,7 +78,7 @@ internal/
 │   └── svcimpl/             # Implementation subpackage
 │       ├── document.go      # DocumentSvc
 │       ├── query.go         # QuerySvc
-│       ├── tag_clustering.go # TagGroupSvc
+│       ├── tag_grouping.go    # TagGroupSvc
 │       ├── indexer.go       # IndexerSvc
 │       └── summarizer.go    # SummarizerSvc
 │
@@ -112,7 +112,7 @@ All interfaces use **I-prefix** naming:
 // Service Layer
 IDocumentService      // Document service interface
 IQueryService         // Query service interface
-ITagGroupService      // Tag clustering service interface
+ITagGroupService      // Tag grouping service interface
 IIndexer              // Indexer interface
 ISummarizer           // Summarizer interface
 
@@ -159,7 +159,7 @@ Storage Layer          Client Layer           Service/svcimpl
 The system organizes documents using a two-level tag hierarchy:
 
 ```
-Level 1: Tag Groups (Clusters)
+Level 1: Tag Groups
     ├── "Cloud Native"
     │       ├── Level 2: kubernetes
     │       ├── Level 2: docker
@@ -171,12 +171,12 @@ Level 1: Tag Groups (Clusters)
     └── ...
 ```
 
-### Tag Clustering Process
+### Tag Grouping Process
 
 1. Documents are ingested with auto-generated tags (L2)
 2. `TagGroupJob` runs every 30 minutes
-3. LLM clusters L2 tags into L1 groups
-4. Cluster assignments are stored in database
+3. LLM groups L2 tags into L1 groups
+4. Group assignments are stored in database
 
 ## Progressive Query Flow
 

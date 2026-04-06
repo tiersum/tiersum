@@ -369,16 +369,16 @@ func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
 	return tags, rows.Err()
 }
 
-// ListByCluster implements ITagRepository.ListByCluster
-func (r *TagRepo) ListByCluster(ctx context.Context, clusterID string) ([]types.Tag, error) {
+// ListByGroup implements ITagRepository.ListByGroup
+func (r *TagRepo) ListByGroup(ctx context.Context, groupID string) ([]types.Tag, error) {
 	query := `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags WHERE cluster_id = ? ORDER BY name`
 	if r.driver == "postgres" {
 		query = `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags WHERE cluster_id = $1 ORDER BY name`
 	}
 
-	rows, err := r.db.QueryContext(ctx, query, clusterID)
+	rows, err := r.db.QueryContext(ctx, query, groupID)
 	if err != nil {
-		return nil, fmt.Errorf("list global tags by cluster: %w", err)
+		return nil, fmt.Errorf("list global tags by group: %w", err)
 	}
 	defer rows.Close()
 
@@ -442,7 +442,7 @@ type TagGroupRepo struct {
 	cache  storage.ICache
 }
 
-// NewTagGroupRepo creates a new tag cluster repository
+// NewTagGroupRepo creates a new tag group repository
 func NewTagGroupRepo(db sqlDB, driver string, cache storage.ICache) *TagGroupRepo {
 	return &TagGroupRepo{
 		db:     db,
@@ -452,22 +452,22 @@ func NewTagGroupRepo(db sqlDB, driver string, cache storage.ICache) *TagGroupRep
 }
 
 // Create implements ITagGroupRepository.Create
-func (r *TagGroupRepo) Create(ctx context.Context, cluster *types.TagGroup) error {
-	if cluster.ID == "" {
-		cluster.ID = uuid.New().String()
+func (r *TagGroupRepo) Create(ctx context.Context, group *types.TagGroup) error {
+	if group.ID == "" {
+		group.ID = uuid.New().String()
 	}
 	now := time.Now()
-	cluster.CreatedAt = now
-	cluster.UpdatedAt = now
+	group.CreatedAt = now
+	group.UpdatedAt = now
 
 	query := `INSERT INTO tag_clusters (id, name, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
 	if r.driver == "postgres" {
 		query = `INSERT INTO tag_clusters (id, name, description, tags, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
 	}
 
-	_, err := r.db.ExecContext(ctx, query, cluster.ID, cluster.Name, cluster.Description, cluster.Tags, cluster.CreatedAt, cluster.UpdatedAt)
+	_, err := r.db.ExecContext(ctx, query, group.ID, group.Name, group.Description, group.Tags, group.CreatedAt, group.UpdatedAt)
 	if err != nil {
-		return fmt.Errorf("create tag cluster: %w", err)
+		return fmt.Errorf("create tag group: %w", err)
 	}
 	return nil
 }
@@ -488,7 +488,7 @@ func (r *TagGroupRepo) GetByID(ctx context.Context, id string) (*types.TagGroup,
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get tag cluster by id: %w", err)
+		return nil, fmt.Errorf("get tag group by id: %w", err)
 	}
 
 	c.Tags = parseStringArray(tagsStr)
@@ -501,21 +501,21 @@ func (r *TagGroupRepo) List(ctx context.Context) ([]types.TagGroup, error) {
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("list tag clusters: %w", err)
+		return nil, fmt.Errorf("list tag groups: %w", err)
 	}
 	defer rows.Close()
 
-	var clusters []types.TagGroup
+	var groups []types.TagGroup
 	for rows.Next() {
-		var c types.TagGroup
+		var g types.TagGroup
 		var tagsStr string
-		if err := rows.Scan(&c.ID, &c.Name, &c.Description, &tagsStr, &c.CreatedAt, &c.UpdatedAt); err != nil {
+		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &tagsStr, &g.CreatedAt, &g.UpdatedAt); err != nil {
 			return nil, err
 		}
-		c.Tags = parseStringArray(tagsStr)
-		clusters = append(clusters, c)
+		g.Tags = parseStringArray(tagsStr)
+		groups = append(groups, g)
 	}
-	return clusters, rows.Err()
+	return groups, rows.Err()
 }
 
 // DeleteAll implements ITagGroupRepository.DeleteAll
@@ -523,7 +523,7 @@ func (r *TagGroupRepo) DeleteAll(ctx context.Context) error {
 	query := `DELETE FROM tag_clusters`
 	_, err := r.db.ExecContext(ctx, query)
 	if err != nil {
-		return fmt.Errorf("delete all tag clusters: %w", err)
+		return fmt.Errorf("delete all tag groups: %w", err)
 	}
 	return nil
 }
@@ -535,49 +535,49 @@ func (r *TagGroupRepo) GetCount(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx, query).Scan(&count)
 	if err != nil {
-		return 0, fmt.Errorf("count tag clusters: %w", err)
+		return 0, fmt.Errorf("count tag groups: %w", err)
 	}
 	return count, nil
 }
 
 var _ storage.ITagGroupRepository = (*TagGroupRepo)(nil)
 
-// ClusterRefreshLogRepo implements storage.IClusterRefreshLogRepository
-type ClusterRefreshLogRepo struct {
+// TagGroupRefreshLogRepo implements storage.ITagGroupRefreshLogRepository
+type TagGroupRefreshLogRepo struct {
 	db     sqlDB
 	driver string
 }
 
-// NewClusterRefreshLogRepo creates a new cluster refresh log repository
-func NewClusterRefreshLogRepo(db sqlDB, driver string) *ClusterRefreshLogRepo {
-	return &ClusterRefreshLogRepo{
+// NewTagGroupRefreshLogRepo creates a new tag group refresh log repository
+func NewTagGroupRefreshLogRepo(db sqlDB, driver string) *TagGroupRefreshLogRepo {
+	return &TagGroupRefreshLogRepo{
 		db:     db,
 		driver: driver,
 	}
 }
 
-// Create implements IClusterRefreshLogRepository.Create
-func (r *ClusterRefreshLogRepo) Create(ctx context.Context, tagCountBefore, tagCountAfter, clusterCount int, durationMs int64) error {
+// Create implements ITagGroupRefreshLogRepository.Create
+func (r *TagGroupRefreshLogRepo) Create(ctx context.Context, tagCountBefore, tagCountAfter, groupCount int, durationMs int64) error {
 	query := `INSERT INTO cluster_refresh_log (tag_count_before, tag_count_after, cluster_count, duration_ms, created_at) VALUES (?, ?, ?, ?, ?)`
 	if r.driver == "postgres" {
 		query = `INSERT INTO cluster_refresh_log (tag_count_before, tag_count_after, cluster_count, duration_ms, created_at) VALUES ($1, $2, $3, $4, $5)`
 	}
 
-	_, err := r.db.ExecContext(ctx, query, tagCountBefore, tagCountAfter, clusterCount, durationMs, time.Now())
+	_, err := r.db.ExecContext(ctx, query, tagCountBefore, tagCountAfter, groupCount, durationMs, time.Now())
 	if err != nil {
-		return fmt.Errorf("create cluster refresh log: %w", err)
+		return fmt.Errorf("create tag group refresh log: %w", err)
 	}
 	return nil
 }
 
-// GetLastRefresh implements IClusterRefreshLogRepository.GetLastRefresh
-func (r *ClusterRefreshLogRepo) GetLastRefresh(ctx context.Context) (*storage.ClusterRefreshLog, error) {
+// GetLastRefresh implements ITagGroupRefreshLogRepository.GetLastRefresh
+func (r *TagGroupRefreshLogRepo) GetLastRefresh(ctx context.Context) (*storage.TagGroupRefreshLog, error) {
 	query := `SELECT id, tag_count_before, tag_count_after, cluster_count, duration_ms, created_at FROM cluster_refresh_log ORDER BY created_at DESC LIMIT 1`
 
-	var log storage.ClusterRefreshLog
+	var log storage.TagGroupRefreshLog
 	var createdAt interface{}
 	err := r.db.QueryRowContext(ctx, query).Scan(
-		&log.ID, &log.TagCountBefore, &log.TagCountAfter, &log.ClusterCount, &log.DurationMs, &createdAt,
+		&log.ID, &log.TagCountBefore, &log.TagCountAfter, &log.GroupCount, &log.DurationMs, &createdAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -590,7 +590,7 @@ func (r *ClusterRefreshLogRepo) GetLastRefresh(ctx context.Context) (*storage.Cl
 	return &log, nil
 }
 
-var _ storage.IClusterRefreshLogRepository = (*ClusterRefreshLogRepo)(nil)
+var _ storage.ITagGroupRefreshLogRepository = (*TagGroupRefreshLogRepo)(nil)
 
 func parseStringArray(s string) []string {
 	if s == "" || s == "{}" {
@@ -614,7 +614,7 @@ type UnitOfWork struct {
 	Summaries           storage.ISummaryRepository
 	Tags          storage.ITagRepository
 	TagGroups         storage.ITagGroupRepository
-	ClusterRefreshLogs  storage.IClusterRefreshLogRepository
+	TagGroupRefreshLogs storage.ITagGroupRefreshLogRepository
 }
 
 // NewUnitOfWork creates a new unit of work
@@ -624,6 +624,6 @@ func NewUnitOfWork(db sqlDB, driver string, cache storage.ICache) *UnitOfWork {
 		Summaries:           NewSummaryRepo(db, driver, cache),
 		Tags:          NewTagRepo(db, driver, cache),
 		TagGroups:         NewTagGroupRepo(db, driver, cache),
-		ClusterRefreshLogs:  NewClusterRefreshLogRepo(db, driver),
+		TagGroupRefreshLogs: NewTagGroupRefreshLogRepo(db, driver),
 	}
 }

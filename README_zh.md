@@ -158,11 +158,11 @@ curl -X POST http://localhost:8080/api/v1/query/progressive \
 curl "http://localhost:8080/api/v1/query?question=kube-scheduler 是如何工作的？&depth=chapter"
 # depth: document | chapter | source
 
-# 列出标签聚类（L1）
-curl "http://localhost:8080/api/v1/tags/clusters"
+# 列出标签组（L1）
+curl "http://localhost:8080/api/v1/tags/groups"
 
-# 手动触发标签聚类
-curl -X POST http://localhost:8080/api/v1/tags/cluster
+# 手动触发标签分组
+curl -X POST http://localhost:8080/api/v1/tags/group
 
 # 获取文档
 curl "http://localhost:8080/api/v1/documents/{id}"
@@ -197,20 +197,20 @@ curl "http://localhost:8080/api/v1/documents/{id}"
       }
     },
     {
-      "name": "tiersum_list_tag_clusters",
-      "description": "列出所有标签聚类（L1 类别）",
+      "name": "tiersum_list_tag_groups",
+      "description": "列出所有标签组（L1 类别）",
       "inputSchema": {}
     },
     {
-      "name": "tiersum_get_tags_by_cluster",
-      "description": "获取属于特定聚类的所有标签（L2）",
+      "name": "tiersum_get_tags_by_group",
+      "description": "获取属于特定组的所有标签（L2）",
       "inputSchema": {
-        "cluster_id": "string"
+        "group_id": "string"
       }
     },
     {
-      "name": "tiersum_trigger_tag_clustering",
-      "description": "手动触发标签聚类（每 30 分钟自动运行）",
+      "name": "tiersum_trigger_tag_grouping",
+      "description": "手动触发标签分组（每 30 分钟自动运行）",
       "inputSchema": {}
     }
   ]
@@ -228,9 +228,9 @@ mcpServers:
       - tiersum_query
       - tiersum_progressive_query
       - tiersum_get_document
-      - tiersum_list_tag_clusters
-      - tiersum_get_tags_by_cluster
-      - tiersum_trigger_tag_clustering
+      - tiersum_list_tag_groups
+      - tiersum_get_tags_by_group
+      - tiersum_trigger_tag_grouping
 ```
 
 ---
@@ -336,7 +336,7 @@ db/
 │   │   └── svcimpl/       # 实现
 │   │       ├── document.go
 │   │       ├── query.go
-│   │       ├── tag_clustering.go
+│   │       ├── tag_grouping.go
 │   │       ├── indexer.go
 │   │       └── summarizer.go
 │   ├── storage/           # 第 3 层：数据持久化
@@ -390,7 +390,7 @@ make build-all
 ## 路线图
 
 - [x] 三层摘要引擎（文档 + 章节 + 原文）
-- [x] 两级标签层级与自动聚类
+- [x] 两级标签层级与自动分组
 - [x] 渐进式查询，每步都有 LLM 过滤
 - [x] LLM 自动标签
 - [x] REST API + MCP 服务

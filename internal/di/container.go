@@ -24,7 +24,7 @@ type Dependencies struct {
 	DocumentService service.IDocumentService
 	QueryService    service.IQueryService
 
-	// Tag Clustering Service
+	// Tag Grouping Service
 	TagGroupService service.ITagGroupService
 
 	// API Layer
@@ -53,11 +53,11 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	summarizer := svcimpl.NewSummarizerSvc(llmProvider, logger)
 	indexer := svcimpl.NewIndexerSvc(summarizer, uow.Summaries, logger)
 
-	// 5. Service Layer - Tag clustering
+	// 5. Service Layer - Tag grouping
 	tagGroupSvc := svcimpl.NewTagGroupSvc(
 		uow.Tags,
 		uow.TagGroups,
-		uow.ClusterRefreshLogs,
+		uow.TagGroupRefreshLogs,
 		llmProvider,
 		logger,
 	)
@@ -85,7 +85,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 
 	// 8. Job Layer
 	jobScheduler := job.NewScheduler(logger)
-	// Register tag clustering job (runs every 30 minutes)
+	// Register tag grouping job (runs every 30 minutes)
 	jobScheduler.Register(job.NewTagGroupJob(tagGroupSvc, logger))
 	jobScheduler.Register(job.NewIndexerJob(uow.Documents, uow.Summaries, indexer, logger))
 
@@ -107,7 +107,7 @@ var (
 	_ storage.ISummaryRepository           = (*db.SummaryRepo)(nil)
 	_ storage.ITagRepository         = (*db.TagRepo)(nil)
 	_ storage.ITagGroupRepository        = (*db.TagGroupRepo)(nil)
-	_ storage.IClusterRefreshLogRepository = (*db.ClusterRefreshLogRepo)(nil)
+	_ storage.ITagGroupRefreshLogRepository = (*db.TagGroupRefreshLogRepo)(nil)
 	_ storage.ICache                       = (*cache.Cache)(nil)
 
 	// Service Layer

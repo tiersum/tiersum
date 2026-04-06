@@ -55,12 +55,12 @@ type DocumentAnalysisResult struct {
 	Chapters []ChapterInfo `json:"chapters"`  // List of chapters with summaries
 }
 
-// TagGroup represents a cluster of tags (Level 1 categorization)
+// TagGroup represents a group of tags (Level 1 categorization)
 type TagGroup struct {
 	ID          string   `json:"id"`
-	Name        string   `json:"name"`        // Cluster name/category
-	Description string   `json:"description"` // Cluster description
-	Tags        []string `json:"tags"`        // Tags in this cluster
+	Name        string   `json:"name"`        // Group name/category
+	Description string   `json:"description"` // Group description
+	Tags        []string `json:"tags"`        // Tags in this group
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
