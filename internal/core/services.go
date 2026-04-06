@@ -1,4 +1,5 @@
-// Package core implements domain logic interfaces defined in ports
+// Package core implements core domain logic layer
+// Core business rules, called by service layer
 package core
 
 import (

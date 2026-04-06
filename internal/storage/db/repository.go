@@ -1,5 +1,6 @@
-// Package repository implements repository interfaces defined in ports
-package repository
+// Package db implements database storage layer
+// Database access implementations
+package db
 
 import (
 	"context"
@@ -178,14 +179,6 @@ func NewTopicSummaryRepo(db sqlDB, driver string, cache ports.Cache) *TopicSumma
 		driver: driver,
 		cache:  cache,
 	}
-}
-
-// placeholder returns the appropriate placeholder for the driver
-func (r *TopicSummaryRepo) placeholder(index int) string {
-	if r.driver == "postgres" {
-		return fmt.Sprintf("$%d", index)
-	}
-	return "?"
 }
 
 // Create implements ports.TopicSummaryRepository.Create
@@ -449,8 +442,8 @@ func parseStringArray(s string) []string {
 
 // UnitOfWork combines multiple repositories for transactional operations
 type UnitOfWork struct {
-	Documents     ports.DocumentRepository
-	Summaries     ports.SummaryRepository
+	Documents      ports.DocumentRepository
+	Summaries      ports.SummaryRepository
 	TopicSummaries ports.TopicSummaryRepository
 }
 

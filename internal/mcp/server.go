@@ -11,8 +11,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/domain/service"
 	"github.com/tiersum/tiersum/internal/ports"
+	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 

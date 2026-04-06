@@ -1,4 +1,5 @@
-// Package llm implements LLM provider interfaces defined in ports
+// Package llm implements third-party client layer
+// External system dependencies, e.g., LLM client
 package llm
 
 import (

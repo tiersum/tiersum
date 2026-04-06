@@ -1,4 +1,5 @@
-// Package service implements business logic interfaces defined in ports
+// Package service implements business logic layer
+// Business logic implementation, called by API layer
 package service
 
 import (
@@ -97,10 +98,10 @@ func (s *QuerySvc) Query(ctx context.Context, question string, depth types.Summa
 
 // TopicSvc provides topic management functionality
 type TopicSvc struct {
-	topicRepo   ports.TopicSummaryRepository
-	docRepo     ports.DocumentRepository
-	summarizer  ports.Summarizer
-	logger      *zap.Logger
+	topicRepo  ports.TopicSummaryRepository
+	docRepo    ports.DocumentRepository
+	summarizer ports.Summarizer
+	logger     *zap.Logger
 }
 
 // NewTopicSvc creates a new topic service
