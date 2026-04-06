@@ -2,7 +2,6 @@ package parser
 
 import (
 	"bufio"
-	"bytes"
 	"strings"
 
 	"github.com/yuin/goldmark"
