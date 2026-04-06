@@ -17,13 +17,13 @@
 │  Layer 2: Service Layer (internal/service/)                     │
 │  ┌─────────────────────────────────────────────────────────────┐│
 │  │  interface.go - I-prefixed interfaces                       ││
-│  │  IDocumentService, IQueryService, ITopicService             ││
-│  │  IIndexer, ISummarizer, IParser                            ││
+│  │  IDocumentService, IQueryService, ITagGroupService          ││
+│  │  IIndexer, ISummarizer                                     ││
 │  └─────────────────────────────────────────────────────────────┘│
 │  ┌─────────────────────────────────────────────────────────────┐│
-│  │  impl/ - Implementation subpackage                          ││
-│  │  - DocumentSvc, QuerySvc, TopicSvc                         ││
-│  │  - IndexerSvc, SummarizerSvc, ParserSvc                    ││
+│  │  svcimpl/ - Implementation subpackage                       ││
+│  │  - DocumentSvc, QuerySvc, TagGroupSvc                      ││
+│  │  - IndexerSvc, SummarizerSvc                               ││
 │  └─────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -33,13 +33,14 @@
 │  ┌─────────────────────────────────────────────────────────────┐│
 │  │  interface.go - I-prefixed interfaces                       ││
 │  │  IDocumentRepository, ISummaryRepository, etc.             ││
-│  │  ICache                                                     ││
+│  │  ITagRepository, ITagGroupRepository, ICache               ││
 │  └─────────────────────────────────────────────────────────────┘│
 │  ┌─────────────────────────┐    ┌─────────────────────────────┐│
 │  │  db/repository.go       │    │  cache/cache.go             ││
 │  │  - DocumentRepo         │    │  - Cache                    ││
 │  │  - SummaryRepo          │    │                             ││
-│  │  - TopicSummaryRepo     │    │                             ││
+│  │  - TagRepo              │    │                             ││
+│  │  - TagGroupRepo         │    │                             ││
 │  └─────────────────────────┘    └─────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -59,6 +60,8 @@
 ┌─────────────────────────────────────────────────────────────────┐
 │  Job Layer (internal/job/)                                      │
 │  Background tasks using layer interfaces                        │
+│  - TagGroupJob: Auto-tag clustering (every 30 min)             │
+│  - IndexerJob: Document indexing (every 1 min)                 │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -72,16 +75,19 @@ internal/
 │
 ├── service/                   # Layer 2: Service Layer
 │   ├── interface.go         # Service interfaces (I* prefix)
-│   └── impl/                # Implementation subpackage
+│   └── svcimpl/             # Implementation subpackage
 │       ├── document.go      # DocumentSvc
 │       ├── query.go         # QuerySvc
-│       ├── topic.go         # TopicSvc
-│       └── indexer.go       # IndexerSvc, SummarizerSvc, ParserSvc
+│       ├── tag_clustering.go # TagGroupSvc
+│       ├── indexer.go       # IndexerSvc
+│       └── summarizer.go    # SummarizerSvc
 │
 ├── storage/                   # Layer 3: Storage Layer
 │   ├── interface.go         # Storage interfaces (I* prefix)
 │   ├── db/
-│   │   └── repository.go    # DB implementations
+│   │   ├── repository.go    # DB implementations
+│   │   ├── schema.go        # Database schemas
+│   │   └── migrator.go      # Migration manager
 │   └── cache/
 │       └── cache.go         # Cache implementation
 │
@@ -91,8 +97,8 @@ internal/
 │       └── openai.go        # LLM implementation
 │
 ├── job/                       # Job Layer
-│   ├── scheduler.go
-│   └── jobs.go
+│   ├── scheduler.go         # Job scheduler
+│   └── jobs.go              # Background jobs
 │
 └── di/                        # Dependency Injection
     └── container.go         # Wires all layers together
@@ -106,15 +112,15 @@ All interfaces use **I-prefix** naming:
 // Service Layer
 IDocumentService      // Document service interface
 IQueryService         // Query service interface
-ITopicService         // Topic service interface
+ITagGroupService      // Tag clustering service interface
 IIndexer              // Indexer interface
 ISummarizer           // Summarizer interface
-IParser               // Parser interface
 
 // Storage Layer
 IDocumentRepository      // Document repository interface
 ISummaryRepository       // Summary repository interface
-ITopicSummaryRepository  // Topic repository interface
+ITagRepository           // Tag repository interface
+ITagGroupRepository      // Tag group repository interface
 ICache                   // Cache interface
 
 // Client Layer
@@ -132,7 +138,7 @@ ILLMProvider          // LLM provider interface
             ▼
     ┌───────────────────────┬───────────────────────┐
     ▼                       ▼                       ▼
-Storage Layer          Client Layer           Service/impl
+Storage Layer          Client Layer           Service/svcimpl
 (interface.go)         (interface.go)         (concrete implementations)
     ▲                       ▲
     │ Implements            │ Implements
@@ -146,7 +152,64 @@ Storage Layer          Client Layer           Service/impl
 1. **Interface+Impl Pattern**: Each layer defines interfaces in `interface.go`, implementations in subpackage
 2. **I-prefix Naming**: All interfaces start with I (IDocumentService, not DocumentService)
 3. **No Central ports Package**: Each layer owns its interfaces
-4. **No core Package**: Domain logic merged into service/impl
+4. **No core Package**: Domain logic merged into service/svcimpl
+
+## Two-Level Tag Hierarchy
+
+The system organizes documents using a two-level tag hierarchy:
+
+```
+Level 1: Tag Groups (Clusters)
+    ├── "Cloud Native"
+    │       ├── Level 2: kubernetes
+    │       ├── Level 2: docker
+    │       └── Level 2: helm
+    ├── "Programming Languages"
+    │       ├── Level 2: golang
+    │       ├── Level 2: python
+    │       └── Level 2: rust
+    └── ...
+```
+
+### Tag Clustering Process
+
+1. Documents are ingested with auto-generated tags (L2)
+2. `TagGroupJob` runs every 30 minutes
+3. LLM clusters L2 tags into L1 groups
+4. Cluster assignments are stored in database
+
+## Progressive Query Flow
+
+```
+User Query
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Step 1: Filter L2 Tags (via LLM)                            │
+│ Input: Query + All L2 Tags                                  │
+│ Output: Relevant L2 Tags (relevance >= 0.5)                │
+└─────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Step 2: Query & Filter Documents (via LLM)                  │
+│ Input: Query + Documents matching L2 Tags (OR logic)        │
+│ Output: Relevant Documents (relevance >= 0.5)              │
+└─────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Step 3: Query & Filter Chapters (via LLM)                   │
+│ Input: Query + Chapters from filtered docs                  │
+│ Output: Relevant Chapters (relevance >= 0.5)               │
+└─────────────────────────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Step 4: Build Results                                       │
+│ Output: QueryItem list with paths and content              │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Example: Adding a New Feature
 
@@ -158,7 +221,7 @@ type IAnalyzer interface {
 }
 ```
 
-2. **Implement** in impl subpackage:
+2. **Implement** in svcimpl subpackage:
 ```go
 // internal/service/svcimpl/analyzer.go
 type AnalyzerSvc struct{}
@@ -172,7 +235,7 @@ var _ service.IAnalyzer = (*AnalyzerSvc)(nil)
 
 3. **Wire in** di/container.go:
 ```go
-analyzer := impl.NewAnalyzerSvc()
+analyzer := svcimpl.NewAnalyzerSvc()
 deps := &Dependencies{
     Analyzer: analyzer,
 }

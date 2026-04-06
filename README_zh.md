@@ -12,23 +12,28 @@
 
 ## 为什么选择 TierSum？
 
-传统 RAG 系统将文档任意切分成碎片，丢失了层级上下文和语义结构。**TierSum 通过五层摘要保留知识架构**：
+传统 RAG 系统将文档任意切分成碎片，丢失了层级上下文和语义结构。**TierSum 通过分层摘要和智能标签导航保留知识架构**：
 
 ```
+┌─────────────────────────────────────────────────────────────┐
+│  标签组 (L1)                                                 │
+│  ├── 云原生                                                  │
+│  │      └── 标签: kubernetes, docker, helm                   │
+│  └── 编程语言                                                │
+│         └── 标签: golang, python, rust                       │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
 ┌─────────────────────────────────────┐
-│  Topic Summary (跨文档主题)          │  ← 多文档主题聚合
+│  文档摘要                            │  ← 30,000ft 全局视角
 ├─────────────────────────────────────┤
-│  Document Summary (鸟瞰视角)         │  ← 30,000ft 全局视角
+│  章节摘要                            │  ← 10,000ft 结构视角  
 ├─────────────────────────────────────┤
-│  Chapter Summary (结构地图)          │  ← 10,000ft 结构视角  
-├─────────────────────────────────────┤
-│  Paragraph Summary (核心概念)        │  ← 1,000ft 细节视角
-├─────────────────────────────────────┤
-│  Source Text (原始内容)              │  ← 原文
+│  原文内容                            │  ← 原始内容
 └─────────────────────────────────────┘
 ```
 
-**查询自上而下流动**：从高层摘要开始，仅在需要时深入原文。无需向量相似度猜测 —— **精准的层级导航**。
+**查询通过智能过滤流动**：从 LLM 筛选的标签开始，然后是文档，再到章节 —— 每一步都由 LLM 相关性评分优化。无需向量相似度猜测 —— **精准的层级导航**。
 
 ---
 
@@ -36,9 +41,10 @@
 
 | 特性 | 描述 |
 |:--------|:------------|
-| **五层摘要** | 主题 → 文档 → 章节 → 段落 → 原文，由 LLM 自动生成 |
-| **LLM 自动标签** | 未提供标签时，自动通过 LLM 分析生成标签 |
-| **主题合成** | 从多个文档生成跨文档主题摘要 |
+| **三层摘要** | 文档 → 章节 → 原文，由 LLM 自动生成 |
+| **两级标签层级** | L1 标签组（聚类）→ L2 标签（自动生成） |
+| **渐进式查询** | LLM 在每个步骤筛选标签 → 文档 → 章节 |
+| **自动标签聚类** | LLM 自动将相关标签分组为类别 |
 | **RAG 替代方案** | 零碎片切分；完整上下文保留 |
 | **双 API 架构** | REST API + MCP 工具，无缝集成智能体 |
 | **原生 Markdown** | 针对 `.md` 优化；可扩展技能支持 PDF/HTML/文档转换 |
@@ -140,23 +146,26 @@ curl -X POST http://localhost:8080/api/v1/documents \
     "format": "markdown"
   }'
 
-# 从多个文档创建主题
-curl -X POST http://localhost:8080/api/v1/topics \
+# 渐进式查询（推荐）
+curl -X POST http://localhost:8080/api/v1/query/progressive \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "云原生概念",
-    "document_ids": ["doc-1", "doc-2", "doc-3"]
+    "question": "kube-scheduler 是如何工作的？",
+    "max_results": 100
   }'
 
-# 查询分层摘要
+# 传统分层查询
 curl "http://localhost:8080/api/v1/query?question=kube-scheduler 是如何工作的？&depth=chapter"
-# depth: topic | document | chapter | paragraph | source
+# depth: document | chapter | source
 
-# 列出主题
-curl "http://localhost:8080/api/v1/topics"
+# 列出标签聚类（L1）
+curl "http://localhost:8080/api/v1/tags/clusters"
 
-# 深入钻取
-curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
+# 手动触发标签聚类
+curl -X POST http://localhost:8080/api/v1/tags/cluster
+
+# 获取文档
+curl "http://localhost:8080/api/v1/documents/{id}"
 ```
 
 ### MCP 工具（面向智能体）
@@ -166,11 +175,18 @@ curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
   "tools": [
     {
       "name": "tiersum_query",
-      "description": "分层精准查询知识库",
+      "description": "查询知识库获取相关内容",
       "inputSchema": {
         "question": "string",
-        "depth": "topic|document|chapter|paragraph|source",
-        "filters": {"tags": ["kubernetes"]}
+        "depth": "document|chapter|source"
+      }
+    },
+    {
+      "name": "tiersum_progressive_query",
+      "description": "使用两级标签层级执行渐进式查询（推荐）",
+      "inputSchema": {
+        "question": "string",
+        "max_results": "number (default: 100)"
       }
     },
     {
@@ -181,16 +197,21 @@ curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
       }
     },
     {
-      "name": "tiersum_list_topics",
-      "description": "列出所有主题摘要",
+      "name": "tiersum_list_tag_clusters",
+      "description": "列出所有标签聚类（L1 类别）",
       "inputSchema": {}
     },
     {
-      "name": "tiersum_get_topic",
-      "description": "通过 ID 获取主题摘要",
+      "name": "tiersum_get_tags_by_cluster",
+      "description": "获取属于特定聚类的所有标签（L2）",
       "inputSchema": {
-        "topic_id": "string"
+        "cluster_id": "string"
       }
+    },
+    {
+      "name": "tiersum_trigger_tag_clustering",
+      "description": "手动触发标签聚类（每 30 分钟自动运行）",
+      "inputSchema": {}
     }
   ]
 }
@@ -205,9 +226,11 @@ mcpServers:
     url: http://localhost:8080/mcp/sse
     tools:
       - tiersum_query
+      - tiersum_progressive_query
       - tiersum_get_document
-      - tiersum_list_topics
-      - tiersum_get_topic
+      - tiersum_list_tag_clusters
+      - tiersum_get_tags_by_cluster
+      - tiersum_trigger_tag_clustering
 ```
 
 ---
@@ -235,8 +258,8 @@ mcpServers:
 │  │  interface.go: I* 接口 (IDocumentService, 等)           ││
 │  └─────────────────────────────────────────────────────────┘│
 │  ┌─────────────────────────────────────────────────────────┐│
-│  │  impl/: 实现 (DocumentSvc, QuerySvc, 等)                ││
-│  │  包括：Indexer, Summarizer, Parser                      ││
+│  │  svcimpl/: 实现 (DocumentSvc, QuerySvc, 等)             ││
+│  │  包括：Indexer, Summarizer, TagGroupSvc                 ││
 │  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -274,7 +297,7 @@ mcpServers:
 ## 文档处理流程
 
 ```
-输入 (Markdown/PDF/HTML)
+输入 (Markdown)
     │
     ▼
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
@@ -283,12 +306,12 @@ mcpServers:
 │             │    │             │    │             │
 └─────────────┘    └─────────────┘    └──────┬──────┘
                                              │
-                   ┌─────────────────────────┼─────────────────────────────────┐
-                   ▼                         ▼                                 ▼
-           ┌─────────────┐          ┌─────────────┐          ┌─────────────┐ ┌─────────────┐
-           │ 主题摘要     │          │ 文档摘要     │          │ 章节摘要     │ │ 段落摘要     │
-           │(跨文档)      │          │(摘要)       │          │(大纲)       │ │(关键点)      │
-           └─────────────┘          └─────────────┘          └─────────────┘ └─────────────┘
+                   ┌─────────────────────────┼─────────────────┐
+                   ▼                         ▼                 ▼
+           ┌─────────────┐          ┌─────────────┐    ┌─────────────┐
+           │  文档摘要    │          │  章节摘要    │    │  原文内容    │
+           │ (摘要)      │          │ (大纲)      │    │ (原始内容)   │
+           └─────────────┘          └─────────────┘    └─────────────┘
 ```
 
 ---
@@ -298,41 +321,43 @@ mcpServers:
 ```
 tiersum/
 ├── cmd/
-│   ├── server/          # API 服务器入口
-│   ├── worker/          # 后台任务处理器
-│   └── cli/             # CLI 工具
-├── configs/             # 配置文件
+│   └── main.go            # API 服务器入口
+├── configs/               # 配置文件
 │   ├── config.example.yaml
 │   └── config.yaml
-├── deployments/
-│   └── docker/          # Docker 和 docker-compose 文件
+deployments/
+│   └── docker/            # Docker 和 docker-compose 文件
+db/
+│   └── migrations/        # 数据库迁移文件
 ├── internal/
-│   ├── api/             # 第 1 层：API（REST + MCP 处理器）
-│   ├── service/         # 第 2 层：业务逻辑
-│   │   ├── interface.go # I* 接口 (IDocumentService, 等)
-│   │   └── impl/        # 实现
+│   ├── api/               # 第 1 层：API（REST + MCP 处理器）
+│   ├── service/           # 第 2 层：业务逻辑
+│   │   ├── interface.go   # I* 接口 (IDocumentService, 等)
+│   │   └── svcimpl/       # 实现
 │   │       ├── document.go
 │   │       ├── query.go
-│   │       ├── topic.go
-│   │       └── indexer.go  # Indexer, Summarizer, Parser
-│   ├── storage/         # 第 3 层：数据持久化
-│   │   ├── interface.go # I* 接口
+│   │       ├── tag_clustering.go
+│   │       ├── indexer.go
+│   │       └── summarizer.go
+│   ├── storage/           # 第 3 层：数据持久化
+│   │   ├── interface.go   # I* 接口
 │   │   ├── db/
-│   │   │   └── repository.go
+│   │   │   ├── repository.go
+│   │   │   ├── schema.go
+│   │   │   └── migrator.go
 │   │   └── cache/
 │   │       └── cache.go
-│   ├── client/          # 第 4 层：外部依赖
-│   │   ├── interface.go # ILLMProvider
+│   ├── client/            # 第 4 层：外部依赖
+│   │   ├── interface.go   # ILLMProvider
 │   │   └── llm/
 │   │       └── openai.go
-│   ├── job/             # 后台任务
+│   ├── job/               # 后台任务
 │   │   ├── scheduler.go
 │   │   └── jobs.go
-│   └── di/              # 依赖注入
+│   └── di/                # 依赖注入
 │       └── container.go
 ├── pkg/
-│   └── types/           # 公共 API 类型
-├── migrations/          # 数据库迁移
+│   └── types/             # 公共 API 类型
 ├── go.mod
 ├── Makefile
 ├── README.md
@@ -364,9 +389,10 @@ make build-all
 
 ## 路线图
 
-- [x] 五层摘要引擎（主题 + 文档 + 章节 + 段落 + 原文）
+- [x] 三层摘要引擎（文档 + 章节 + 原文）
+- [x] 两级标签层级与自动聚类
+- [x] 渐进式查询，每步都有 LLM 过滤
 - [x] LLM 自动标签
-- [x] 多文档主题合成
 - [x] REST API + MCP 服务
 - [x] SQLite/PostgreSQL + 内存缓存 存储
 - [ ] OpenClaw 技能包（转换 + 更新）

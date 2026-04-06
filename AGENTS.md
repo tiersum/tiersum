@@ -51,12 +51,13 @@ internal/
     svcimpl/           # Implementation subpackage
       document.go      # DocumentSvc implements IDocumentService
       query.go         # QuerySvc implements IQueryService
-      topic.go         # TopicSvc implements ITopicService
-      indexer.go       # IndexerSvc, SummarizerSvc, ParserSvc
+      tag_clustering.go # TagGroupSvc implements ITagGroupService
+      indexer.go       # IndexerSvc implements IIndexer
+      summarizer.go    # SummarizerSvc implements ISummarizer
   storage/             # Layer 3: Storage Layer
     interface.go       # I-prefixed storage interfaces
     db/                # Database repository implementations
-      repository.go    # DocumentRepo, SummaryRepo, TopicSummaryRepo
+      repository.go    # DocumentRepo, SummaryRepo, TagRepo, TagGroupRepo, ClusterRefreshLogRepo
       schema.go        # Database schema definitions
       migrator.go      # Schema migration manager
     cache/             # Cache implementation
@@ -67,7 +68,7 @@ internal/
       openai.go        # OpenAIProvider implements ILLMProvider
   job/                 # Job Layer (background tasks)
     scheduler.go       # Job scheduler
-    jobs.go            # IndexerJob, TopicAggregatorJob, CacheCleanupJob
+    jobs.go            # IndexerJob, TagGroupJob
   di/                  # Dependency Injection (composition root)
     container.go       # Wires all layers together
 pkg/types/             # Public API types
@@ -97,34 +98,57 @@ Job Layer can use: Service Layer, Storage Layer
 4. **DI in di/**: All wiring happens in `internal/di/container.go`
 5. **API unified**: REST and MCP handlers in same package (`internal/api/`)
 
-## Automatic Topic Aggregation
+## Two-Level Tag-Based Progressive Query
 
-Documents are automatically organized into topics based on tag overlap:
+The system uses a hierarchical tag structure for document organization and retrieval:
 
-### Flow
+### Tag Hierarchy
+
 ```
-Document Ingest
-    │
-    ├─► LLM generates tags (if not provided)
-    │
-    ├─► Document saved to DB
-    │
-    ├─► Async: Generate 4-tier summaries (Document→Chapter→Paragraph)
-    │
-    └─► Async: Match to existing topics by tag overlap (2+ matching tags)
-            │
-            ▼
-    TopicAggregatorJob (runs every 5 min)
-            │
-            ├─► Scan topics with few documents
-            │
-            └─► Create new topics from documents sharing common tags
+Level 1: Tag Groups (Clusters)
+    ├── "Cloud Native" (cluster)
+    │       ├── Level 2: kubernetes
+    │       ├── Level 2: docker
+    │       └── Level 2: helm
+    ├── "Programming Languages"
+    │       ├── Level 2: golang
+    │       ├── Level 2: python
+    │       └── Level 2: rust
+    └── ...
 ```
 
-### Tag Matching Rules
-- A document is added to a topic if they share **2+ tags** (or 1 if document has only 1 tag)
-- Matching happens asynchronously after document ingestion
-- Duplicate document entries in same topic are prevented
+### Progressive Query Flow
+
+```
+User Query
+    │
+    ▼
+Step 1: Filter L2 Tags (via LLM)
+    │──▶ Input: Query + All L2 Tags
+    │──▶ Output: Relevant L2 Tags (relevance >= 0.5)
+    │
+    ▼
+Step 2: Query & Filter Documents (via LLM)
+    │──▶ Input: Query + Documents matching L2 Tags
+    │──▶ Output: Relevant Documents (relevance >= 0.5)
+    │
+    ▼
+Step 3: Query & Filter Chapters (via LLM)
+    │──▶ Input: Query + Chapters from filtered docs
+    │──▶ Output: Relevant Chapters (relevance >= 0.5)
+    │
+    ▼
+Step 4: Build Results
+    └──▶ Return: QueryItem list with paths and content
+```
+
+### Tag Clustering Job
+
+The `TagGroupJob` runs every 30 minutes to:
+1. Check if clustering is needed (tag count changed or 30 min elapsed)
+2. Use LLM to cluster all L2 tags into L1 groups
+3. Update cluster assignments in database
+4. Log refresh metrics
 
 ## Interface Definitions
 
@@ -133,37 +157,49 @@ Document Ingest
 ```go
 // Business Logic
 IDocumentService interface {
-    Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.Document, error)
+    // Ingest processes and stores a new document
+    // Automatically generates tags, summary, and chapter summaries
+    Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error)
+    // Get retrieves a document by ID
     Get(ctx context.Context, id string) (*types.Document, error)
 }
 
 IQueryService interface {
+    // Query performs hierarchical query with LLM filtering (legacy)
     Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error)
+    // ProgressiveQuery performs the new two-level tag-based progressive query
+    ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error)
 }
 
-ITopicService interface {
-    CreateTopicFromDocuments(ctx context.Context, topicName string, docIDs []string) (*types.TopicSummary, error)
-    GetTopic(ctx context.Context, id string) (*types.TopicSummary, error)
-    ListTopics(ctx context.Context) ([]types.TopicSummary, error)
-    FindTopicsByTags(ctx context.Context, tags []string) ([]types.TopicSummary, error)
-    // Auto-matching: adds document to topics with overlapping tags
-    AddDocumentToTopics(ctx context.Context, docID string, docTags []string) (int, error)
-    AutoCreateTopicFromTag(ctx context.Context, tag string, minDocs int) (*types.TopicSummary, error)
+ITagGroupService interface {
+    // ClusterTags performs LLM-based clustering of all global tags
+    // Creates Level 1 clusters from Level 2 tags
+    ClusterTags(ctx context.Context) error
+    // ShouldRefresh checks if clustering should be performed
+    ShouldRefresh(ctx context.Context) (bool, error)
+    // GetL1Clusters retrieves all Level 1 clusters
+    GetL1Clusters(ctx context.Context) ([]types.TagGroup, error)
+    // GetL2TagsByCluster retrieves Level 2 tags belonging to a cluster
+    GetL2TagsByCluster(ctx context.Context, clusterID string) ([]types.Tag, error)
+    // FilterL2TagsByQuery uses LLM to filter L2 tags based on query
+    FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error)
 }
 
 // Core Domain Logic (in service/svcimpl/)
 IIndexer interface {
-    Index(ctx context.Context, docID string, content string) error
+    // Index processes and indexes a document
+    // Creates document summary, chapter summaries, and stores source content
+    Index(ctx context.Context, doc *types.Document, analysis *types.DocumentAnalysisResult) error
 }
 
 ISummarizer interface {
-    Summarize(ctx context.Context, content string, level types.SummaryTier) (string, error)
+    // AnalyzeDocument performs full document analysis
+    // Returns document summary, tags (max 10), and chapter summaries
     AnalyzeDocument(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error)
-    GenerateTopicSummary(ctx context.Context, topicName string, documents []*types.Document) (*types.TopicSummary, error)
-}
-
-IParser interface {
-    Parse(content string) (*types.ParsedDocument, error)
+    // FilterDocuments selects relevant documents based on query
+    FilterDocuments(ctx context.Context, query string, docs []types.Document) ([]types.LLMFilterResult, error)
+    // FilterChapters selects relevant chapters based on query
+    FilterChapters(ctx context.Context, query string, chapters []types.Summary) ([]types.LLMFilterResult, error)
 }
 ```
 
@@ -173,20 +209,42 @@ IParser interface {
 IDocumentRepository interface {
     Create(ctx context.Context, doc *types.Document) error
     GetByID(ctx context.Context, id string) (*types.Document, error)
+    // ListByTags retrieves documents that match ANY of the given tags (OR logic)
+    ListByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error)
 }
 
 ISummaryRepository interface {
     Create(ctx context.Context, summary *types.Summary) error
     GetByDocument(ctx context.Context, docID string) ([]types.Summary, error)
+    // GetByPath retrieves a summary by its exact path
+    GetByPath(ctx context.Context, path string) (*types.Summary, error)
+    // QueryByTierAndPrefix queries summaries by tier and path prefix
+    QueryByTierAndPrefix(ctx context.Context, tier types.SummaryTier, pathPrefix string) ([]types.Summary, error)
+    // DeleteByDocument removes all summaries for a document
+    DeleteByDocument(ctx context.Context, docID string) error
 }
 
-ITopicSummaryRepository interface {
-    Create(ctx context.Context, topic *types.TopicSummary) error
-    GetByID(ctx context.Context, id string) (*types.TopicSummary, error)
-    List(ctx context.Context) ([]types.TopicSummary, error)
-    FindByTags(ctx context.Context, tags []string) ([]types.TopicSummary, error)
-    AddDocument(ctx context.Context, topicID string, docID string) error
-    RemoveDocument(ctx context.Context, topicID string, docID string) error
+ITagRepository interface {
+    Create(ctx context.Context, tag *types.Tag) error
+    GetByName(ctx context.Context, name string) (*types.Tag, error)
+    List(ctx context.Context) ([]types.Tag, error)
+    ListByCluster(ctx context.Context, clusterID string) ([]types.Tag, error)
+    IncrementDocumentCount(ctx context.Context, tagName string) error
+    DeleteAll(ctx context.Context) error
+    GetCount(ctx context.Context) (int, error)
+}
+
+ITagGroupRepository interface {
+    Create(ctx context.Context, cluster *types.TagGroup) error
+    GetByID(ctx context.Context, id string) (*types.TagGroup, error)
+    List(ctx context.Context) ([]types.TagGroup, error)
+    DeleteAll(ctx context.Context) error
+    GetCount(ctx context.Context) (int, error)
+}
+
+IClusterRefreshLogRepository interface {
+    Create(ctx context.Context, tagCountBefore, tagCountAfter, clusterCount int, durationMs int64) error
+    GetLastRefresh(ctx context.Context) (*ClusterRefreshLog, error)
 }
 
 ICache interface {
@@ -205,17 +263,20 @@ ILLMProvider interface {
 
 ## Key Features
 
-### 5-Tier Summary Hierarchy
-- **Topic**: Cross-document theme summary (highest level)
+### 3-Tier Summary Hierarchy
 - **Document**: Document-level summary
 - **Chapter**: Section/chapter summary
-- **Paragraph**: Paragraph summary
 - **Source**: Original content
+
+### Two-Level Tag System
+- **Level 1 (Tag Groups)**: High-level categories created by LLM clustering
+- **Level 2 (Tags)**: Individual tags extracted from documents
 
 ### LLM-Powered Features
 - **Auto-generated tags**: Documents get tags via LLM analysis if not provided
-- **Document analysis**: Summary + tags + topic + key points
-- **Topic synthesis**: Multi-document theme summary generation
+- **Document analysis**: Summary + tags + chapter summaries
+- **Tag clustering**: Automatic grouping of related tags into categories
+- **Progressive filtering**: LLM filters tags → documents → chapters at each step
 
 ### Dual API
 - **REST API**: `/api/v1/*` for HTTP clients
@@ -246,7 +307,7 @@ type IAnalyzer interface {
 }
 ```
 
-2. **Implement** in subpackage (e.g., `service/impl/`):
+2. **Implement** in subpackage (e.g., `service/svcimpl/`):
 ```go
 type AnalyzerSvc struct{}
 
@@ -257,7 +318,7 @@ var _ service.IAnalyzer = (*AnalyzerSvc)(nil)  // Compile-time check
 
 3. **Wire** in `di/container.go`:
 ```go
-analyzer := impl.NewAnalyzerSvc()
+analyzer := svcimpl.NewAnalyzerSvc()
 deps := &Dependencies{ Analyzer: analyzer, ... }
 ```
 

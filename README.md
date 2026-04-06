@@ -12,23 +12,28 @@
 
 ## Why TierSum?
 
-Traditional RAG systems chop documents into arbitrary chunks, losing hierarchical context and semantic structure. **TierSum preserves knowledge architecture** through 5-layer summarization:
+Traditional RAG systems chop documents into arbitrary chunks, losing hierarchical context and semantic structure. **TierSum preserves knowledge architecture** through layered summarization with intelligent tag-based navigation:
 
 ```
+┌─────────────────────────────────────────────────────────────┐
+│  Tag Groups (L1)                                            │
+│  ├── Cloud Native                                           │
+│  │      └── Tags: kubernetes, docker, helm                  │
+│  └── Programming Languages                                  │
+│         └── Tags: golang, python, rust                      │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
 ┌─────────────────────────────────────┐
-│  Topic Summary (Cross-document)     │  ← Theme across multiple docs
+│  Document Summary                   │  ← 30,000ft perspective
 ├─────────────────────────────────────┤
-│  Document Summary (Bird's-eye view) │  ← 30,000ft perspective
+│  Chapter Summary                    │  ← 10,000ft perspective  
 ├─────────────────────────────────────┤
-│  Chapter Summary (Structural map)   │  ← 10,000ft perspective  
-├─────────────────────────────────────┤
-│  Paragraph Summary (Key concepts)   │  ← 1,000ft perspective
-├─────────────────────────────────────┤
-│  Source Text (Ground truth)         │  ← Original content
+│  Source Text                        │  ← Original content
 └─────────────────────────────────────┘
 ```
 
-**Query flows top-down**: Start with high-level summaries, drill down to source only when needed. No vector similarity guessing — **precise hierarchical navigation**.
+**Query flows through intelligent filtering**: Start with LLM-filtered tags, then documents, then chapters — each step refined by LLM relevance scoring. No vector similarity guessing — **precise hierarchical navigation**.
 
 ---
 
@@ -36,9 +41,10 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 | Feature | Description |
 |:--------|:------------|
-| **5-Tier Summarization** | Topic → Document → Chapter → Paragraph → Source, auto-generated via LLM |
-| **LLM Auto-Tagging** | Documents automatically tagged if tags not provided |
-| **Topic Synthesis** | Cross-document theme summaries from multiple sources |
+| **3-Tier Summarization** | Document → Chapter → Source, auto-generated via LLM |
+| **Two-Level Tag Hierarchy** | L1 Tag Groups (clusters) → L2 Tags (auto-generated) |
+| **Progressive Query** | LLM filters tags → documents → chapters at each step |
+| **Auto Tag Clustering** | LLM automatically groups related tags into categories |
 | **RAG Alternative** | Zero chunk fragmentation; full context preservation |
 | **Dual API** | REST API + MCP Tools for seamless agent integration |
 | **Markdown-Native** | Optimized for `.md`; extensible skills for PDF/HTML/Docs |
@@ -140,23 +146,26 @@ curl -X POST http://localhost:8080/api/v1/documents \
     "format": "markdown"
   }'
 
-# Create topic from multiple documents
-curl -X POST http://localhost:8080/api/v1/topics \
+# Progressive query (recommended)
+curl -X POST http://localhost:8080/api/v1/query/progressive \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Cloud Native Concepts",
-    "document_ids": ["doc-1", "doc-2", "doc-3"]
+    "question": "How does kube-scheduler work?",
+    "max_results": 100
   }'
 
-# Query hierarchical summary
+# Legacy hierarchical query
 curl "http://localhost:8080/api/v1/query?question=How does kube-scheduler work?&depth=chapter"
-# depth: topic | document | chapter | paragraph | source
+# depth: document | chapter | source
 
-# List topics
-curl "http://localhost:8080/api/v1/topics"
+# List tag clusters (Level 1)
+curl "http://localhost:8080/api/v1/tags/clusters"
 
-# Drill down
-curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
+# Trigger tag clustering manually
+curl -X POST http://localhost:8080/api/v1/tags/cluster
+
+# Get document
+curl "http://localhost:8080/api/v1/documents/{id}"
 ```
 
 ### MCP Tools (for Agents)
@@ -166,11 +175,18 @@ curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
   "tools": [
     {
       "name": "tiersum_query",
-      "description": "Query knowledge base with hierarchical precision",
+      "description": "Query knowledge base for relevant content",
       "inputSchema": {
         "question": "string",
-        "depth": "topic|document|chapter|paragraph|source",
-        "filters": {"tags": ["kubernetes"]}
+        "depth": "document|chapter|source"
+      }
+    },
+    {
+      "name": "tiersum_progressive_query",
+      "description": "Perform progressive query using two-level tag hierarchy (recommended)",
+      "inputSchema": {
+        "question": "string",
+        "max_results": "number (default: 100)"
       }
     },
     {
@@ -181,16 +197,21 @@ curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
       }
     },
     {
-      "name": "tiersum_list_topics",
-      "description": "List all topic summaries",
+      "name": "tiersum_list_tag_clusters",
+      "description": "List all tag clusters (Level 1 categories)",
       "inputSchema": {}
     },
     {
-      "name": "tiersum_get_topic",
-      "description": "Retrieve a topic summary by ID",
+      "name": "tiersum_get_tags_by_cluster",
+      "description": "Get all tags (Level 2) belonging to a specific cluster",
       "inputSchema": {
-        "topic_id": "string"
+        "cluster_id": "string"
       }
+    },
+    {
+      "name": "tiersum_trigger_tag_clustering",
+      "description": "Manually trigger tag clustering (runs automatically every 30 minutes)",
+      "inputSchema": {}
     }
   ]
 }
@@ -205,9 +226,11 @@ mcpServers:
     url: http://localhost:8080/mcp/sse
     tools:
       - tiersum_query
+      - tiersum_progressive_query
       - tiersum_get_document
-      - tiersum_list_topics
-      - tiersum_get_topic
+      - tiersum_list_tag_clusters
+      - tiersum_get_tags_by_cluster
+      - tiersum_trigger_tag_clustering
 ```
 
 ---
@@ -235,8 +258,8 @@ mcpServers:
 │  │  interface.go: I* interfaces (IDocumentService, etc.)  ││
 │  └─────────────────────────────────────────────────────────┘│
 │  ┌─────────────────────────────────────────────────────────┐│
-│  │  impl/: Implementations (DocumentSvc, QuerySvc, etc.)   ││
-│  │  Includes: Indexer, Summarizer, Parser                ││
+│  │  svcimpl/: Implementations (DocumentSvc, QuerySvc, etc)││
+│  │  Includes: Indexer, Summarizer, TagGroupSvc           ││
 │  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -274,7 +297,7 @@ mcpServers:
 ## Document Processing Pipeline
 
 ```
-Input (Markdown/PDF/HTML)
+Input (Markdown)
     │
     ▼
 ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
@@ -283,12 +306,12 @@ Input (Markdown/PDF/HTML)
 │             │    │  Hierarchy) │    │             │
 └─────────────┘    └─────────────┘    └──────┬──────┘
                                              │
-                   ┌─────────────────────────┼─────────────────────────────────┐
-                   ▼                         ▼                                 ▼
-           ┌─────────────┐          ┌─────────────┐          ┌─────────────┐ ┌─────────────┐
-           │Topic Summary│          │Doc Summary  │          │Chapter Sum. │ │Para Summary │
-           │(Cross-doc)  │          │(Abstract)   │          │(Outline)    │ │(Key points) │
-           └─────────────┘          └─────────────┘          └─────────────┘ └─────────────┘
+                   ┌─────────────────────────┼─────────────────┐
+                   ▼                         ▼                 ▼
+           ┌─────────────┐          ┌─────────────┐    ┌─────────────┐
+           │Doc Summary  │          │Chapter Sum. │    │Source Text  │
+           │(Abstract)   │          │(Outline)    │    │(Original)   │
+           └─────────────┘          └─────────────┘    └─────────────┘
 ```
 
 ---
@@ -298,41 +321,43 @@ Input (Markdown/PDF/HTML)
 ```
 tiersum/
 ├── cmd/
-│   ├── server/          # API server entrypoint
-│   ├── worker/          # Background job processor
-│   └── cli/             # CLI tools
-├── configs/             # Configuration files
+│   └── main.go            # API server entrypoint
+├── configs/               # Configuration files
 │   ├── config.example.yaml
 │   └── config.yaml
-├── deployments/
-│   └── docker/          # Docker and docker-compose files
+deployments/
+│   └── docker/            # Docker and docker-compose files
+db/
+│   └── migrations/        # Database migration files
 ├── internal/
-│   ├── api/             # Layer 1: API (REST + MCP handlers)
-│   ├── service/         # Layer 2: Business logic
-│   │   ├── interface.go # I* interfaces (IDocumentService, etc.)
-│   │   └── impl/        # Implementations
+│   ├── api/               # Layer 1: API (REST + MCP handlers)
+│   ├── service/           # Layer 2: Business logic
+│   │   ├── interface.go   # I* interfaces (IDocumentService, etc.)
+│   │   └── svcimpl/       # Implementations
 │   │       ├── document.go
 │   │       ├── query.go
-│   │       ├── topic.go
-│   │       └── indexer.go  # Indexer, Summarizer, Parser
-│   ├── storage/         # Layer 3: Data persistence
-│   │   ├── interface.go # I* interfaces
+│   │       ├── tag_clustering.go
+│   │       ├── indexer.go
+│   │       └── summarizer.go
+│   ├── storage/           # Layer 3: Data persistence
+│   │   ├── interface.go   # I* interfaces
 │   │   ├── db/
-│   │   │   └── repository.go
+│   │   │   ├── repository.go
+│   │   │   ├── schema.go
+│   │   │   └── migrator.go
 │   │   └── cache/
 │   │       └── cache.go
-│   ├── client/          # Layer 4: External dependencies
-│   │   ├── interface.go # ILLMProvider
+│   ├── client/            # Layer 4: External dependencies
+│   │   ├── interface.go   # ILLMProvider
 │   │   └── llm/
 │   │       └── openai.go
-│   ├── job/             # Background tasks
+│   ├── job/               # Background tasks
 │   │   ├── scheduler.go
 │   │   └── jobs.go
-│   └── di/              # Dependency injection
+│   └── di/                # Dependency injection
 │       └── container.go
 ├── pkg/
-│   └── types/           # Public API types
-├── migrations/          # Database migrations
+│   └── types/             # Public API types
 ├── go.mod
 ├── Makefile
 ├── README.md
@@ -364,9 +389,10 @@ make build-all
 
 ## Roadmap
 
-- [x] 5-tier summarization engine (Topic + Document + Chapter + Paragraph + Source)
+- [x] 3-tier summarization engine (Document + Chapter + Source)
+- [x] Two-level tag hierarchy with auto-clustering
+- [x] Progressive query with LLM filtering at each step
 - [x] LLM auto-tagging for documents
-- [x] Topic synthesis from multiple documents
 - [x] REST API + MCP Server
 - [x] SQLite/PostgreSQL + in-memory cache storage
 - [ ] OpenClaw skill pack (convert + update)
