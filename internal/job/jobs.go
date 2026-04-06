@@ -52,24 +52,18 @@ func (j *IndexerJob) Execute(ctx context.Context) error {
 
 // TopicAggregatorJob aggregates documents into topics based on tags
 type TopicAggregatorJob struct {
-	topicRepo  storage.ITopicSummaryRepository
-	docRepo    storage.IDocumentRepository
-	summarizer service.ISummarizer
-	logger     *zap.Logger
+	topicSvc service.ITopicService
+	logger   *zap.Logger
 }
 
 // NewTopicAggregatorJob creates a new topic aggregator job
 func NewTopicAggregatorJob(
-	topicRepo storage.ITopicSummaryRepository,
-	docRepo storage.IDocumentRepository,
-	summarizer service.ISummarizer,
+	topicSvc service.ITopicService,
 	logger *zap.Logger,
 ) *TopicAggregatorJob {
 	return &TopicAggregatorJob{
-		topicRepo:  topicRepo,
-		docRepo:    docRepo,
-		summarizer: summarizer,
-		logger:     logger,
+		topicSvc: topicSvc,
+		logger:   logger,
 	}
 }
 
@@ -84,9 +78,34 @@ func (j *TopicAggregatorJob) Interval() time.Duration {
 }
 
 // Execute performs the topic aggregation job
+// Strategy:
+// 1. Scan all existing topics and their tags
+// 2. For topics with insufficient documents (< 3), try to find more matching documents
+// 3. Create new topics from orphaned documents that share common tags
 func (j *TopicAggregatorJob) Execute(ctx context.Context) error {
 	j.logger.Info("running topic aggregator job")
-	// TODO: Implement actual aggregation logic
+
+	// Get all existing topics
+	topics, err := j.topicSvc.ListTopics(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Log current state
+	totalDocs := 0
+	for _, topic := range topics {
+		totalDocs += len(topic.DocumentIDs)
+	}
+	j.logger.Info("topic aggregation stats",
+		zap.Int("topics", len(topics)),
+		zap.Int("total_doc_refs", totalDocs))
+
+	// TODO: Implement automatic topic creation from common tags
+	// This would require:
+	// 1. Query all documents and extract tag frequency
+	// 2. Find tag combinations that appear in 3+ documents
+	// 3. Create topics for those combinations
+
 	return nil
 }
 

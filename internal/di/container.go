@@ -53,9 +53,10 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	indexer := impl.NewIndexerSvc(parser, summarizer, uow.Summaries, logger)
 
 	// 5. Service Layer - Business logic
-	docService := impl.NewDocumentSvc(uow.Documents, indexer, summarizer, logger)
+	// Note: TopicService created first as DocumentService depends on it for auto-matching
 	queryService := impl.NewQuerySvc(uow.Documents, uow.Summaries, logger)
 	topicService := impl.NewTopicSvc(uow.TopicSummaries, uow.Documents, summarizer, logger)
+	docService := impl.NewDocumentSvc(uow.Documents, indexer, summarizer, topicService, logger)
 
 	// 6. API Layer
 	restHandler := api.NewHandler(docService, queryService, topicService, logger)
@@ -64,7 +65,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	// 7. Job Layer
 	jobScheduler := job.NewScheduler(logger)
 	jobScheduler.Register(job.NewIndexerJob(uow.Documents, uow.Summaries, indexer, logger))
-	jobScheduler.Register(job.NewTopicAggregatorJob(uow.TopicSummaries, uow.Documents, summarizer, logger))
+	jobScheduler.Register(job.NewTopicAggregatorJob(topicService, logger))
 	jobScheduler.Register(job.NewCacheCleanupJob(cacheStore, logger))
 
 	return &Dependencies{

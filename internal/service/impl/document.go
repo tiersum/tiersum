@@ -16,15 +16,17 @@ type DocumentSvc struct {
 	repo       storage.IDocumentRepository
 	indexer    service.IIndexer
 	summarizer service.ISummarizer
+	topicSvc   service.ITopicService
 	logger     *zap.Logger
 }
 
 // NewDocumentSvc creates a new document service
-func NewDocumentSvc(repo storage.IDocumentRepository, indexer service.IIndexer, summarizer service.ISummarizer, logger *zap.Logger) *DocumentSvc {
+func NewDocumentSvc(repo storage.IDocumentRepository, indexer service.IIndexer, summarizer service.ISummarizer, topicSvc service.ITopicService, logger *zap.Logger) *DocumentSvc {
 	return &DocumentSvc{
 		repo:       repo,
 		indexer:    indexer,
 		summarizer: summarizer,
+		topicSvc:   topicSvc,
 		logger:     logger,
 	}
 }
@@ -54,11 +56,23 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 		return nil, err
 	}
 
-	// Async indexing
+	// Async indexing and topic matching
 	if s.indexer != nil {
 		go func() {
 			if err := s.indexer.Index(context.Background(), doc.ID, doc.Content); err != nil {
 				s.logger.Error("failed to index document", zap.String("id", doc.ID), zap.Error(err))
+			}
+		}()
+	}
+
+	// Auto-match document to existing topics based on tags
+	if s.topicSvc != nil && len(doc.Tags) > 0 {
+		go func() {
+			added, err := s.topicSvc.AddDocumentToTopics(context.Background(), doc.ID, doc.Tags)
+			if err != nil {
+				s.logger.Warn("failed to add document to topics", zap.String("id", doc.ID), zap.Error(err))
+			} else if added > 0 {
+				s.logger.Info("auto-matched document to topics", zap.String("id", doc.ID), zap.Int("topics", added))
 			}
 		}()
 	}

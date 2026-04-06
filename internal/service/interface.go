@@ -32,6 +32,11 @@ type ITopicService interface {
 	ListTopics(ctx context.Context) ([]types.TopicSummary, error)
 	// FindTopicsByTags finds topics by tags
 	FindTopicsByTags(ctx context.Context, tags []string) ([]types.TopicSummary, error)
+	// AddDocumentToTopics adds a document to matching topics based on tag overlap
+	// Returns the number of topics the document was added to
+	AddDocumentToTopics(ctx context.Context, docID string, docTags []string) (int, error)
+	// AutoCreateTopicFromTag creates a new topic from documents sharing a specific tag
+	AutoCreateTopicFromTag(ctx context.Context, tag string, minDocs int) (*types.TopicSummary, error)
 }
 
 // IIndexer defines document indexing logic

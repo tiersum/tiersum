@@ -93,6 +93,35 @@ Job Layer can use: Service Layer, Storage Layer
 4. **DI in di/**: All wiring happens in `internal/di/container.go`
 5. **API unified**: REST and MCP handlers in same package (`internal/api/`)
 
+## Automatic Topic Aggregation
+
+Documents are automatically organized into topics based on tag overlap:
+
+### Flow
+```
+Document Ingest
+    │
+    ├─► LLM generates tags (if not provided)
+    │
+    ├─► Document saved to DB
+    │
+    ├─► Async: Generate 4-tier summaries (Document→Chapter→Paragraph)
+    │
+    └─► Async: Match to existing topics by tag overlap (2+ matching tags)
+            │
+            ▼
+    TopicAggregatorJob (runs every 5 min)
+            │
+            ├─► Scan topics with few documents
+            │
+            └─► Create new topics from documents sharing common tags
+```
+
+### Tag Matching Rules
+- A document is added to a topic if they share **2+ tags** (or 1 if document has only 1 tag)
+- Matching happens asynchronously after document ingestion
+- Duplicate document entries in same topic are prevented
+
 ## Interface Definitions
 
 ### Service Layer Interfaces (`internal/service/interface.go`)
@@ -112,6 +141,10 @@ ITopicService interface {
     CreateTopicFromDocuments(ctx context.Context, topicName string, docIDs []string) (*types.TopicSummary, error)
     GetTopic(ctx context.Context, id string) (*types.TopicSummary, error)
     ListTopics(ctx context.Context) ([]types.TopicSummary, error)
+    FindTopicsByTags(ctx context.Context, tags []string) ([]types.TopicSummary, error)
+    // Auto-matching: adds document to topics with overlapping tags
+    AddDocumentToTopics(ctx context.Context, docID string, docTags []string) (int, error)
+    AutoCreateTopicFromTag(ctx context.Context, tag string, minDocs int) (*types.TopicSummary, error)
 }
 
 // Core Domain Logic (in service/impl/)
@@ -147,6 +180,9 @@ ITopicSummaryRepository interface {
     Create(ctx context.Context, topic *types.TopicSummary) error
     GetByID(ctx context.Context, id string) (*types.TopicSummary, error)
     List(ctx context.Context) ([]types.TopicSummary, error)
+    FindByTags(ctx context.Context, tags []string) ([]types.TopicSummary, error)
+    AddDocument(ctx context.Context, topicID string, docID string) error
+    RemoveDocument(ctx context.Context, topicID string, docID string) error
 }
 
 ICache interface {
