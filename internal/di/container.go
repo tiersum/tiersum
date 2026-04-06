@@ -1,6 +1,6 @@
-// Package app provides dependency injection and application initialization
-// This is the only place where concrete implementations are wired together
-package app
+// Package di provides dependency injection and application initialization
+// This is the composition root where all concrete implementations are wired together
+package di
 
 import (
 	"database/sql"
