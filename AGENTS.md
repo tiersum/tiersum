@@ -30,98 +30,156 @@ cd deployments/docker && docker-compose up -d  # Starts tiersum (SQLite by defau
 
 Go module: `github.com/tiersum/tiersum` (Go 1.23+)
 
-### Clean Architecture Layers
+### 5-Layer Architecture with Interface+Impl Pattern
 
 ```
 cmd/
-  server/         # API server entrypoint (main binary)
-  worker/         # Background job processor
-  cli/            # CLI tools
-configs/          # Configuration files
+  server/              # API server entrypoint (main binary)
+  worker/              # Background job processor
+  cli/                 # CLI tools
+configs/               # Configuration files
 deployments/
-  docker/         # Docker and docker-compose files
+  docker/              # Docker and docker-compose files
 internal/
-  ports/          # INTERFACE DEFINITIONS (all layers depend on this)
-    interfaces.go # Repository, Service, Core interfaces
-  adapters/
-    repository/   # Repository implementations (Database access)
-    llm/          # LLM provider implementations
-  domain/
-    service/      # Business logic implementations
-    core/         # Core domain services (Parser, Summarizer, Indexer)
-  api/            # REST handlers (depends on service interfaces)
-  app/            # Dependency injection / Composition root
-  storage/        # SQLite/PostgreSQL + in-memory cache
-  mcp/            # MCP protocol implementation
-pkg/types/        # Public API types
+  api/                 # Layer 1: API Layer
+    handler.go         # REST API handlers
+    mcp.go             # MCP protocol handlers
+  service/             # Layer 2: Service Layer
+    interface.go       # I-prefixed service interfaces
+    impl/              # Implementation subpackage
+      document.go      # DocumentSvc implements IDocumentService
+      query.go         # QuerySvc implements IQueryService
+      topic.go         # TopicSvc implements ITopicService
+      indexer.go       # IndexerSvc, SummarizerSvc, ParserSvc
+  storage/             # Layer 3: Storage Layer
+    interface.go       # I-prefixed storage interfaces
+    db/                # Database repository implementations
+      repository.go    # DocumentRepo, SummaryRepo, TopicSummaryRepo
+    cache/             # Cache implementation
+      cache.go         # Cache implements ICache
+  client/              # Layer 4: Client Layer
+    interface.go       # I-prefixed client interfaces
+    llm/               # LLM client implementations
+      openai.go        # OpenAIProvider implements ILLMProvider
+  job/                 # Job Layer (background tasks)
+    scheduler.go       # Job scheduler
+    jobs.go            # IndexerJob, TopicAggregatorJob, CacheCleanupJob
+  di/                  # Dependency Injection (composition root)
+    container.go       # Wires all layers together
+pkg/types/             # Public API types
 ```
 
 ## Architecture Principles
 
-### Dependency Direction
-All dependencies point **inward** toward the domain:
+### 5-Layer Dependency Direction
 
 ```
-API Layer (handlers)
-    ↓ depends on
-Service Layer (business logic)
-    ↓ depends on
-Repository Layer (data access)
-    ↓ depends on
-Infrastructure (db, cache, llm)
+Layer 1: API Layer (internal/api/)
+    ↓ uses
+Layer 2: Service Layer (internal/service/)
+    ↓ uses
+Layer 3: Storage Layer (internal/storage/)
+    ↓ uses
+Layer 4: Client Layer (internal/client/)
 
-ALL layers depend on:
-    ports/ (interface definitions)
+Job Layer can use: Service Layer, Storage Layer
 ```
 
 ### Key Rules
-1. **Ports define interfaces** - All interfaces in `internal/ports/`
-2. **Adapters implement** - Concrete implementations in `internal/adapters/`
-3. **Domain is isolated** - Business logic only depends on ports
-4. **API depends on services** - Handlers use service interfaces, not repositories directly
-5. **Composition in app/** - All wiring happens in `internal/app/wire.go`
 
-## Interface Definitions (`internal/ports/`)
+1. **Interface+Impl Pattern**: Each layer defines interfaces in `interface.go`, implementations in subpackage
+2. **I-prefix Naming**: All interfaces start with I (e.g., `IDocumentService`, `ICache`, `ILLMProvider`)
+3. **Layer owns interfaces**: No central ports package, each layer manages its own interfaces
+4. **DI in di/**: All wiring happens in `internal/di/container.go`
+5. **API unified**: REST and MCP handlers in same package (`internal/api/`)
 
-### Repository Interfaces (Data Access)
+## Interface Definitions
+
+### Service Layer Interfaces (`internal/service/interface.go`)
+
 ```go
-DocumentRepository interface {
-    Create(ctx context.Context, doc *types.Document) error
-    GetByID(ctx context.Context, id string) (*types.Document, error)
-}
-
-SummaryRepository interface {
-    Create(ctx context.Context, summary *types.Summary) error
-    GetByDocument(ctx context.Context, docID string) ([]types.Summary, error)
-}
-```
-
-### Service Interfaces (Business Logic)
-```go
-DocumentService interface {
+// Business Logic
+IDocumentService interface {
     Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.Document, error)
     Get(ctx context.Context, id string) (*types.Document, error)
 }
 
-QueryService interface {
+IQueryService interface {
     Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error)
 }
-```
 
-### Core Interfaces (Domain Logic)
-```go
-Parser interface {
-    Parse(content string) (*types.ParsedDocument, error)
+ITopicService interface {
+    CreateTopicFromDocuments(ctx context.Context, topicName string, docIDs []string) (*types.TopicSummary, error)
+    GetTopic(ctx context.Context, id string) (*types.TopicSummary, error)
+    ListTopics(ctx context.Context) ([]types.TopicSummary, error)
 }
 
-Summarizer interface {
-    Summarize(ctx context.Context, content string, level types.SummaryTier) (string, error)
-}
-
-Indexer interface {
+// Core Domain Logic (in service/impl/)
+IIndexer interface {
     Index(ctx context.Context, docID string, content string) error
 }
+
+ISummarizer interface {
+    Summarize(ctx context.Context, content string, level types.SummaryTier) (string, error)
+    AnalyzeDocument(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error)
+    GenerateTopicSummary(ctx context.Context, topicName string, documents []*types.Document) (*types.TopicSummary, error)
+}
+
+IParser interface {
+    Parse(content string) (*types.ParsedDocument, error)
+}
 ```
+
+### Storage Layer Interfaces (`internal/storage/interface.go`)
+
+```go
+IDocumentRepository interface {
+    Create(ctx context.Context, doc *types.Document) error
+    GetByID(ctx context.Context, id string) (*types.Document, error)
+}
+
+ISummaryRepository interface {
+    Create(ctx context.Context, summary *types.Summary) error
+    GetByDocument(ctx context.Context, docID string) ([]types.Summary, error)
+}
+
+ITopicSummaryRepository interface {
+    Create(ctx context.Context, topic *types.TopicSummary) error
+    GetByID(ctx context.Context, id string) (*types.TopicSummary, error)
+    List(ctx context.Context) ([]types.TopicSummary, error)
+}
+
+ICache interface {
+    Get(key string) (interface{}, bool)
+    Set(key string, value interface{})
+}
+```
+
+### Client Layer Interfaces (`internal/client/interface.go`)
+
+```go
+ILLMProvider interface {
+    Generate(ctx context.Context, prompt string, maxTokens int) (string, error)
+}
+```
+
+## Key Features
+
+### 5-Tier Summary Hierarchy
+- **Topic**: Cross-document theme summary (highest level)
+- **Document**: Document-level summary
+- **Chapter**: Section/chapter summary
+- **Paragraph**: Paragraph summary
+- **Source**: Original content
+
+### LLM-Powered Features
+- **Auto-generated tags**: Documents get tags via LLM analysis if not provided
+- **Document analysis**: Summary + tags + topic + key points
+- **Topic synthesis**: Multi-document theme summary generation
+
+### Dual API
+- **REST API**: `/api/v1/*` for HTTP clients
+- **MCP API**: `/mcp/sse` for Model Control Protocol
 
 ## Key Dependencies
 
@@ -131,6 +189,7 @@ Indexer interface {
 - **Postgres**: `github.com/jackc/pgx/v5` (optional)
 - **Markdown**: `github.com/yuin/goldmark`
 - **CLI**: `github.com/spf13/cobra` + `github.com/spf13/viper`
+- **Jobs**: Internal scheduler with configurable intervals
 
 ## Configuration
 
@@ -138,12 +197,29 @@ Indexer interface {
 - Required env vars: `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`
 - Optional: `JWT_SECRET`
 
-## Architecture Notes
+## Adding New Features
 
-- **Dual API**: REST (`/api/v1/*`) + MCP SSE (`/mcp/sse`)
-- **4-Tier Summary**: Document → Chapter → Paragraph → Source
-- **Storage**: SQLite/PostgreSQL (docs + hierarchy), in-memory cache
-- **Parser**: Goldmark for Markdown → heading hierarchy
+1. **Define interface** in layer's `interface.go`:
+```go
+type IAnalyzer interface {
+    Analyze(ctx context.Context, doc *types.Document) error
+}
+```
+
+2. **Implement** in subpackage (e.g., `service/impl/`):
+```go
+type AnalyzerSvc struct{}
+
+func (a *AnalyzerSvc) Analyze(...) error { ... }
+
+var _ service.IAnalyzer = (*AnalyzerSvc)(nil)  // Compile-time check
+```
+
+3. **Wire** in `di/container.go`:
+```go
+analyzer := impl.NewAnalyzerSvc()
+deps := &Dependencies{ Analyzer: analyzer, ... }
+```
 
 ## Build Targets
 
@@ -165,9 +241,31 @@ make docker-build           # Build container image
 | Path | Purpose |
 |------|---------|
 | `cmd/server` | Main entrypoint for server binary |
-| `internal/ports` | Interface definitions (dependency inversion) |
-| `internal/adapters/repository` | Repository implementations |
-| `internal/domain/service` | Business logic implementations |
-| `internal/domain/core` | Core domain services |
-| `internal/app` | Dependency injection / composition root |
+| `internal/api` | REST + MCP API handlers |
+| `internal/service/interface.go` | Service layer interfaces (I-prefix) |
+| `internal/service/impl` | Service implementations |
+| `internal/storage/interface.go` | Storage interfaces (I-prefix) |
+| `internal/storage/db` | Repository implementations |
+| `internal/client/interface.go` | Client interfaces (I-prefix) |
+| `internal/di` | Dependency injection / composition root |
+| `internal/job` | Background scheduled tasks |
 | `pkg/types` | Public types used across all layers |
+
+## Architecture Evolution
+
+### Previous Structure (Clean Architecture)
+- `internal/ports/` - Central interface definitions
+- `internal/adapters/` - Repository implementations
+- `internal/domain/service/` - Business logic
+- `internal/domain/core/` - Core domain logic
+- `internal/app/` - Dependency injection
+- `internal/mcp/` - MCP handlers
+
+### Current Structure (Interface+Impl Pattern)
+- `internal/service/interface.go` - Service interfaces (I-prefix)
+- `internal/service/impl/` - Service implementations
+- `internal/storage/interface.go` - Storage interfaces (I-prefix)
+- `internal/storage/db/` - Repository implementations
+- `internal/client/interface.go` - Client interfaces (I-prefix)
+- `internal/di/` - Dependency injection
+- `internal/api/` - Unified API layer (REST + MCP)

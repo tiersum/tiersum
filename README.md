@@ -12,10 +12,12 @@
 
 ## Why TierSum?
 
-Traditional RAG systems chop documents into arbitrary chunks, losing hierarchical context and semantic structure. **TierSum preserves knowledge architecture** through 4-layer summarization:
+Traditional RAG systems chop documents into arbitrary chunks, losing hierarchical context and semantic structure. **TierSum preserves knowledge architecture** through 5-layer summarization:
 
 ```
 ┌─────────────────────────────────────┐
+│  Topic Summary (Cross-document)     │  ← Theme across multiple docs
+├─────────────────────────────────────┤
 │  Document Summary (Bird's-eye view) │  ← 30,000ft perspective
 ├─────────────────────────────────────┤
 │  Chapter Summary (Structural map)   │  ← 10,000ft perspective  
@@ -34,10 +36,12 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 | Feature | Description |
 |:--------|:------------|
-| **4-Tier Summarization** | Document → Chapter → Paragraph → Source, auto-generated via LLM |
+| **5-Tier Summarization** | Topic → Document → Chapter → Paragraph → Source, auto-generated via LLM |
+| **LLM Auto-Tagging** | Documents automatically tagged if tags not provided |
+| **Topic Synthesis** | Cross-document theme summaries from multiple sources |
 | **RAG Alternative** | Zero chunk fragmentation; full context preservation |
 | **Dual API** | REST API + MCP Tools for seamless agent integration |
-| **Markdown-Native** | Optimized for `.md`; extensible skills for PDF/HTML/Docs conversion |
+| **Markdown-Native** | Optimized for `.md`; extensible skills for PDF/HTML/Docs |
 | **Incremental Updates** | Smart diffing — re-summarize only changed sections |
 
 ---
@@ -48,6 +52,7 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 - Go 1.23+ (with CGO enabled for SQLite)
 - Database: SQLite (default) or PostgreSQL (optional)
+- LLM API Key: OpenAI or Anthropic
 
 ### Installation
 
@@ -126,7 +131,7 @@ make run
 ### REST API
 
 ```bash
-# Ingest document
+# Ingest document (auto-tags via LLM if not provided)
 curl -X POST http://localhost:8080/api/v1/documents \
   -H "Content-Type: application/json" \
   -d '{
@@ -135,9 +140,20 @@ curl -X POST http://localhost:8080/api/v1/documents \
     "format": "markdown"
   }'
 
+# Create topic from multiple documents
+curl -X POST http://localhost:8080/api/v1/topics \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Cloud Native Concepts",
+    "document_ids": ["doc-1", "doc-2", "doc-3"]
+  }'
+
 # Query hierarchical summary
 curl "http://localhost:8080/api/v1/query?question=How does kube-scheduler work?&depth=chapter"
-# depth: document | chapter | paragraph | source
+# depth: topic | document | chapter | paragraph | source
+
+# List topics
+curl "http://localhost:8080/api/v1/topics"
 
 # Drill down
 curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
@@ -153,16 +169,27 @@ curl "http://localhost:8080/api/v1/documents/{id}/hierarchy?path=1.2.3"
       "description": "Query knowledge base with hierarchical precision",
       "inputSchema": {
         "question": "string",
-        "depth": "document|chapter|paragraph|source",
+        "depth": "topic|document|chapter|paragraph|source",
         "filters": {"tags": ["kubernetes"]}
       }
     },
     {
-      "name": "tiersum_explore",
-      "description": "Navigate document structure interactively",
+      "name": "tiersum_get_document",
+      "description": "Retrieve a document by ID",
       "inputSchema": {
-        "document_id": "string",
-        "action": "list_chapters|get_summary|drill_down"
+        "document_id": "string"
+      }
+    },
+    {
+      "name": "tiersum_list_topics",
+      "description": "List all topic summaries",
+      "inputSchema": {}
+    },
+    {
+      "name": "tiersum_get_topic",
+      "description": "Retrieve a topic summary by ID",
+      "inputSchema": {
+        "topic_id": "string"
       }
     }
   ]
@@ -178,12 +205,16 @@ mcpServers:
     url: http://localhost:8080/mcp/sse
     tools:
       - tiersum_query
-      - tiersum_explore
+      - tiersum_get_document
+      - tiersum_list_topics
+      - tiersum_get_topic
 ```
 
 ---
 
 ## Architecture
+
+### 5-Layer Design with Interface+Impl Pattern
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -192,25 +223,51 @@ mcpServers:
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                      API Gateway (Go)                        │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐  │
-│  │   REST API   │  │  MCP Server  │  │  WebSocket (SSE) │  │
-│  └──────────────┘  └──────────────┘  └─────────────────┘  │
+│                      API Layer (internal/api)                │
+│  ┌──────────────┐  ┌──────────────┐                         │
+│  │   REST API   │  │  MCP Server  │                         │
+│  └──────────────┘  └──────────────┘                         │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                   Core Engine (Go)                           │
-│  ┌──────────────┐  ┌──────────────┐  ┌─────────────────┐  │
-│  │   Parser     │  │  Summarizer  │  │  Index Manager  │  │
-│  │ (Markdown)   │  │   (LLM)      │  │  (Tree Struct)  │  │
-│  └──────────────┘  └──────────────┘  └─────────────────┘  │
+│                   Service Layer (internal/service)           │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  interface.go: I* interfaces (IDocumentService, etc.)  ││
+│  └─────────────────────────────────────────────────────────┘│
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  impl/: Implementations (DocumentSvc, QuerySvc, etc.)   ││
+│  │  Includes: Indexer, Summarizer, Parser                ││
+│  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                    Storage Layer                             │
-│  SQLite/PostgreSQL (docs + hierarchy) │  In-memory cache    │
+│                   Storage Layer (internal/storage)           │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  interface.go: I* interfaces (IDocumentRepository, etc)││
+│  └─────────────────────────────────────────────────────────┘│
+│  ┌──────────────────┐    ┌──────────────────┐              ││
+│  │  db/repository.go│    │  cache/cache.go  │              ││
+│  │  (SQLite/PG)     │    │  (In-memory)     │              ││
+│  └──────────────────┘    └──────────────────┘              ││
+└─────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                    Client Layer (internal/client)            │
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  interface.go: ILLMProvider                            ││
+│  └─────────────────────────────────────────────────────────┘│
+│  ┌─────────────────────────────────────────────────────────┐│
+│  │  llm/openai.go: OpenAIProvider implementation          ││
+│  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Design Principles
+
+1. **Interface+Impl Pattern**: Each layer defines `interface.go` with I-prefix interfaces, implementations in subpackages
+2. **Layer Ownership**: No central `ports/` package — each layer manages its own interfaces
+3. **Dependency Injection**: All wiring in `internal/di/container.go`
+4. **Unified API**: REST and MCP handlers coexist in `internal/api/`
 
 ---
 
@@ -226,12 +283,12 @@ Input (Markdown/PDF/HTML)
 │             │    │  Hierarchy) │    │             │
 └─────────────┘    └─────────────┘    └──────┬──────┘
                                              │
-                     ┌───────────────────────┼────────────────────────┐
-                     ▼                       ▼                        ▼
-             ┌─────────────┐          ┌─────────────┐          ┌─────────────┐
-             │Doc Summary  │          │Chapter Sum. │          │Para Summary │
-             │(Abstract)   │          │(Outline)    │          │(Key points) │
-             └─────────────┘          └─────────────┘          └─────────────┘
+                   ┌─────────────────────────┼─────────────────────────────────┐
+                   ▼                         ▼                                 ▼
+           ┌─────────────┐          ┌─────────────┐          ┌─────────────┐ ┌─────────────┐
+           │Topic Summary│          │Doc Summary  │          │Chapter Sum. │ │Para Summary │
+           │(Cross-doc)  │          │(Abstract)   │          │(Outline)    │ │(Key points) │
+           └─────────────┘          └─────────────┘          └─────────────┘ └─────────────┘
 ```
 
 ---
@@ -243,27 +300,38 @@ tiersum/
 ├── cmd/
 │   ├── server/          # API server entrypoint
 │   ├── worker/          # Background job processor
-│   ├── cli/             # CLI tools
-│   ├── migrate/         # Database migrations
-│   └── seed/            # Data seeding
+│   └── cli/             # CLI tools
 ├── configs/             # Configuration files
 │   ├── config.example.yaml
 │   └── config.yaml
 ├── deployments/
 │   └── docker/          # Docker and docker-compose files
 ├── internal/
-│   ├── api/             # REST handlers + MCP server
-│   ├── core/
-│   │   ├── parser/      # Markdown parser (Goldmark)
-│   │   ├── summarizer/  # LLM abstraction layer
-│   │   └── indexer/     # Hierarchical index builder
-│   ├── storage/         # SQLite/PostgreSQL + in-memory cache
-│   └── mcp/             # MCP protocol implementation
+│   ├── api/             # Layer 1: API (REST + MCP handlers)
+│   ├── service/         # Layer 2: Business logic
+│   │   ├── interface.go # I* interfaces (IDocumentService, etc.)
+│   │   └── impl/        # Implementations
+│   │       ├── document.go
+│   │       ├── query.go
+│   │       ├── topic.go
+│   │       └── indexer.go  # Indexer, Summarizer, Parser
+│   ├── storage/         # Layer 3: Data persistence
+│   │   ├── interface.go # I* interfaces
+│   │   ├── db/
+│   │   │   └── repository.go
+│   │   └── cache/
+│   │       └── cache.go
+│   ├── client/          # Layer 4: External dependencies
+│   │   ├── interface.go # ILLMProvider
+│   │   └── llm/
+│   │       └── openai.go
+│   ├── job/             # Background tasks
+│   │   ├── scheduler.go
+│   │   └── jobs.go
+│   └── di/              # Dependency injection
+│       └── container.go
 ├── pkg/
 │   └── types/           # Public API types
-├── skills/              # OpenClaw skill definitions
-│   ├── convert/         # PDF/HTML → Markdown converters
-│   └── update/          # Incremental summary updaters
 ├── migrations/          # Database migrations
 ├── go.mod
 ├── Makefile
@@ -296,7 +364,9 @@ make build-all
 
 ## Roadmap
 
-- [x] Core 4-tier summarization engine
+- [x] 5-tier summarization engine (Topic + Document + Chapter + Paragraph + Source)
+- [x] LLM auto-tagging for documents
+- [x] Topic synthesis from multiple documents
 - [x] REST API + MCP Server
 - [x] SQLite/PostgreSQL + in-memory cache storage
 - [ ] OpenClaw skill pack (convert + update)
