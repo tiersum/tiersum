@@ -38,16 +38,25 @@ type Summary struct {
 	UpdatedAt  time.Time   `json:"updated_at"`
 }
 
+// TopicSource represents the source of topic creation
+type TopicSource string
+
+const (
+	TopicSourceManual TopicSource = "manual" // Created via API by user
+	TopicSourceAuto   TopicSource = "auto"   // Created automatically by job based on tags
+)
+
 // TopicSummary represents a theme/topic level summary that spans multiple documents
 type TopicSummary struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`         // Topic name/title
-	Description string    `json:"description"`  // Brief description
-	Summary     string    `json:"summary"`      // LLM-generated summary
-	Tags        []string  `json:"tags"`         // Related tags
-	DocumentIDs []string  `json:"document_ids"` // Associated document IDs
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"`         // Topic name/title
+	Description string      `json:"description"`  // Brief description
+	Summary     string      `json:"summary"`      // LLM-generated summary
+	Tags        []string    `json:"tags"`         // Related tags
+	DocumentIDs []string    `json:"document_ids"` // Associated document IDs
+	Source      TopicSource `json:"source"`       // Creation source: manual or auto
+	CreatedAt   time.Time   `json:"created_at"`
+	UpdatedAt   time.Time   `json:"updated_at"`
 }
 
 // DocumentAnalysisResult holds LLM analysis results for a document

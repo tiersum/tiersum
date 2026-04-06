@@ -30,8 +30,11 @@ func NewTopicSvc(topicRepo storage.ITopicSummaryRepository, docRepo storage.IDoc
 }
 
 // CreateTopicFromDocuments implements ITopicService.CreateTopicFromDocuments
-func (s *TopicSvc) CreateTopicFromDocuments(ctx context.Context, topicName string, docIDs []string) (*types.TopicSummary, error) {
-	s.logger.Info("creating topic from documents", zap.String("topic", topicName), zap.Int("doc_count", len(docIDs)))
+func (s *TopicSvc) CreateTopicFromDocuments(ctx context.Context, topicName string, docIDs []string, source types.TopicSource) (*types.TopicSummary, error) {
+	s.logger.Info("creating topic from documents",
+		zap.String("topic", topicName),
+		zap.Int("doc_count", len(docIDs)),
+		zap.String("source", string(source)))
 
 	docs := make([]*types.Document, 0, len(docIDs))
 	for _, docID := range docIDs {
@@ -48,7 +51,7 @@ func (s *TopicSvc) CreateTopicFromDocuments(ctx context.Context, topicName strin
 		return nil, fmt.Errorf("no valid documents found")
 	}
 
-	topic, err := s.summarizer.GenerateTopicSummary(ctx, topicName, docs)
+	topic, err := s.summarizer.GenerateTopicSummary(ctx, topicName, docs, source)
 	if err != nil {
 		return nil, fmt.Errorf("generate topic summary: %w", err)
 	}
@@ -57,7 +60,7 @@ func (s *TopicSvc) CreateTopicFromDocuments(ctx context.Context, topicName strin
 		return nil, fmt.Errorf("save topic summary: %w", err)
 	}
 
-	s.logger.Info("topic created successfully", zap.String("topic_id", topic.ID))
+	s.logger.Info("topic created successfully", zap.String("topic_id", topic.ID), zap.String("source", string(source)))
 	return topic, nil
 }
 
@@ -151,6 +154,12 @@ func (s *TopicSvc) AutoCreateTopicFromTag(ctx context.Context, tag string, minDo
 		zap.String("tag", tag),
 		zap.Int("min_docs", minDocs),
 		zap.String("status", "requires document query by tags"))
+
+	// Example of how auto-created topics would be created:
+	// docIDs := findDocumentsByTag(tag)
+	// if len(docIDs) >= minDocs {
+	//     return s.CreateTopicFromDocuments(ctx, tag, docIDs, types.TopicSourceAuto)
+	// }
 
 	return nil, nil
 }

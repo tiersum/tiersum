@@ -191,13 +191,18 @@ func (r *TopicSummaryRepo) Create(ctx context.Context, topic *types.TopicSummary
 	topic.CreatedAt = now
 	topic.UpdatedAt = now
 
-	query := `INSERT INTO topic_summaries (id, name, description, summary, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
+	// Default to manual if source not set
+	if topic.Source == "" {
+		topic.Source = types.TopicSourceManual
+	}
+
+	query := `INSERT INTO topic_summaries (id, name, description, summary, tags, source, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 	if r.driver == "postgres" {
-		query = `INSERT INTO topic_summaries (id, name, description, summary, tags, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
+		query = `INSERT INTO topic_summaries (id, name, description, summary, tags, source, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 	}
 
 	_, err := r.db.ExecContext(ctx, query,
-		topic.ID, topic.Name, topic.Description, topic.Summary, topic.Tags, topic.CreatedAt, topic.UpdatedAt)
+		topic.ID, topic.Name, topic.Description, topic.Summary, topic.Tags, topic.Source, topic.CreatedAt, topic.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create topic summary: %w", err)
 	}
@@ -220,15 +225,15 @@ func (r *TopicSummaryRepo) GetByID(ctx context.Context, id string) (*types.Topic
 		}
 	}
 
-	query := `SELECT id, name, description, summary, tags, created_at, updated_at FROM topic_summaries WHERE id = ?`
+	query := `SELECT id, name, description, summary, tags, source, created_at, updated_at FROM topic_summaries WHERE id = ?`
 	if r.driver == "postgres" {
-		query = `SELECT id, name, description, summary, tags, created_at, updated_at FROM topic_summaries WHERE id = $1`
+		query = `SELECT id, name, description, summary, tags, source, created_at, updated_at FROM topic_summaries WHERE id = $1`
 	}
 
 	topic := &types.TopicSummary{}
-	var tagsStr string
+	var tagsStr, sourceStr string
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&topic.ID, &topic.Name, &topic.Description, &topic.Summary, &tagsStr, &topic.CreatedAt, &topic.UpdatedAt,
+		&topic.ID, &topic.Name, &topic.Description, &topic.Summary, &tagsStr, &sourceStr, &topic.CreatedAt, &topic.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -238,6 +243,7 @@ func (r *TopicSummaryRepo) GetByID(ctx context.Context, id string) (*types.Topic
 	}
 
 	topic.Tags = parseStringArray(tagsStr)
+	topic.Source = types.TopicSource(sourceStr)
 
 	docIDs, err := r.getDocumentIDs(ctx, id)
 	if err != nil {
@@ -253,15 +259,15 @@ func (r *TopicSummaryRepo) GetByID(ctx context.Context, id string) (*types.Topic
 
 // GetByName implements ITopicSummaryRepository.GetByName
 func (r *TopicSummaryRepo) GetByName(ctx context.Context, name string) (*types.TopicSummary, error) {
-	query := `SELECT id, name, description, summary, tags, created_at, updated_at FROM topic_summaries WHERE name = ?`
+	query := `SELECT id, name, description, summary, tags, source, created_at, updated_at FROM topic_summaries WHERE name = ?`
 	if r.driver == "postgres" {
-		query = `SELECT id, name, description, summary, tags, created_at, updated_at FROM topic_summaries WHERE name = $1`
+		query = `SELECT id, name, description, summary, tags, source, created_at, updated_at FROM topic_summaries WHERE name = $1`
 	}
 
 	topic := &types.TopicSummary{}
-	var tagsStr string
+	var tagsStr, sourceStr string
 	err := r.db.QueryRowContext(ctx, query, name).Scan(
-		&topic.ID, &topic.Name, &topic.Description, &topic.Summary, &tagsStr, &topic.CreatedAt, &topic.UpdatedAt,
+		&topic.ID, &topic.Name, &topic.Description, &topic.Summary, &tagsStr, &sourceStr, &topic.CreatedAt, &topic.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -271,6 +277,7 @@ func (r *TopicSummaryRepo) GetByName(ctx context.Context, name string) (*types.T
 	}
 
 	topic.Tags = parseStringArray(tagsStr)
+	topic.Source = types.TopicSource(sourceStr)
 
 	docIDs, err := r.getDocumentIDs(ctx, topic.ID)
 	if err != nil {
@@ -290,7 +297,7 @@ func (r *TopicSummaryRepo) List(ctx context.Context) ([]types.TopicSummary, erro
 		}
 	}
 
-	query := `SELECT id, name, description, summary, tags, created_at, updated_at FROM topic_summaries ORDER BY name`
+	query := `SELECT id, name, description, summary, tags, source, created_at, updated_at FROM topic_summaries ORDER BY name`
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
@@ -301,11 +308,12 @@ func (r *TopicSummaryRepo) List(ctx context.Context) ([]types.TopicSummary, erro
 	var topics []types.TopicSummary
 	for rows.Next() {
 		var t types.TopicSummary
-		var tagsStr string
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Summary, &tagsStr, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var tagsStr, sourceStr string
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Summary, &tagsStr, &sourceStr, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		t.Tags = parseStringArray(tagsStr)
+		t.Source = types.TopicSource(sourceStr)
 		topics = append(topics, t)
 	}
 	if err := rows.Err(); err != nil {
@@ -326,9 +334,9 @@ func (r *TopicSummaryRepo) FindByTags(ctx context.Context, tags []string) ([]typ
 
 	var query string
 	if r.driver == "postgres" {
-		query = `SELECT id, name, description, summary, tags, created_at, updated_at FROM topic_summaries WHERE tags && $1 ORDER BY name`
+		query = `SELECT id, name, description, summary, tags, source, created_at, updated_at FROM topic_summaries WHERE tags && $1 ORDER BY name`
 	} else {
-		query = `SELECT id, name, description, summary, tags, created_at, updated_at FROM topic_summaries WHERE `
+		query = `SELECT id, name, description, summary, tags, source, created_at, updated_at FROM topic_summaries WHERE `
 		for i := range tags {
 			if i > 0 {
 				query += " OR "
@@ -353,11 +361,12 @@ func (r *TopicSummaryRepo) FindByTags(ctx context.Context, tags []string) ([]typ
 	var topics []types.TopicSummary
 	for rows.Next() {
 		var t types.TopicSummary
-		var tagsStr string
-		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Summary, &tagsStr, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var tagsStr, sourceStr string
+		if err := rows.Scan(&t.ID, &t.Name, &t.Description, &t.Summary, &tagsStr, &sourceStr, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
 		t.Tags = parseStringArray(tagsStr)
+		t.Source = types.TopicSource(sourceStr)
 		topics = append(topics, t)
 	}
 	if err := rows.Err(); err != nil {

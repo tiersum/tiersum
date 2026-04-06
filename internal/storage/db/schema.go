@@ -6,16 +6,22 @@ package db
 // Version numbers should be sequential
 var SchemaVersions = []SchemaVersion{
 	{
-		Version: 1,
-		Name:    "Initial schema",
-		SQLite:  sqliteSchemaV1,
+		Version:  1,
+		Name:     "Initial schema",
+		SQLite:   sqliteSchemaV1,
 		Postgres: postgresSchemaV1,
 	},
 	{
-		Version: 2,
-		Name:    "Add topic summaries",
-		SQLite:  sqliteSchemaV2,
+		Version:  2,
+		Name:     "Add topic summaries",
+		SQLite:   sqliteSchemaV2,
 		Postgres: postgresSchemaV2,
+	},
+	{
+		Version:  3,
+		Name:     "Add topic source",
+		SQLite:   sqliteSchemaV3,
+		Postgres: postgresSchemaV3,
 	},
 }
 
@@ -170,6 +176,24 @@ CREATE TRIGGER update_topic_summaries_updated_at
     BEFORE UPDATE ON topic_summaries
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+`
+
+// sqliteSchemaV3 - Add topic source column for SQLite
+const sqliteSchemaV3 = `
+-- Add source column to topic_summaries table
+ALTER TABLE topic_summaries ADD COLUMN source TEXT DEFAULT 'manual';
+
+-- Update existing topics to have manual source
+UPDATE topic_summaries SET source = 'manual' WHERE source IS NULL;
+`
+
+// postgresSchemaV3 - Add topic source column for PostgreSQL
+const postgresSchemaV3 = `
+-- Add source column to topic_summaries table
+ALTER TABLE topic_summaries ADD COLUMN source VARCHAR(20) DEFAULT 'manual';
+
+-- Update existing topics to have manual source
+UPDATE topic_summaries SET source = 'manual' WHERE source IS NULL;
 `
 
 // GetSchemaForDriver returns schema for specific driver and version

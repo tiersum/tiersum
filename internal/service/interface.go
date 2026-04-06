@@ -25,7 +25,7 @@ type IQueryService interface {
 // ITopicService defines topic management business logic
 type ITopicService interface {
 	// CreateTopicFromDocuments creates a new topic summary from documents
-	CreateTopicFromDocuments(ctx context.Context, topicName string, docIDs []string) (*types.TopicSummary, error)
+	CreateTopicFromDocuments(ctx context.Context, topicName string, docIDs []string, source types.TopicSource) (*types.TopicSummary, error)
 	// GetTopic retrieves a topic by ID
 	GetTopic(ctx context.Context, id string) (*types.TopicSummary, error)
 	// ListTopics lists all topics
@@ -52,7 +52,7 @@ type ISummarizer interface {
 	// AnalyzeDocument performs full document analysis including summary and tags
 	AnalyzeDocument(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error)
 	// GenerateTopicSummary creates a topic-level summary from multiple documents
-	GenerateTopicSummary(ctx context.Context, topicName string, documents []*types.Document) (*types.TopicSummary, error)
+	GenerateTopicSummary(ctx context.Context, topicName string, documents []*types.Document, source types.TopicSource) (*types.TopicSummary, error)
 }
 
 

@@ -137,7 +137,7 @@ Your response:`, title, truncateContent(content, 8000))
 }
 
 // GenerateTopicSummary implements ISummarizer.GenerateTopicSummary
-func (s *SummarizerSvc) GenerateTopicSummary(ctx context.Context, topicName string, documents []*types.Document) (*types.TopicSummary, error) {
+func (s *SummarizerSvc) GenerateTopicSummary(ctx context.Context, topicName string, documents []*types.Document, source types.TopicSource) (*types.TopicSummary, error) {
 	if len(documents) == 0 {
 		return nil, fmt.Errorf("no documents provided")
 	}
@@ -178,6 +178,7 @@ Your response:`, topicName, docContext)
 		Summary:     summary,
 		Tags:        tags,
 		DocumentIDs: docIDs,
+		Source:      source,
 	}, nil
 }
 

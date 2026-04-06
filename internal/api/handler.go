@@ -141,7 +141,8 @@ func (h *Handler) CreateTopic(c *gin.Context) {
 		return
 	}
 
-	topic, err := h.topicService.CreateTopicFromDocuments(c.Request.Context(), req.Name, req.DocIDs)
+	// API created topics are marked as manual
+	topic, err := h.topicService.CreateTopicFromDocuments(c.Request.Context(), req.Name, req.DocIDs, types.TopicSourceManual)
 	if err != nil {
 		h.logger.Error("failed to create topic", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
