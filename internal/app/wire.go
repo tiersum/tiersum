@@ -12,6 +12,7 @@ import (
 	"github.com/tiersum/tiersum/internal/api"
 	"github.com/tiersum/tiersum/internal/domain/core"
 	"github.com/tiersum/tiersum/internal/domain/service"
+	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/mcp"
 	"github.com/tiersum/tiersum/internal/ports"
 	"github.com/tiersum/tiersum/internal/storage"
@@ -29,6 +30,9 @@ type Dependencies struct {
 
 	// MCP Server (thin layer, depends on services - same level as REST API)
 	MCP *mcp.Server
+
+	// Job Layer (background tasks)
+	JobScheduler *job.Scheduler
 
 	// Infrastructure
 	Storage *storage.Storage
@@ -66,12 +70,25 @@ func NewDependencies(db *sql.DB, driver string, logger *zap.Logger) (*Dependenci
 	// 7. MCP Server (thin layer, depends on service interfaces - same level as REST API)
 	mcpServer := mcp.NewServer(docService, queryService, topicService, logger)
 
+	// 8. Job Layer (background tasks)
+	jobScheduler := job.NewScheduler(logger)
+
+	// Register jobs
+	indexerJob := job.NewIndexerJob(uow.Documents, uow.Summaries, indexer, logger)
+	topicAggJob := job.NewTopicAggregatorJob(uow.TopicSummaries, uow.Documents, summarizer, logger)
+	cacheCleanupJob := job.NewCacheCleanupJob(cache, logger)
+
+	jobScheduler.Register(indexerJob)
+	jobScheduler.Register(topicAggJob)
+	jobScheduler.Register(cacheCleanupJob)
+
 	return &Dependencies{
 		DocumentService: docService,
 		QueryService:    queryService,
 		TopicService:    topicService,
 		Handler:         handler,
 		MCP:             mcpServer,
+		JobScheduler:    jobScheduler,
 		Storage:         store,
 		Logger:          logger,
 	}, nil
