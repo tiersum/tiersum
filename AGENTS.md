@@ -496,6 +496,106 @@ memory_index:
 | 6 | Hot/cold tiering | Added status, hot_score, query_count, last_query_at |
 | 7 | Embeddings | Added embedding column for vector search |
 
+### Table Schema
+
+#### documents
+Main document storage table.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT/UUID | Primary key |
+| title | TEXT | Document title |
+| content | TEXT | Full content (markdown) |
+| format | TEXT | 'markdown' or 'md' |
+| tags | TEXT[] | Document tags (hot docs) |
+| status | TEXT | 'hot', 'cold', 'warming' |
+| hot_score | REAL | Calculated hot score |
+| query_count | INTEGER | Number of queries |
+| last_query_at | TIMESTAMP | Last access time |
+| embedding | TEXT/REAL[] | Vector embedding (cold docs) |
+| created_at | TIMESTAMP | Creation time |
+| updated_at | TIMESTAMP | Last update |
+
+#### summaries
+Tiered summary storage.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT/UUID | Primary key |
+| document_id | FK | Reference to documents |
+| tier | TEXT | 'document', 'chapter', 'source' |
+| path | TEXT | 'doc_id' or 'doc_id/chapter_title' |
+| content | TEXT | Summary or source content |
+| is_source | BOOLEAN | True if original content |
+| created_at | TIMESTAMP | Creation time |
+| updated_at | TIMESTAMP | Last update |
+
+#### global_tags
+Level 2 tags.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT/UUID | Primary key |
+| name | TEXT | Tag name (unique) |
+| cluster_id | FK | L1 group assignment |
+| document_count | INTEGER | Usage count |
+| created_at | TIMESTAMP | Creation time |
+| updated_at | TIMESTAMP | Last update |
+
+#### tag_clusters
+Level 1 groups.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT/UUID | Primary key |
+| name | TEXT | Group name (unique) |
+| description | TEXT | Group description |
+| tags | TEXT[] | Tags in this group |
+| created_at | TIMESTAMP | Creation time |
+| updated_at | TIMESTAMP | Last update |
+
+#### tag_group_refresh_logs
+Tag grouping job logs.
+
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT/UUID | Primary key |
+| tag_count_before | INTEGER | Tags before refresh |
+| tag_count_after | INTEGER | Tags after refresh |
+| group_count | INTEGER | Number of groups created |
+| duration_ms | INTEGER | Duration in milliseconds |
+| created_at | TIMESTAMP | Creation time |
+
+### Relationships
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│   tag_clusters  │─────│   global_tags   │     │   documents     │
+│   (L1 Groups)   │ 1:M │   (L2 Tags)     │ M:N │  (Documents)    │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+         │                                               │
+         │                                               │ 1:M
+         │                                               │
+         │                                      ┌─────────────────┐
+         │                                      │    summaries    │
+         │                                      │ (Document Tier) │
+         │                                      └─────────────────┘
+         │
+         │ 1:1
+         │
+┌─────────────────┐
+│ tag_group_      │
+│ refresh_logs    │
+└─────────────────┘
+```
+
+### Key Design Decisions
+
+1. **JSON Arrays for Tags**: PostgreSQL/SQLite support array types for tags
+2. **Path-based Hierarchy**: Summaries use path field for tier hierarchy
+3. **Soft Relationships**: No foreign key constraints enforced in SQLite
+4. **Type Flexibility**: embedding column stores JSON or array depending on DB
+
 ## Adding New Features
 
 1. **Define interface** in layer's `interface.go`:
