@@ -87,11 +87,11 @@ func (s *QuerySvc) Query(ctx context.Context, question string, depth types.Summa
 }
 
 // ProgressiveQuery implements the new two-level tag-based progressive query
-// 5.1 Query L1 clusters + keyword -> LLM filter -> L2 tags
-// 5.2 L2 tags -> query top 100 doc summaries -> LLM filter -> docs
-// 5.3 Docs -> query chapter summaries -> LLM filter -> chapters
-// 5.4 Chapters -> query source content
-// 5.5 Cold docs -> BM25 + vector search (parallel with hot path)
+// 1 Query L1 clusters + keyword -> LLM filter -> L2 tags
+// 2 L2 tags -> query top 100 doc summaries -> LLM filter -> docs
+// 3 Docs -> query chapter summaries -> LLM filter -> chapters
+// 4 Chapters -> query source content
+// 5 Cold docs -> BM25 + vector search (parallel with hot path)
 func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error) {
 	if req.MaxResults == 0 {
 		req.MaxResults = 100
@@ -164,7 +164,7 @@ func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQu
 func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryRequest) ([]types.QueryItem, []types.ProgressiveQueryStep, error) {
 	var steps []types.ProgressiveQueryStep
 
-	// Step 5.1: Get L1 clusters and filter to get relevant L2 tags
+	// Step 1: Get L1 clusters and filter to get relevant L2 tags
 	step1Start := time.Now()
 	l2Tags, err := s.filterL2Tags(ctx, req.Question)
 	if err != nil {
@@ -178,7 +178,7 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 		Duration: time.Since(step1Start).Milliseconds(),
 	})
 
-	// Step 5.2: Query documents by L2 tags and filter
+	// Step 2: Query documents by L2 tags and filter
 	step2Start := time.Now()
 	docs, err := s.queryAndFilterDocuments(ctx, req.Question, l2Tags, req.MaxResults)
 	if err != nil {
@@ -195,7 +195,7 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 	// Track document access for hot/cold management
 	s.trackDocumentAccess(ctx, docs)
 
-	// Step 5.3: Query chapters by docs and filter
+	// Step 3: Query chapters by docs and filter
 	step3Start := time.Now()
 	chapters, err := s.queryAndFilterChapters(ctx, req.Question, docs)
 	if err != nil {

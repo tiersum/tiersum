@@ -213,6 +213,7 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 		Tags:         doc.Tags,
 		Summary:      "", // Could fetch from summary repo
 		ChapterCount: 0,  // Could fetch from summary repo
+		Status:       doc.Status,
 		CreatedAt:    doc.CreatedAt,
 	}, nil
 }

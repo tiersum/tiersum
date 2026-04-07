@@ -153,13 +153,14 @@ func ExtractKeywords(content string, maxKeywords int) []string {
 
 // CreateDocumentResponse represents the response from creating a document
 type CreateDocumentResponse struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Format    string    `json:"format"`
-	Tags      []string  `json:"tags"`
-	Summary   string    `json:"summary"`
-	ChapterCount int    `json:"chapter_count"`
-	CreatedAt time.Time `json:"created_at"`
+	ID           string         `json:"id"`
+	Title        string         `json:"title"`
+	Format       string         `json:"format"`
+	Tags         []string       `json:"tags"`
+	Summary      string         `json:"summary"`
+	ChapterCount int            `json:"chapter_count"`
+	Status       DocumentStatus `json:"status"`
+	CreatedAt    time.Time      `json:"created_at"`
 }
 
 // QueryRequest represents a query request

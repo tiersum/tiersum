@@ -112,6 +112,33 @@ func (s *MCPServer) registerTools() {
 		mcp.WithDescription("Manually trigger tag grouping (normally runs automatically every 30 minutes)"),
 	)
 	s.mcp.AddTool(triggerGroupingTool, s.handleTriggerTagGroup)
+
+	// IngestDocument tool - supports external agent pre-built summaries
+	ingestDocTool := mcp.NewTool("tiersum_ingest_document",
+		mcp.WithDescription("Ingest a document into the knowledge base. Supports pre-built summaries from external agents."),
+		mcp.WithString("title",
+			mcp.Required(),
+			mcp.Description("Document title"),
+		),
+		mcp.WithString("content",
+			mcp.Required(),
+			mcp.Description("Document content"),
+		),
+		mcp.WithString("format",
+			mcp.Description("Document format: markdown or md (default: markdown)"),
+			mcp.Enum("markdown", "md"),
+		),
+		mcp.WithArray("tags",
+			mcp.Description("Optional pre-built tags"),
+		),
+		mcp.WithString("summary",
+			mcp.Description("Optional pre-built document summary (from external agent)"),
+		),
+		mcp.WithBoolean("force_hot",
+			mcp.Description("Force hot processing regardless of quota"),
+		),
+	)
+	s.mcp.AddTool(ingestDocTool, s.handleIngestDocument)
 }
 
 // GetMCPServer returns the underlying MCP server for SSE handling
@@ -261,6 +288,74 @@ func (s *MCPServer) handleTriggerTagGroup(ctx context.Context, request mcp.CallT
 	}
 
 	return mcp.NewToolResultText("Tag grouping completed successfully"), nil
+}
+
+// handleIngestDocument handles the tiersum_ingest_document tool
+func (s *MCPServer) handleIngestDocument(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	title, ok := request.Params.Arguments["title"].(string)
+	if !ok || title == "" {
+		return nil, fmt.Errorf("title is required")
+	}
+
+	content, ok := request.Params.Arguments["content"].(string)
+	if !ok || content == "" {
+		return nil, fmt.Errorf("content is required")
+	}
+
+	format := "markdown"
+	if f, ok := request.Params.Arguments["format"].(string); ok && f != "" {
+		format = f
+	}
+
+	// Build request
+	req := types.CreateDocumentRequest{
+		Title:    title,
+		Content:  content,
+		Format:   format,
+		Tags:     []string{},
+		Chapters: []types.ChapterInfo{},
+	}
+
+	// Parse optional tags
+	if tagsArr, ok := request.Params.Arguments["tags"].([]interface{}); ok {
+		for _, t := range tagsArr {
+			if tag, ok := t.(string); ok {
+				req.Tags = append(req.Tags, tag)
+			}
+		}
+	}
+
+	// Parse optional summary
+	if summary, ok := request.Params.Arguments["summary"].(string); ok && summary != "" {
+		req.Summary = summary
+	}
+
+	// Parse force_hot
+	if forceHot, ok := request.Params.Arguments["force_hot"].(bool); ok {
+		req.ForceHot = forceHot
+	}
+
+	s.logger.Info("MCP ingest document",
+		zap.String("title", title),
+		zap.Int("tags", len(req.Tags)),
+		zap.Bool("has_summary", req.Summary != ""),
+		zap.Bool("force_hot", req.ForceHot))
+
+	resp, err := s.docService.Ingest(ctx, req)
+	if err != nil {
+		s.logger.Error("failed to ingest document", zap.Error(err))
+		return nil, fmt.Errorf("failed to ingest document: %w", err)
+	}
+
+	resultText := fmt.Sprintf(
+		"Document ingested successfully:\nID: %s\nTitle: %s\nStatus: %s\nTags: %v",
+		resp.ID,
+		resp.Title,
+		resp.Status,
+		resp.Tags,
+	)
+
+	return mcp.NewToolResultText(resultText), nil
 }
 
 // format functions
