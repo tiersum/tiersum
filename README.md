@@ -314,89 +314,32 @@ curl "http://localhost:8080/api/v1/quota"
 
 ## Architecture
 
-### 5-Layer Design with Interface+Impl Pattern
+TierSum uses a **5-Layer Architecture** with Interface+Impl Pattern:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                        Client Layer                          │
-│  (Claude Desktop / Custom Agents / REST Clients / Web UI)  │
+│  Client Layer                                                │
+│  (REST API / MCP / Web UI)                                  │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                      API Layer (internal/api)                │
-│  ┌──────────────┐  ┌──────────────┐                         │
-│  │   REST API   │  │  MCP Server  │                         │
-│  └──────────────┘  └──────────────┘                         │
+│  API Layer        (REST handlers + MCP server)              │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                   Service Layer (internal/service)           │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  interface.go: I* interfaces (IDocumentService, etc.)  ││
-│  └─────────────────────────────────────────────────────────┘│
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  svcimpl/: Implementations (DocumentSvc, QuerySvc, etc)││
-│  │  Includes: Indexer, Summarizer, TagGroupSvc, Quota    ││
-│  └─────────────────────────────────────────────────────────┘│
+│  Service Layer    (Business logic + LLM integration)        │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                   Storage Layer (internal/storage)           │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────┐│
-│  │  db/repository.go│  │  cache/cache.go  │  │ memory/    ││
-│  │  (SQLite/PG)     │  │  (In-memory)     │  │ (BM25+HNSW)││
-│  └──────────────────┘  └──────────────────┘  └────────────┘│
+│  Storage Layer    (DB repositories + Cache + Memory Index)  │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│                    Client Layer (internal/client)            │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  llm/openai.go: OpenAIProvider implementation          ││
-│  └─────────────────────────────────────────────────────────┘│
+│  Client Layer     (LLM providers)                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-### Design Principles
-
-1. **Interface+Impl Pattern**: Each layer defines `interface.go` with I-prefix interfaces, implementations in subpackages
-2. **Layer Ownership**: No central `ports/` package — each layer manages its own interfaces
-3. **Dependency Injection**: All wiring in `internal/di/container.go`
-4. **Unified API**: REST and MCP handlers coexist in `internal/api/`
-
----
-
-## Document Processing Pipeline
-
-```
-Input (Markdown)
-    │
-    ▼
-┌─────────────┐    ┌──────────────────────────────────────┐
-│   Parser    │───▶│  Tier Decision                       │
-│ (Goldmark)  │    │  ┌─────────────────────────────────┐ │
-└─────────────┘    │  │ Hot? (quota + size/summary)    │ │
-                   │  └──────────────┬──────────────────┘ │
-                   └─────────────────┼────────────────────┘
-                                     │
-                    ┌────────────────┼────────────────┐
-                    ▼                ▼                ▼
-            ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-            │ Hot Path    │    │ Cold Path   │    │ Summarizer  │
-            │             │    │             │    │ (LLM)       │
-            │ • Full LLM  │    │ • Simple    │    │             │
-            │   analysis  │    │   embedding │    │ • Summary   │
-            │ • Tags      │    │ • BM25      │    │ • Tags      │
-            │ • Chapters  │    │ • Vector    │    │ • Chapters  │
-            └──────┬──────┘    └──────┬──────┘    └──────┬──────┘
-                   │                  │                  │
-                   └──────────────────┴──────────────────┘
-                                      │
-                                      ▼
-                            ┌──────────────────┐
-                            │  Database        │
-                            │  (SQLite/PG)     │
-                            └──────────────────┘
-```
+📚 **See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation.**
 
 ---
 
