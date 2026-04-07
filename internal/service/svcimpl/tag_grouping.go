@@ -18,27 +18,28 @@ import (
 
 // TagGroupSvc implements service.ITagGroupService
 type TagGroupSvc struct {
-	tagRepo   storage.ITagRepository
-	groupRepo storage.ITagGroupRepository
-	logRepo   storage.ITagGroupRefreshLogRepository
-	provider  client.ILLMProvider
-	logger    *zap.Logger
+	tagRepo       storage.ITagRepository
+	groupRepo     storage.ITagGroupRepository
+	provider      client.ILLMProvider
+	logger        *zap.Logger
+	lastRefreshTime time.Time
+	lastTagCount  int
 }
 
 // NewTagGroupSvc creates a new tag grouping service
 func NewTagGroupSvc(
 	tagRepo storage.ITagRepository,
 	groupRepo storage.ITagGroupRepository,
-	logRepo storage.ITagGroupRefreshLogRepository,
 	provider client.ILLMProvider,
 	logger *zap.Logger,
 ) *TagGroupSvc {
 	return &TagGroupSvc{
-		tagRepo:   tagRepo,
-		groupRepo: groupRepo,
-		logRepo:   logRepo,
-		provider:  provider,
-		logger:    logger,
+		tagRepo:         tagRepo,
+		groupRepo:       groupRepo,
+		provider:        provider,
+		logger:          logger,
+		lastRefreshTime: time.Time{}, // Zero time indicates no refresh yet
+		lastTagCount:    0,
 	}
 }
 
@@ -106,10 +107,9 @@ func (s *TagGroupSvc) GroupTags(ctx context.Context) error {
 
 	duration := time.Since(startTime).Milliseconds()
 
-	// Log refresh
-	if err := s.logRepo.Create(ctx, tagCountBefore, tagCountBefore, len(groups), duration); err != nil {
-		s.logger.Warn("failed to create group refresh log", zap.Error(err))
-	}
+	// Update in-memory tracking
+	s.lastRefreshTime = time.Now()
+	s.lastTagCount = tagCountBefore
 
 	s.logger.Info("completed tag grouping",
 		zap.Int("tags", tagCountBefore),
@@ -127,29 +127,18 @@ func (s *TagGroupSvc) ShouldRefresh(ctx context.Context) (bool, error) {
 		return false, fmt.Errorf("get tag count: %w", err)
 	}
 
-	// Get last refresh log
-	lastLog, err := s.logRepo.GetLastRefresh(ctx)
-	if err != nil {
-		return false, fmt.Errorf("get last refresh: %w", err)
-	}
-
-	// No previous refresh, should refresh
-	if lastLog == nil {
+	// No previous refresh (zero time), should refresh
+	if s.lastRefreshTime.IsZero() {
 		return true, nil
 	}
 
 	// Check if tag count changed
-	if currentCount != lastLog.TagCountAfter {
+	if currentCount != s.lastTagCount {
 		return true, nil
 	}
 
 	// Check if enough time passed (30 minutes)
-	lastRefreshTime, ok := lastLog.CreatedAt.(time.Time)
-	if !ok {
-		return true, nil
-	}
-
-	if time.Since(lastRefreshTime) > 30*time.Minute {
+	if time.Since(s.lastRefreshTime) > 30*time.Minute {
 		return true, nil
 	}
 

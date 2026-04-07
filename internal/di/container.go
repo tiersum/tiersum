@@ -57,7 +57,6 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	tagGroupSvc := svcimpl.NewTagGroupSvc(
 		uow.Tags,
 		uow.TagGroups,
-		uow.TagGroupRefreshLogs,
 		llmProvider,
 		logger,
 	)
@@ -88,6 +87,10 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	// Register tag grouping job (runs every 30 minutes)
 	jobScheduler.Register(job.NewTagGroupJob(tagGroupSvc, logger))
 	jobScheduler.Register(job.NewIndexerJob(uow.Documents, uow.Summaries, indexer, logger))
+	// Register hot/cold document promotion job (runs every 5 minutes)
+	jobScheduler.Register(job.NewPromoteJob(uow.Documents, indexer, summarizer, logger))
+	// Register hot score update job (runs every hour)
+	jobScheduler.Register(job.NewHotScoreJob(uow.Documents, logger))
 
 	return &Dependencies{
 		DocumentService:      docService,
@@ -103,12 +106,11 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 // Interface compliance checks
 var (
 	// Storage Layer
-	_ storage.IDocumentRepository          = (*db.DocumentRepo)(nil)
-	_ storage.ISummaryRepository           = (*db.SummaryRepo)(nil)
-	_ storage.ITagRepository         = (*db.TagRepo)(nil)
-	_ storage.ITagGroupRepository        = (*db.TagGroupRepo)(nil)
-	_ storage.ITagGroupRefreshLogRepository = (*db.TagGroupRefreshLogRepo)(nil)
-	_ storage.ICache                       = (*cache.Cache)(nil)
+	_ storage.IDocumentRepository = (*db.DocumentRepo)(nil)
+	_ storage.ISummaryRepository  = (*db.SummaryRepo)(nil)
+	_ storage.ITagRepository      = (*db.TagRepo)(nil)
+	_ storage.ITagGroupRepository = (*db.TagGroupRepo)(nil)
+	_ storage.ICache              = (*cache.Cache)(nil)
 
 	// Service Layer
 	_ service.IDocumentService      = (*svcimpl.DocumentSvc)(nil)

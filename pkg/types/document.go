@@ -1,18 +1,36 @@
 package types
 
 import (
+	"regexp"
+	"strings"
 	"time"
+)
+
+// DocumentStatus represents the hot/cold tier status of a document
+type DocumentStatus string
+
+const (
+	// DocStatusHot indicates a frequently accessed document with full LLM analysis
+	DocStatusHot DocumentStatus = "hot"
+	// DocStatusCold indicates a rarely accessed document with minimal processing
+	DocStatusCold DocumentStatus = "cold"
+	// DocStatusWarming indicates a document being promoted from cold to hot
+	DocStatusWarming DocumentStatus = "warming"
 )
 
 // Document represents a document in the system
 type Document struct {
-	ID        string    `json:"id"`
-	Title     string    `json:"title"`
-	Content   string    `json:"content"`
-	Format    string    `json:"format"`
-	Tags      []string  `json:"tags,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          string         `json:"id"`
+	Title       string         `json:"title"`
+	Content     string         `json:"content"`
+	Format      string         `json:"format"`
+	Tags        []string       `json:"tags,omitempty"`
+	Status      DocumentStatus `json:"status"`
+	HotScore    float64        `json:"hot_score"`
+	QueryCount  int            `json:"query_count"`
+	LastQueryAt *time.Time     `json:"last_query_at,omitempty"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
 // SummaryTier represents the level of summarization
@@ -81,6 +99,50 @@ type CreateDocumentRequest struct {
 	Content string   `json:"content" binding:"required"`
 	Format  string   `json:"format" binding:"required,oneof=markdown md"`
 	Tags    []string `json:"tags,omitempty"`
+	// ForceHot forces full LLM analysis regardless of heuristics
+	ForceHot bool `json:"force_hot,omitempty"`
+}
+
+// ExtractKeywords extracts keywords from content using simple regex patterns
+// Returns lowercase words with length > 4, limited to maxKeywords
+func ExtractKeywords(content string, maxKeywords int) []string {
+	// Regex to match words with length > 4 (letters only)
+	re := regexp.MustCompile(`[a-zA-Z]{5,}`)
+	matches := re.FindAllString(content, -1)
+
+	// Use map to deduplicate and count frequency
+	wordFreq := make(map[string]int)
+	for _, word := range matches {
+		word = strings.ToLower(word)
+		wordFreq[word]++
+	}
+
+	// Convert to slice and sort by frequency (simple approach)
+	type wordCount struct {
+		word  string
+		count int
+	}
+	counts := make([]wordCount, 0, len(wordFreq))
+	for word, count := range wordFreq {
+		counts = append(counts, wordCount{word, count})
+	}
+
+	// Sort by frequency (higher first) - simple bubble sort for small lists
+	for i := 0; i < len(counts); i++ {
+		for j := i + 1; j < len(counts); j++ {
+			if counts[j].count > counts[i].count {
+				counts[i], counts[j] = counts[j], counts[i]
+			}
+		}
+	}
+
+	// Take top keywords
+	result := make([]string, 0, maxKeywords)
+	for i := 0; i < len(counts) && i < maxKeywords; i++ {
+		result = append(result, counts[i].word)
+	}
+
+	return result
 }
 
 // CreateDocumentResponse represents the response from creating a document

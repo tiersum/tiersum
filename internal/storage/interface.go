@@ -13,6 +13,16 @@ type IDocumentRepository interface {
 	GetByID(ctx context.Context, id string) (*types.Document, error)
 	// ListByTags retrieves documents that match ANY of the given tags (OR logic)
 	ListByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error)
+	// ListByStatus retrieves documents by status (hot/cold/warming)
+	ListByStatus(ctx context.Context, status types.DocumentStatus, limit int) ([]types.Document, error)
+	// IncrementQueryCount increments the query count and updates last_query_at
+	IncrementQueryCount(ctx context.Context, docID string) error
+	// UpdateStatus updates the document status (hot/cold/warming)
+	UpdateStatus(ctx context.Context, docID string, status types.DocumentStatus) error
+	// UpdateHotScore updates the hot score for a document
+	UpdateHotScore(ctx context.Context, docID string, score float64) error
+	// ListAll returns all documents for hot score calculation
+	ListAll(ctx context.Context, limit int) ([]types.Document, error)
 }
 
 // ISummaryRepository defines summary storage operations
@@ -58,24 +68,6 @@ type ITagGroupRepository interface {
 	DeleteAll(ctx context.Context) error
 	// GetCount returns the total number of groups
 	GetCount(ctx context.Context) (int, error)
-}
-
-// ITagGroupRefreshLogRepository defines tag group refresh log operations
-type ITagGroupRefreshLogRepository interface {
-	// Create creates a new log entry
-	Create(ctx context.Context, tagCountBefore, tagCountAfter, groupCount int, durationMs int64) error
-	// GetLastRefresh retrieves the most recent refresh log
-	GetLastRefresh(ctx context.Context) (*TagGroupRefreshLog, error)
-}
-
-// TagGroupRefreshLog represents a tag group refresh log entry
-type TagGroupRefreshLog struct {
-	ID             int64
-	TagCountBefore int
-	TagCountAfter  int
-	GroupCount     int
-	DurationMs     int
-	CreatedAt      interface{}
 }
 
 // ICache defines cache operations

@@ -46,12 +46,17 @@ func (r *DocumentRepo) Create(ctx context.Context, doc *types.Document) error {
 	doc.CreatedAt = now
 	doc.UpdatedAt = now
 
-	query := `INSERT INTO documents (id, title, content, format, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`
-	if r.driver == "postgres" {
-		query = `INSERT INTO documents (id, title, content, format, tags, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7)`
+	// Set default status if not set
+	if doc.Status == "" {
+		doc.Status = types.DocStatusCold
 	}
 
-	_, err := r.db.ExecContext(ctx, query, doc.ID, doc.Title, doc.Content, doc.Format, doc.Tags, doc.CreatedAt, doc.UpdatedAt)
+	query := `INSERT INTO documents (id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	if r.driver == "postgres" {
+		query = `INSERT INTO documents (id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
+	}
+
+	_, err := r.db.ExecContext(ctx, query, doc.ID, doc.Title, doc.Content, doc.Format, doc.Tags, doc.Status, doc.HotScore, doc.QueryCount, doc.LastQueryAt, doc.CreatedAt, doc.UpdatedAt)
 	return err
 }
 
@@ -63,18 +68,22 @@ func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document,
 		}
 	}
 
-	query := `SELECT id, title, content, format, tags, created_at, updated_at FROM documents WHERE id = ?`
+	query := `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at FROM documents WHERE id = ?`
 	if r.driver == "postgres" {
-		query = `SELECT id, title, content, format, tags, created_at, updated_at FROM documents WHERE id = $1`
+		query = `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at FROM documents WHERE id = $1`
 	}
 
 	doc := &types.Document{}
 	var tagsStr string
+	var lastQueryAt sql.NullTime
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
-		&doc.ID, &doc.Title, &doc.Content, &doc.Format, &tagsStr, &doc.CreatedAt, &doc.UpdatedAt,
+		&doc.ID, &doc.Title, &doc.Content, &doc.Format, &tagsStr, &doc.Status, &doc.HotScore, &doc.QueryCount, &lastQueryAt, &doc.CreatedAt, &doc.UpdatedAt,
 	)
 	if err == nil {
 		doc.Tags = parseStringArray(tagsStr)
+		if lastQueryAt.Valid {
+			doc.LastQueryAt = &lastQueryAt.Time
+		}
 	}
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -104,7 +113,7 @@ func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int)
 
 	if r.driver == "postgres" {
 		// Use PostgreSQL array overlap operator
-		query = `SELECT id, title, content, format, tags, created_at, updated_at 
+		query = `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
 				 FROM documents 
 				 WHERE tags && $1 
 				 LIMIT $2`
@@ -116,7 +125,7 @@ func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int)
 			conditions[i] = "tags LIKE ?"
 			args = append(args, "%"+tag+"%")
 		}
-		query = fmt.Sprintf(`SELECT id, title, content, format, tags, created_at, updated_at 
+		query = fmt.Sprintf(`SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
 							 FROM documents 
 							 WHERE %s 
 							 LIMIT %d`,
@@ -133,10 +142,145 @@ func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int)
 	for rows.Next() {
 		var d types.Document
 		var tagsStr string
-		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		var lastQueryAt sql.NullTime
+		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
 		d.Tags = parseStringArray(tagsStr)
+		if lastQueryAt.Valid {
+			d.LastQueryAt = &lastQueryAt.Time
+		}
+		documents = append(documents, d)
+	}
+	return documents, rows.Err()
+}
+
+// UpdateStatus updates the document's hot/cold status
+func (r *DocumentRepo) UpdateStatus(ctx context.Context, docID string, status types.DocumentStatus) error {
+	query := `UPDATE documents SET status = ?, updated_at = ? WHERE id = ?`
+	if r.driver == "postgres" {
+		query = `UPDATE documents SET status = $1, updated_at = $2 WHERE id = $3`
+	}
+
+	_, err := r.db.ExecContext(ctx, query, status, time.Now(), docID)
+	if err != nil {
+		return fmt.Errorf("update document status: %w", err)
+	}
+
+	// Invalidate cache
+	if r.cache != nil {
+		r.cache.Set("doc:"+docID, nil)
+	}
+	return nil
+}
+
+// IncrementQueryCount increments the query count for a document
+func (r *DocumentRepo) IncrementQueryCount(ctx context.Context, docID string) error {
+	now := time.Now()
+	query := `UPDATE documents SET query_count = query_count + 1, last_query_at = ?, updated_at = ? WHERE id = ?`
+	if r.driver == "postgres" {
+		query = `UPDATE documents SET query_count = query_count + 1, last_query_at = $1, updated_at = $2 WHERE id = $3`
+	}
+
+	_, err := r.db.ExecContext(ctx, query, now, now, docID)
+	if err != nil {
+		return fmt.Errorf("increment query count: %w", err)
+	}
+
+	// Invalidate cache
+	if r.cache != nil {
+		r.cache.Set("doc:"+docID, nil)
+	}
+	return nil
+}
+
+// UpdateHotScore updates the hot score for a document
+func (r *DocumentRepo) UpdateHotScore(ctx context.Context, docID string, score float64) error {
+	query := `UPDATE documents SET hot_score = ?, updated_at = ? WHERE id = ?`
+	if r.driver == "postgres" {
+		query = `UPDATE documents SET hot_score = $1, updated_at = $2 WHERE id = $3`
+	}
+
+	_, err := r.db.ExecContext(ctx, query, score, time.Now(), docID)
+	if err != nil {
+		return fmt.Errorf("update hot score: %w", err)
+	}
+	return nil
+}
+
+// ListByStatus retrieves documents by status with optional limit
+func (r *DocumentRepo) ListByStatus(ctx context.Context, status types.DocumentStatus, limit int) ([]types.Document, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+			  FROM documents 
+			  WHERE status = ? 
+			  LIMIT ?`
+	if r.driver == "postgres" {
+		query = `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+				  FROM documents 
+				  WHERE status = $1 
+				  LIMIT $2`
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, status, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query documents by status: %w", err)
+	}
+	defer rows.Close()
+
+	var documents []types.Document
+	for rows.Next() {
+		var d types.Document
+		var tagsStr string
+		var lastQueryAt sql.NullTime
+		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, err
+		}
+		d.Tags = parseStringArray(tagsStr)
+		if lastQueryAt.Valid {
+			d.LastQueryAt = &lastQueryAt.Time
+		}
+		documents = append(documents, d)
+	}
+	return documents, rows.Err()
+}
+
+// ListAll returns all documents for hot score calculation
+func (r *DocumentRepo) ListAll(ctx context.Context, limit int) ([]types.Document, error) {
+	if limit <= 0 {
+		limit = 1000
+	}
+
+	query := `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+			  FROM documents 
+			  LIMIT ?`
+	if r.driver == "postgres" {
+		query = `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+				  FROM documents 
+				  LIMIT $1`
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query all documents: %w", err)
+	}
+	defer rows.Close()
+
+	var documents []types.Document
+	for rows.Next() {
+		var d types.Document
+		var tagsStr string
+		var lastQueryAt sql.NullTime
+		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, err
+		}
+		d.Tags = parseStringArray(tagsStr)
+		if lastQueryAt.Valid {
+			d.LastQueryAt = &lastQueryAt.Time
+		}
 		documents = append(documents, d)
 	}
 	return documents, rows.Err()
@@ -542,56 +686,6 @@ func (r *TagGroupRepo) GetCount(ctx context.Context) (int, error) {
 
 var _ storage.ITagGroupRepository = (*TagGroupRepo)(nil)
 
-// TagGroupRefreshLogRepo implements storage.ITagGroupRefreshLogRepository
-type TagGroupRefreshLogRepo struct {
-	db     sqlDB
-	driver string
-}
-
-// NewTagGroupRefreshLogRepo creates a new tag group refresh log repository
-func NewTagGroupRefreshLogRepo(db sqlDB, driver string) *TagGroupRefreshLogRepo {
-	return &TagGroupRefreshLogRepo{
-		db:     db,
-		driver: driver,
-	}
-}
-
-// Create implements ITagGroupRefreshLogRepository.Create
-func (r *TagGroupRefreshLogRepo) Create(ctx context.Context, tagCountBefore, tagCountAfter, groupCount int, durationMs int64) error {
-	query := `INSERT INTO cluster_refresh_log (tag_count_before, tag_count_after, cluster_count, duration_ms, created_at) VALUES (?, ?, ?, ?, ?)`
-	if r.driver == "postgres" {
-		query = `INSERT INTO cluster_refresh_log (tag_count_before, tag_count_after, cluster_count, duration_ms, created_at) VALUES ($1, $2, $3, $4, $5)`
-	}
-
-	_, err := r.db.ExecContext(ctx, query, tagCountBefore, tagCountAfter, groupCount, durationMs, time.Now())
-	if err != nil {
-		return fmt.Errorf("create tag group refresh log: %w", err)
-	}
-	return nil
-}
-
-// GetLastRefresh implements ITagGroupRefreshLogRepository.GetLastRefresh
-func (r *TagGroupRefreshLogRepo) GetLastRefresh(ctx context.Context) (*storage.TagGroupRefreshLog, error) {
-	query := `SELECT id, tag_count_before, tag_count_after, cluster_count, duration_ms, created_at FROM cluster_refresh_log ORDER BY created_at DESC LIMIT 1`
-
-	var log storage.TagGroupRefreshLog
-	var createdAt interface{}
-	err := r.db.QueryRowContext(ctx, query).Scan(
-		&log.ID, &log.TagCountBefore, &log.TagCountAfter, &log.GroupCount, &log.DurationMs, &createdAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("get last refresh: %w", err)
-	}
-
-	log.CreatedAt = createdAt
-	return &log, nil
-}
-
-var _ storage.ITagGroupRefreshLogRepository = (*TagGroupRefreshLogRepo)(nil)
-
 func parseStringArray(s string) []string {
 	if s == "" || s == "{}" {
 		return []string{}
@@ -610,20 +704,18 @@ func parseStringArray(s string) []string {
 
 // UnitOfWork combines multiple repositories
 type UnitOfWork struct {
-	Documents           storage.IDocumentRepository
-	Summaries           storage.ISummaryRepository
-	Tags          storage.ITagRepository
-	TagGroups         storage.ITagGroupRepository
-	TagGroupRefreshLogs storage.ITagGroupRefreshLogRepository
+	Documents storage.IDocumentRepository
+	Summaries storage.ISummaryRepository
+	Tags      storage.ITagRepository
+	TagGroups storage.ITagGroupRepository
 }
 
 // NewUnitOfWork creates a new unit of work
 func NewUnitOfWork(db sqlDB, driver string, cache storage.ICache) *UnitOfWork {
 	return &UnitOfWork{
-		Documents:           NewDocumentRepo(db, driver, cache),
-		Summaries:           NewSummaryRepo(db, driver, cache),
-		Tags:          NewTagRepo(db, driver, cache),
-		TagGroups:         NewTagGroupRepo(db, driver, cache),
-		TagGroupRefreshLogs: NewTagGroupRefreshLogRepo(db, driver),
+		Documents: NewDocumentRepo(db, driver, cache),
+		Summaries: NewSummaryRepo(db, driver, cache),
+		Tags:      NewTagRepo(db, driver, cache),
+		TagGroups: NewTagGroupRepo(db, driver, cache),
 	}
 }

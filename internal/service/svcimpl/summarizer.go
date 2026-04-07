@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -197,6 +198,79 @@ Response format (JSON only):
 	return s.parseFilterResults(response), nil
 }
 
+// FilterL1GroupsByQuery uses LLM to select 1-3 most relevant tag groups (L1) for the query
+func (s *SummarizerSvc) FilterL1GroupsByQuery(ctx context.Context, query string, groups []types.TagGroup) ([]types.LLMFilterResult, error) {
+	if len(groups) == 0 {
+		return nil, nil
+	}
+
+	// Build prompt with group info
+	var groupList strings.Builder
+	for i, g := range groups {
+		groupList.WriteString(fmt.Sprintf("[%d] ID: %s\nName: %s\nDescription: %s\nTags: %v\n\n",
+			i, g.ID, g.Name, g.Description, g.Tags))
+	}
+
+	prompt := fmt.Sprintf(`Given the user query: "%s"
+
+Select the 1-3 most relevant tag groups from the list below. These groups will be used to narrow down the search for relevant documents.
+Return a JSON array of objects with fields "id" (group ID) and "relevance" (0.0-1.0 score).
+Only include groups with relevance >= 0.5. Sort by relevance descending.
+Select at most 3 groups.
+
+Available tag groups:
+%s
+
+Response format (JSON only):
+[
+  {"id": "group_id", "relevance": 0.95},
+  {"id": "another_group_id", "relevance": 0.82}
+]`, query, groupList.String())
+
+	response, err := s.provider.Generate(ctx, prompt, 1500)
+	if err != nil {
+		s.logger.Error("LLM L1 group filter failed", zap.Error(err))
+		return s.fallbackFilterGroups(groups), nil
+	}
+
+	return s.parseFilterResults(response), nil
+}
+
+// FilterL2TagsByQuery uses LLM to filter L2 tags based on query
+func (s *SummarizerSvc) FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
+	if len(tags) == 0 {
+		return nil, nil
+	}
+
+	// Build tag list for prompt
+	var tagList strings.Builder
+	for _, tag := range tags {
+		tagList.WriteString(fmt.Sprintf("- %s (used in %d documents)\n", tag.Name, tag.DocumentCount))
+	}
+
+	prompt := fmt.Sprintf(`Given the user query: "%s"
+
+Select the most relevant tags from the list below. Return a JSON array of objects with fields "tag" and "relevance" (0.0-1.0 score).
+Only include tags with relevance >= 0.5. Sort by relevance descending.
+
+Available tags:
+%s
+
+Response format (JSON only):
+[
+  {"tag": "tag-name", "relevance": 0.95},
+  {"tag": "another-tag", "relevance": 0.82}
+]`, query, tagList.String())
+
+	response, err := s.provider.Generate(ctx, prompt, 1500)
+	if err != nil {
+		s.logger.Error("LLM L2 tag filter failed", zap.Error(err))
+		return s.fallbackTagFilter(tags), nil
+	}
+
+	return s.parseTagFilterResults(response), nil
+}
+
 // extractChapters extracts chapters from markdown content
 func (s *SummarizerSvc) extractChapters(content string) []types.ChapterInfo {
 	var chapters []types.ChapterInfo
@@ -343,6 +417,54 @@ func (s *SummarizerSvc) fallbackFilterChapters(chapters []types.Summary) []types
 	for i, ch := range chapters {
 		results[i] = types.LLMFilterResult{
 			ID:        ch.Path,
+			Relevance: 0.5,
+		}
+	}
+	return results
+}
+
+// fallbackFilterGroups returns all groups with equal relevance
+func (s *SummarizerSvc) fallbackFilterGroups(groups []types.TagGroup) []types.LLMFilterResult {
+	results := make([]types.LLMFilterResult, len(groups))
+	for i, g := range groups {
+		results[i] = types.LLMFilterResult{
+			ID:        g.ID,
+			Relevance: 0.5,
+		}
+	}
+	return results
+}
+
+// parseTagFilterResults parses tag filter results from LLM response
+func (s *SummarizerSvc) parseTagFilterResults(response string) []types.TagFilterResult {
+	jsonStart := strings.Index(response, "[")
+	jsonEnd := strings.LastIndex(response, "]")
+	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
+		return nil
+	}
+
+	jsonStr := response[jsonStart : jsonEnd+1]
+
+	var results []types.TagFilterResult
+	if err := json.Unmarshal([]byte(jsonStr), &results); err != nil {
+		s.logger.Warn("failed to parse tag filter results", zap.Error(err))
+		return nil
+	}
+
+	// Sort by relevance descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Relevance > results[j].Relevance
+	})
+
+	return results
+}
+
+// fallbackTagFilter returns all tags with equal relevance
+func (s *SummarizerSvc) fallbackTagFilter(tags []types.Tag) []types.TagFilterResult {
+	results := make([]types.TagFilterResult, len(tags))
+	for i, tag := range tags {
+		results[i] = types.TagFilterResult{
+			Tag:       tag.Name,
 			Relevance: 0.5,
 		}
 	}

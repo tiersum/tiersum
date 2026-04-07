@@ -35,6 +35,12 @@ var SchemaVersions = []SchemaVersion{
 		SQLite:   sqliteSchemaV5,
 		Postgres: postgresSchemaV5,
 	},
+	{
+		Version:  6,
+		Name:     "Add hot/cold document tiering",
+		SQLite:   sqliteSchemaV6,
+		Postgres: postgresSchemaV6,
+	},
 }
 
 // SchemaVersion represents a single schema migration
@@ -359,6 +365,34 @@ CREATE TRIGGER update_global_tags_updated_at
     BEFORE UPDATE ON global_tags
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
+`
+
+// sqliteSchemaV6 - Add hot/cold document tiering for SQLite
+const sqliteSchemaV6 = `
+-- Add hot/cold tiering columns to documents table
+ALTER TABLE documents ADD COLUMN status TEXT DEFAULT 'cold';
+ALTER TABLE documents ADD COLUMN hot_score REAL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN query_count INTEGER DEFAULT 0;
+ALTER TABLE documents ADD COLUMN last_query_at DATETIME;
+
+-- Create indexes for hot/cold tiering queries
+CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
+CREATE INDEX IF NOT EXISTS idx_documents_hot_score ON documents(hot_score);
+CREATE INDEX IF NOT EXISTS idx_documents_status_hot_score ON documents(status, hot_score);
+`
+
+// postgresSchemaV6 - Add hot/cold document tiering for PostgreSQL
+const postgresSchemaV6 = `
+-- Add hot/cold tiering columns to documents table
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'cold';
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS hot_score REAL DEFAULT 0;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS query_count INTEGER DEFAULT 0;
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_query_at TIMESTAMP WITH TIME ZONE;
+
+-- Create indexes for hot/cold tiering queries
+CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
+CREATE INDEX IF NOT EXISTS idx_documents_hot_score ON documents(hot_score);
+CREATE INDEX IF NOT EXISTS idx_documents_status_hot_score ON documents(status, hot_score);
 `
 
 // GetSchemaForDriver returns schema for specific driver and version

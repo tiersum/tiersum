@@ -9,6 +9,10 @@ import (
 	"go.uber.org/zap"
 )
 
+// PromoteQueue is a buffered channel for document promotion requests
+// When a cold document is accessed 3+ times, its ID is sent to this queue
+var PromoteQueue = make(chan string, 100)
+
 // Scheduler manages and executes scheduled jobs
 type Scheduler struct {
 	jobs   []Job

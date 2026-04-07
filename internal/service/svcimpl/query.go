@@ -4,30 +4,40 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
+// L2TagThreshold is the threshold for adaptive L1/L2 filtering
+// If L2 tag count < threshold: directly filter all L2 tags with LLM (skip L1)
+// If L2 tag count >= threshold: use L1 -> L2 two-level filtering
+const L2TagThreshold = 200
+
+// ColdDocQueryThreshold is the query count threshold for cold document promotion
+const ColdDocQueryThreshold = 3
+
 // QuerySvc implements service.IQueryService
 type QuerySvc struct {
-	docRepo       storage.IDocumentRepository
-	summaryRepo   storage.ISummaryRepository
+	docRepo     storage.IDocumentRepository
+	summaryRepo storage.ISummaryRepository
 	tagRepo     storage.ITagRepository
 	groupRepo   storage.ITagGroupRepository
-	summarizer    service.ISummarizer
-	logger        *zap.Logger
+	summarizer  service.ISummarizer
+	logger      *zap.Logger
 }
 
 // NewQuerySvc creates a new query service
 func NewQuerySvc(
 	docRepo storage.IDocumentRepository,
 	summaryRepo storage.ISummaryRepository,
-	tagRepo   storage.ITagRepository,
+	tagRepo storage.ITagRepository,
 	groupRepo storage.ITagGroupRepository,
 	summarizer service.ISummarizer,
 	logger *zap.Logger,
@@ -115,6 +125,9 @@ func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQu
 		Duration: time.Since(step2Start).Milliseconds(),
 	})
 
+	// Track document access for hot/cold management
+	s.trackDocumentAccess(ctx, docs)
+
 	// Step 5.3: Query chapters by docs and filter
 	step3Start := time.Now()
 	chapters, err := s.queryAndFilterChapters(ctx, req.Question, docs)
@@ -143,9 +156,44 @@ func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQu
 	return response, nil
 }
 
+// trackDocumentAccess increments query count for accessed documents
+// and triggers promotion for cold documents that exceed the threshold
+func (s *QuerySvc) trackDocumentAccess(ctx context.Context, docs []types.Document) {
+	for _, doc := range docs {
+		// Increment query count in background
+		go func(docID string, status types.DocumentStatus, queryCount int) {
+			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+
+			if err := s.docRepo.IncrementQueryCount(bgCtx, docID); err != nil {
+				s.logger.Warn("failed to increment query count",
+					zap.String("doc_id", docID),
+					zap.Error(err))
+				return
+			}
+
+			// Check if cold document should be promoted
+			if status == types.DocStatusCold && queryCount+1 >= ColdDocQueryThreshold {
+				select {
+				case job.PromoteQueue <- docID:
+					s.logger.Info("queued cold document for promotion",
+						zap.String("doc_id", docID),
+						zap.Int("query_count", queryCount+1))
+				default:
+					s.logger.Warn("promotion queue full, document not queued",
+						zap.String("doc_id", docID))
+				}
+			}
+		}(doc.ID, doc.Status, doc.QueryCount)
+	}
+}
+
 // filterL2Tags gets all L2 tags and filters them by query using LLM
+// Implements adaptive two-level filtering:
+// - If L2 tag count < L2TagThreshold: directly filter all L2 tags with LLM (skip L1)
+// - If L2 tag count >= L2TagThreshold: use L1 -> L2 two-level filtering
 func (s *QuerySvc) filterL2Tags(ctx context.Context, query string) ([]string, error) {
-	// Get all global tags
+	// Get all global tags (L2 tags)
 	allTags, err := s.tagRepo.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list global tags: %w", err)
@@ -155,33 +203,191 @@ func (s *QuerySvc) filterL2Tags(ctx context.Context, query string) ([]string, er
 		return nil, nil
 	}
 
-	// Try to filter using LLM
-	filterResults, err := s.summarizer.(interface {
-		FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error)
-	}).FilterL2TagsByQuery(ctx, query, allTags)
+	// Adaptive filtering based on tag count
+	if len(allTags) < L2TagThreshold {
+		// Direct L2 filtering: skip L1, filter all L2 tags directly
+		s.logger.Info("adaptive filtering: direct L2 filter (tag count below threshold)",
+			zap.Int("tag_count", len(allTags)),
+			zap.Int("threshold", L2TagThreshold))
+		return s.filterL2TagsDirect(ctx, query, allTags)
+	}
 
+	// Two-level filtering: L1 -> L2
+	s.logger.Info("adaptive filtering: L1 -> L2 two-level filter (tag count above threshold)",
+		zap.Int("tag_count", len(allTags)),
+		zap.Int("threshold", L2TagThreshold))
+	return s.filterL2TagsTwoLevel(ctx, query)
+}
+
+// filterL2TagsDirect directly filters all L2 tags using LLM (skip L1)
+func (s *QuerySvc) filterL2TagsDirect(ctx context.Context, query string, tags []types.Tag) ([]string, error) {
+	// Try to filter using LLM via type assertion
+	type filterer interface {
+		FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error)
+	}
+
+	f, ok := s.summarizer.(filterer)
+	if !ok {
+		s.logger.Warn("summarizer does not support FilterL2TagsByQuery, returning all tags")
+		return s.extractTagNames(tags), nil
+	}
+
+	filterResults, err := f.FilterL2TagsByQuery(ctx, query, tags)
 	if err != nil {
 		s.logger.Warn("LLM tag filter failed, using all tags", zap.Error(err))
-		// Fallback: return all tag names
-		tagNames := make([]string, len(allTags))
-		for i, tag := range allTags {
-			tagNames[i] = tag.Name
-		}
-		return tagNames, nil
+		return s.extractTagNames(tags), nil
 	}
 
 	// Extract tag names from filter results
-	tagNames := make([]string, 0, len(filterResults))
-	for _, result := range filterResults {
-		if result.Relevance >= 0.5 {
-			tagNames = append(tagNames, result.Tag)
+	return s.extractRelevantTags(filterResults), nil
+}
+
+// filterL2TagsTwoLevel performs L1 -> L2 two-level filtering
+// 1. Select 1-3 relevant L1 groups using LLM
+// 2. Collect all L2 tags from selected groups
+// 3. Filter those L2 tags with LLM
+func (s *QuerySvc) filterL2TagsTwoLevel(ctx context.Context, query string) ([]string, error) {
+	// Step 1: Get all L1 groups and filter to select 1-3 most relevant
+	selectedGroups, err := s.filterL1Groups(ctx, query)
+	if err != nil {
+		s.logger.Warn("L1 group filter failed, falling back to direct L2 filter", zap.Error(err))
+		// Fallback: get all tags and filter directly
+		allTags, _ := s.tagRepo.List(ctx)
+		return s.filterL2TagsDirect(ctx, query, allTags)
+	}
+
+	if len(selectedGroups) == 0 {
+		s.logger.Warn("no L1 groups selected, falling back to direct L2 filter")
+		allTags, _ := s.tagRepo.List(ctx)
+		return s.filterL2TagsDirect(ctx, query, allTags)
+	}
+
+	s.logger.Info("L1 groups selected", zap.Int("count", len(selectedGroups)))
+
+	// Step 2: Get all L2 tags from selected groups
+	groupIDs := make([]string, len(selectedGroups))
+	for i, g := range selectedGroups {
+		groupIDs[i] = g.ID
+	}
+
+	l2Tags, err := s.getL2TagsFromGroups(ctx, groupIDs)
+	if err != nil {
+		s.logger.Warn("failed to get L2 tags from groups, falling back to direct L2 filter", zap.Error(err))
+		allTags, _ := s.tagRepo.List(ctx)
+		return s.filterL2TagsDirect(ctx, query, allTags)
+	}
+
+	if len(l2Tags) == 0 {
+		s.logger.Warn("no L2 tags found in selected groups, falling back to direct L2 filter")
+		allTags, _ := s.tagRepo.List(ctx)
+		return s.filterL2TagsDirect(ctx, query, allTags)
+	}
+
+	s.logger.Info("L2 tags collected from selected groups", zap.Int("count", len(l2Tags)))
+
+	// Step 3: Filter the collected L2 tags with LLM
+	return s.filterL2TagsDirect(ctx, query, l2Tags)
+}
+
+// filterL1Groups uses LLM to select 1-3 most relevant tag groups (L1) for the query
+func (s *QuerySvc) filterL1Groups(ctx context.Context, query string) ([]types.TagGroup, error) {
+	// Get all L1 groups
+	groups, err := s.groupRepo.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list tag groups: %w", err)
+	}
+
+	if len(groups) == 0 {
+		return nil, nil
+	}
+
+	// Try to use LLM to filter groups via type assertion
+	type groupFilterer interface {
+		FilterL1GroupsByQuery(ctx context.Context, query string, groups []types.TagGroup) ([]types.LLMFilterResult, error)
+	}
+
+	f, ok := s.summarizer.(groupFilterer)
+	if !ok {
+		s.logger.Warn("summarizer does not support FilterL1GroupsByQuery, returning all groups")
+		return groups, nil
+	}
+
+	filterResults, err := f.FilterL1GroupsByQuery(ctx, query, groups)
+	if err != nil {
+		s.logger.Warn("LLM group filter failed, returning all groups", zap.Error(err))
+		return groups, nil
+	}
+
+	// Build group map for lookup
+	groupMap := make(map[string]types.TagGroup)
+	for _, g := range groups {
+		groupMap[g.ID] = g
+	}
+
+	// Sort by relevance descending
+	sort.Slice(filterResults, func(i, j int) bool {
+		return filterResults[i].Relevance > filterResults[j].Relevance
+	})
+
+	// Select top 1-3 groups with relevance >= 0.5
+	var selectedGroups []types.TagGroup
+	for _, fr := range filterResults {
+		if fr.Relevance >= 0.5 && len(selectedGroups) < 3 {
+			if g, ok := groupMap[fr.ID]; ok {
+				selectedGroups = append(selectedGroups, g)
+			}
 		}
 	}
 
-	return tagNames, nil
+	return selectedGroups, nil
+}
+
+// getL2TagsFromGroups retrieves all L2 tags belonging to the given group IDs
+func (s *QuerySvc) getL2TagsFromGroups(ctx context.Context, groupIDs []string) ([]types.Tag, error) {
+	var allTags []types.Tag
+	seenTags := make(map[string]bool)
+
+	for _, groupID := range groupIDs {
+		tags, err := s.tagRepo.ListByGroup(ctx, groupID)
+		if err != nil {
+			s.logger.Warn("failed to get tags by group", zap.String("group_id", groupID), zap.Error(err))
+			continue
+		}
+
+		for _, tag := range tags {
+			if !seenTags[tag.ID] {
+				seenTags[tag.ID] = true
+				allTags = append(allTags, tag)
+			}
+		}
+	}
+
+	return allTags, nil
+}
+
+// extractTagNames extracts tag names from tags
+func (s *QuerySvc) extractTagNames(tags []types.Tag) []string {
+	names := make([]string, len(tags))
+	for i, tag := range tags {
+		names[i] = tag.Name
+	}
+	return names
+}
+
+// extractRelevantTags extracts tag names with relevance >= 0.5 from filter results
+func (s *QuerySvc) extractRelevantTags(results []types.TagFilterResult) []string {
+	var names []string
+	for _, r := range results {
+		if r.Relevance >= 0.5 {
+			names = append(names, r.Tag)
+		}
+	}
+	return names
 }
 
 // queryAndFilterDocuments queries documents by tags and filters by query
+// For Hot docs: uses LLM filtering
+// For Cold docs: uses simple keyword matching
 func (s *QuerySvc) queryAndFilterDocuments(ctx context.Context, query string, tags []string, limit int) ([]types.Document, error) {
 	if len(tags) == 0 {
 		return nil, nil
@@ -197,11 +403,43 @@ func (s *QuerySvc) queryAndFilterDocuments(ctx context.Context, query string, ta
 		return nil, nil
 	}
 
-	// Filter documents by query using LLM
+	// Separate hot and cold documents
+	var hotDocs, coldDocs []types.Document
+	for _, doc := range docs {
+		if doc.Status == types.DocStatusHot {
+			hotDocs = append(hotDocs, doc)
+		} else {
+			coldDocs = append(coldDocs, doc)
+		}
+	}
+
+	var filteredDocs []types.Document
+
+	// For hot documents: use LLM filtering
+	if len(hotDocs) > 0 {
+		hotFiltered, err := s.filterHotDocuments(ctx, query, hotDocs)
+		if err != nil {
+			s.logger.Warn("LLM document filter failed for hot docs", zap.Error(err))
+			filteredDocs = append(filteredDocs, hotDocs...)
+		} else {
+			filteredDocs = append(filteredDocs, hotFiltered...)
+		}
+	}
+
+	// For cold documents: use simple keyword matching
+	if len(coldDocs) > 0 {
+		coldFiltered := s.filterColdDocuments(query, coldDocs)
+		filteredDocs = append(filteredDocs, coldFiltered...)
+	}
+
+	return filteredDocs, nil
+}
+
+// filterHotDocuments filters hot documents using LLM
+func (s *QuerySvc) filterHotDocuments(ctx context.Context, query string, docs []types.Document) ([]types.Document, error) {
 	filterResults, err := s.summarizer.FilterDocuments(ctx, query, docs)
 	if err != nil {
-		s.logger.Warn("LLM document filter failed, returning all documents", zap.Error(err))
-		return docs, nil
+		return nil, err
 	}
 
 	// Build doc map for lookup
@@ -227,6 +465,46 @@ func (s *QuerySvc) queryAndFilterDocuments(ctx context.Context, query string, ta
 	return filteredDocs, nil
 }
 
+// filterColdDocuments filters cold documents using simple keyword matching
+func (s *QuerySvc) filterColdDocuments(query string, docs []types.Document) []types.Document {
+	keywords := extractKeywords(query, 10)
+	var filteredDocs []types.Document
+
+	for _, doc := range docs {
+		if s.matchesColdDocument(doc, keywords) {
+			filteredDocs = append(filteredDocs, doc)
+		}
+	}
+
+	return filteredDocs
+}
+
+// matchesColdDocument checks if a cold document matches the query keywords
+func (s *QuerySvc) matchesColdDocument(doc types.Document, keywords []string) bool {
+	contentLower := strings.ToLower(doc.Content)
+	titleLower := strings.ToLower(doc.Title)
+
+	// Match if any keyword is found in title or content
+	for _, keyword := range keywords {
+		keywordLower := strings.ToLower(keyword)
+		if strings.Contains(titleLower, keywordLower) || strings.Contains(contentLower, keywordLower) {
+			return true
+		}
+	}
+
+	// Also check document tags
+	for _, tag := range doc.Tags {
+		tagLower := strings.ToLower(tag)
+		for _, keyword := range keywords {
+			if strings.Contains(tagLower, strings.ToLower(keyword)) {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
 // queryAndFilterChapters queries chapters by documents and filters by query
 func (s *QuerySvc) queryAndFilterChapters(ctx context.Context, query string, docs []types.Document) ([]types.Summary, error) {
 	if len(docs) == 0 {
@@ -236,6 +514,16 @@ func (s *QuerySvc) queryAndFilterChapters(ctx context.Context, query string, doc
 	// Get all chapters for these documents
 	var allChapters []types.Summary
 	for _, doc := range docs {
+		// For cold documents, create a simple pseudo-chapter from the content snippet
+		if doc.Status != types.DocStatusHot {
+			chapter := s.createColdDocumentChapter(doc, query)
+			if chapter != nil {
+				allChapters = append(allChapters, *chapter)
+			}
+			continue
+		}
+
+		// For hot documents, get chapters from summary repository
 		chapters, err := s.summaryRepo.QueryByTierAndPrefix(ctx, types.TierChapter, doc.ID)
 		if err != nil {
 			s.logger.Warn("failed to get document chapters", zap.String("doc_id", doc.ID), zap.Error(err))
@@ -276,6 +564,65 @@ func (s *QuerySvc) queryAndFilterChapters(ctx context.Context, query string, doc
 	}
 
 	return filteredChapters, nil
+}
+
+// createColdDocumentChapter creates a pseudo-chapter for a cold document
+// Returns a snippet around matched keywords
+func (s *QuerySvc) createColdDocumentChapter(doc types.Document, query string) *types.Summary {
+	keywords := extractKeywords(query, 5)
+	content := doc.Content
+
+	// Find the first matching keyword and extract snippet around it
+	for _, keyword := range keywords {
+		idx := strings.Index(strings.ToLower(content), strings.ToLower(keyword))
+		if idx >= 0 {
+			// Extract snippet: 200 chars before and after the match
+			start := idx - 200
+			if start < 0 {
+				start = 0
+			}
+			end := idx + len(keyword) + 200
+			if end > len(content) {
+				end = len(content)
+			}
+
+			snippet := content[start:end]
+			if start > 0 {
+				snippet = "..." + snippet
+			}
+			if end < len(content) {
+				snippet = snippet + "..."
+			}
+
+			return &types.Summary{
+				ID:         doc.ID + "_snippet",
+				DocumentID: doc.ID,
+				Tier:       types.TierChapter,
+				Path:       doc.ID + "/snippet",
+				Content:    snippet,
+				IsSource:   false,
+				CreatedAt:  doc.CreatedAt,
+				UpdatedAt:  doc.UpdatedAt,
+			}
+		}
+	}
+
+	// If no keyword match, return first 500 chars as snippet
+	snippet := content
+	if len(content) > 500 {
+		snippet = content[:500] + "..."
+	}
+
+	return &types.Summary{
+		ID:         doc.ID + "_snippet",
+		DocumentID: doc.ID,
+		Tier:       types.TierChapter,
+		Path:       doc.ID + "/snippet",
+		Content:    snippet,
+		IsSource:   false,
+		CreatedAt:  doc.CreatedAt,
+		UpdatedAt:  doc.UpdatedAt,
+	}
 }
 
 // buildResults builds final query results from chapters
