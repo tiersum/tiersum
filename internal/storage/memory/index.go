@@ -1,5 +1,6 @@
 // Package memory provides in-memory indexing for cold documents
 // Uses bleve for BM25 text search and hnsw for vector similarity search
+// Supports Chinese text segmentation using gojieba
 package memory
 
 import (
@@ -12,8 +13,12 @@ import (
 	"time"
 
 	"github.com/blevesearch/bleve/v2"
+	"github.com/blevesearch/bleve/v2/analysis"
+	"github.com/blevesearch/bleve/v2/mapping"
+	"github.com/blevesearch/bleve/v2/registry"
 	"github.com/blevesearch/bleve/v2/search/query"
 	"github.com/chewxy/hnsw"
+	"github.com/yanyiwu/gojieba"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/pkg/types"
@@ -82,10 +87,63 @@ type Index struct {
 	hnswConfig   hnsw.Config
 }
 
-// NewIndex creates a new in-memory index
+// GojiebaTokenizer implements bleve's Tokenizer interface using gojieba
+type GojiebaTokenizer struct {
+	jieba *gojieba.Jieba
+}
+
+// NewGojiebaTokenizer creates a new gojieba tokenizer
+func NewGojiebaTokenizer() *GojiebaTokenizer {
+	return &GojiebaTokenizer{
+		jieba: gojieba.NewJieba(),
+	}
+}
+
+// Tokenize splits input text into tokens using gojieba
+func (t *GojiebaTokenizer) Tokenize(input []byte) analysis.TokenStream {
+	// Use full mode for better search coverage
+	words := t.jieba.CutForSearch(string(input), true)
+	
+	result := make(analysis.TokenStream, 0, len(words))
+	position := 1
+	start := 0
+	
+	for _, word := range words {
+		if word == " " {
+			start += len(word)
+			continue
+		}
+		
+		token := &analysis.Token{
+			Term:     []byte(word),
+			Position: position,
+			Start:    start,
+			End:      start + len(word),
+			Type:     analysis.Ideographic,
+		}
+		
+		result = append(result, token)
+		position++
+		start += len(word)
+	}
+	
+	return result
+}
+
+// Close releases resources used by the tokenizer
+func (t *GojiebaTokenizer) Close() {
+	if t.jieba != nil {
+		t.jieba.Free()
+	}
+}
+
+// NewIndex creates a new in-memory index with Chinese text segmentation support
 func NewIndex(logger *zap.Logger) (*Index, error) {
-	// Create bleve index mapping
-	mapping := bleve.NewIndexMapping()
+	// Create bleve index mapping with Chinese tokenizer
+	mapping, err := createIndexMapping()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create index mapping: %w", err)
+	}
 	
 	// Create in-memory bleve index
 	bleveIdx, err := bleve.NewMemOnly(mapping)
@@ -112,6 +170,65 @@ func NewIndex(logger *zap.Logger) (*Index, error) {
 		logger:     logger,
 		hnswConfig: config,
 	}, nil
+}
+
+// createIndexMapping creates a custom index mapping with Chinese tokenizer
+func createIndexMapping() (mapping.IndexMapping, error) {
+	// Register gojieba tokenizer in bleve registry
+	// This must be done before creating the index mapping
+	bleve.RegisterTokenizer("gojieba", func(config map[string]interface{}, cache *registry.Cache) (analysis.Tokenizer, error) {
+		return NewGojiebaTokenizer(), nil
+	})
+	
+	// Register custom analyzer that uses gojieba tokenizer
+	bleve.RegisterAnalyzer("jieba_analyzer", func(config map[string]interface{}, cache *registry.Cache) (*analysis.Analyzer, error) {
+		tokenizer, err := cache.TokenizerNamed("gojieba")
+		if err != nil {
+			return nil, err
+		}
+		
+		return &analysis.Analyzer{
+			Tokenizer: tokenizer,
+			TokenFilters: []analysis.TokenFilter{
+				// Add lowercase filter for English text
+				cache.TokenFilterNamed("lowercase"),
+			},
+		}, nil
+	})
+	
+	// Create a new index mapping
+	indexMapping := bleve.NewIndexMapping()
+	
+	// Create document mapping for DocumentIndex
+	docMapping := bleve.NewDocumentMapping()
+	
+	// Configure title field with Chinese analyzer
+	titleFieldMapping := bleve.NewTextFieldMapping()
+	titleFieldMapping.Analyzer = "jieba_analyzer"
+	titleFieldMapping.Store = true
+	titleFieldMapping.Index = true
+	docMapping.AddFieldMappingsAt("title", titleFieldMapping)
+	
+	// Configure content field with Chinese analyzer
+	contentFieldMapping := bleve.NewTextFieldMapping()
+	contentFieldMapping.Analyzer = "jieba_analyzer"
+	contentFieldMapping.Store = true
+	contentFieldMapping.Index = true
+	docMapping.AddFieldMappingsAt("content", contentFieldMapping)
+	
+	// Configure ID field (no analysis needed)
+	idFieldMapping := bleve.NewTextFieldMapping()
+	idFieldMapping.Store = true
+	idFieldMapping.Index = false
+	docMapping.AddFieldMappingsAt("id", idFieldMapping)
+	
+	// Add document mapping to index mapping
+	indexMapping.AddDocumentMapping("DocumentIndex", docMapping)
+	
+	// Set default analyzer for any other fields
+	indexMapping.DefaultAnalyzer = "jieba_analyzer"
+	
+	return indexMapping, nil
 }
 
 // AddDocument adds a document to the index

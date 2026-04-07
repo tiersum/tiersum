@@ -11,6 +11,7 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.22
 	github.com/spf13/cobra v1.8.0
 	github.com/spf13/viper v1.18.2
+	github.com/yanyiwu/gojieba v1.4.0
 	go.uber.org/zap v1.27.0
 )
 

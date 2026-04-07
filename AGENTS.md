@@ -162,9 +162,10 @@ PromoteJob (every 5 min) → Full LLM analysis → hot
 ### Memory Index (internal/storage/memory/index.go)
 
 **Components:**
-- **Bleve** - BM25 text search with TF-IDF scoring
+- **Bleve** - BM25 text search with TF-IDF scoring, now with Chinese tokenization support
 - **HNSW** - Vector similarity search (384 dimensions, cosine distance)
 - **Hybrid Search** - Combines BM25 (50%) + Vector (50%) scores
+- **Chinese Tokenization** - Integrated gojieba for Chinese text segmentation
 
 **Snippet Extraction Algorithm:**
 1. **Keyword positioning** - Extract top 10 keywords from query, locate all positions
@@ -180,6 +181,13 @@ const (
     MergeDistance     = 50    // Distance threshold for merging
 )
 ```
+
+**Chinese Text Segmentation:**
+The memory index now uses gojieba for Chinese tokenization:
+- **Tokenizer**: gojieba with CutForSearch mode for better recall
+- **Analyzer**: Custom "jieba_analyzer" registered in bleve
+- **Fields**: Both title and content fields use Chinese tokenization
+- **Supported**: Mixed Chinese and English text
 
 ## Two-Level Tag-Based Progressive Query
 
