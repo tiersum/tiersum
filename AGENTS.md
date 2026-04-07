@@ -520,6 +520,99 @@ analyzer := svcimpl.NewAnalyzerSvc()
 deps := &Dependencies{ Analyzer: analyzer, ... }
 ```
 
+## Data Flow
+
+### Document Ingestion Flow
+
+```
+1. API Layer
+   POST /api/v1/documents
+   │
+   ▼
+2. Service Layer (DocumentSvc.Ingest)
+   ├─ Check Quota (QuotaManager)
+   ├─ Determine hot vs cold:
+   │   ├─ Hot: quota && (force_hot || has_summary || len > 5000)
+   │   └─ Cold: otherwise
+   │
+   ▼
+3a. HOT Path:
+   ├─ SummarizerSvc.AnalyzeDocument()
+   │   ├─ LLM generates summary
+   │   ├─ LLM extracts up to 10 tags
+   │   └─ LLM identifies chapters
+   ├─ IndexerSvc.Index()
+   │   ├─ Store document summary
+   │   ├─ Store chapter summaries
+   │   └─ Store source content
+   └─ TagRepo.Create() [update global tags]
+   │
+3b. COLD Path:
+   ├─ GenerateSimpleEmbedding() [n-gram hash]
+   ├─ MemoryIndex.AddDocument()
+   │   ├─ Bleve index (BM25)
+   │   └─ HNSW index (vector)
+   │
+   ▼
+4. Storage Layer
+   DocumentRepo.Create()
+   │
+   ▼
+5. Database
+   INSERT INTO documents (...)
+```
+
+### Query Flow (Progressive)
+
+```
+1. API Layer
+   POST /api/v1/query/progressive
+   │
+   ▼
+2. Service Layer (QuerySvc.ProgressiveQuery)
+   │
+   ├─ Step 1: Tag Filtering
+   │   ├─ Get all L2 tags
+   │   ├─ If < 200 tags: Direct LLM filter
+   │   └─ If >= 200 tags: L1 → L2 two-level filter
+   │
+   ├─ Step 2: Document Retrieval
+   │   ├─ Query docs by filtered L2 tags (OR logic)
+   │   ├─ Separate hot/cold
+   │   ├─ Hot: LLM filter (relevance >= 0.5)
+   │   └─ Cold: Keyword matching
+   │
+   ├─ Step 3: Chapter Retrieval
+   │   ├─ Hot: SummaryRepo.GetByDocument()
+   │   ├─ Cold: Create pseudo-chapters from snippets
+   │   └─ LLM filter chapters
+   │
+   ├─ Step 4: Cold Path (Parallel)
+   │   ├─ MemoryIndex.HybridSearch()
+   │   │   ├─ BM25 search
+   │   │   ├─ Vector search
+   │   │   └─ Merge results (50/50)
+   │   └─ Extract snippets
+   │
+   ├─ Step 5: Merge Results
+   │   ├─ Combine hot and cold
+   │   ├─ Deduplicate by doc ID
+   │   ├─ Boost if found in both paths
+   │   └─ Sort by relevance
+   │
+   └─ Step 6: Track Access
+       ├─ Increment query_count
+       └─ Promote if >= 3 queries
+   │
+   ▼
+3. Build Response
+   ProgressiveQueryResponse{
+       Question: "...",
+       Steps: [...],      // Execution trace
+       Results: [...]     // QueryItem list
+   }
+```
+
 ## Build Targets
 
 ```bash
