@@ -62,7 +62,7 @@ func (m *Migrator) GetCurrentVersion(ctx context.Context) (int, error) {
 	return version, nil
 }
 
-// MigrateUp runs all pending migrations
+// MigrateUp runs all pending migrations with context
 func (m *Migrator) MigrateUp(ctx context.Context) error {
 	current, err := m.GetCurrentVersion(ctx)
 	if err != nil {
@@ -88,6 +88,12 @@ func (m *Migrator) MigrateUp(ctx context.Context) error {
 	}
 	
 	return nil
+}
+
+// MigrateUp runs all pending migrations (convenience method without context param)
+func (m *Migrator) MigrateUpSimple() error {
+	ctx := context.Background()
+	return m.MigrateUp(ctx)
 }
 
 // EnsureMigrationsTable creates the migrations tracking table

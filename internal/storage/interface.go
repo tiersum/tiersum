@@ -11,6 +11,8 @@ import (
 type IDocumentRepository interface {
 	Create(ctx context.Context, doc *types.Document) error
 	GetByID(ctx context.Context, id string) (*types.Document, error)
+	// GetRecent retrieves recent documents up to a limit
+	GetRecent(ctx context.Context, limit int) ([]*types.Document, error)
 	// ListByTags retrieves documents that match ANY of the given tags (OR logic)
 	ListByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error)
 	// ListByStatus retrieves documents by status (hot/cold/warming)
@@ -74,4 +76,35 @@ type ITagGroupRepository interface {
 type ICache interface {
 	Get(key string) (interface{}, bool)
 	Set(key string, value interface{})
+}
+
+// IInMemoryIndex defines in-memory index operations for cold documents
+type IInMemoryIndex interface {
+	// AddDocument adds a document to the index with optional embedding
+	AddDocument(doc *types.Document, embedding []float32) error
+	// RemoveDocument removes a document from the index
+	RemoveDocument(docID string) error
+	// Search performs hybrid BM25 + vector search
+	Search(ctx context.Context, queryText string, queryEmbedding []float32, topK int) ([]SearchResult, error)
+	// SearchWithBleve performs BM25 text search only
+	SearchWithBleve(queryText string, topK int) ([]SearchResult, error)
+	// SearchWithVector performs vector similarity search only
+	SearchWithVector(queryEmbedding []float32, topK int) ([]SearchResult, error)
+	// HybridSearch performs hybrid search with result merging
+	HybridSearch(queryText string, queryEmbedding []float32, topK int) ([]SearchResult, error)
+	// GetDocumentCount returns the number of indexed documents
+	GetDocumentCount() int
+	// RebuildFromDocuments rebuilds the index from a list of documents
+	RebuildFromDocuments(ctx context.Context, docs []types.Document, getEmbedding func(doc *types.Document) []float32) error
+	// Close closes the index
+	Close() error
+}
+
+// SearchResult represents a search result from in-memory index
+type SearchResult struct {
+	DocumentID string  `json:"document_id"`
+	Title      string  `json:"title"`
+	Content    string  `json:"content"`
+	Score      float64 `json:"score"`
+	Source     string  `json:"source"` // "bm25", "vector", or "hybrid"
 }

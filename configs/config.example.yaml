@@ -81,6 +81,27 @@ storage:
     # Max cache size (number of items)
     max_size: 10000
 
+# Quota configuration for hot/cold document processing
+quota:
+  # Maximum number of hot documents to process per hour
+  # Documents exceeding this quota will be processed as cold (no LLM, BM25+vector only)
+  per_hour: 100
+
+# Memory index configuration for cold documents
+memory_index:
+  # Vector dimension (384 for MiniLM-L6-v2)
+  vector_dimension: 384
+  # HNSW M parameter (max connections per layer)
+  hnsw_m: 16
+  # HNSW efConstruction parameter
+  hnsw_ef_construction: 200
+  # HNSW efSearch parameter
+  hnsw_ef_search: 100
+  # BM25 top-k results
+  bm25_topk: 20
+  # Vector search top-k results
+  vector_topk: 20
+
 # MCP (Model Context Protocol) configuration
 mcp:
   # Enable MCP server
@@ -109,6 +130,13 @@ documents:
     max_chunk_size: 10000
     # Overlap between chunks (preserve context)
     overlap: 200
+
+  # Hot/cold tiering configuration
+  tiering:
+    # Threshold for hot document (characters)
+    hot_content_threshold: 5000
+    # Query count threshold for cold document promotion
+    cold_promotion_threshold: 3
 
 # Logging configuration
 logging:
@@ -140,3 +168,5 @@ features:
   auto_convert: false
   # Enable web UI (future feature)
   web_ui: false
+  # Enable cold document search (BM25 + vector)
+  cold_doc_search: true

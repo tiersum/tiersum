@@ -12,6 +12,7 @@ import (
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
+	"github.com/tiersum/tiersum/internal/storage/memory"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -30,6 +31,7 @@ type QuerySvc struct {
 	tagRepo     storage.ITagRepository
 	groupRepo   storage.ITagGroupRepository
 	summarizer  service.ISummarizer
+	memIndex    storage.IInMemoryIndex
 	logger      *zap.Logger
 }
 
@@ -40,6 +42,7 @@ func NewQuerySvc(
 	tagRepo storage.ITagRepository,
 	groupRepo storage.ITagGroupRepository,
 	summarizer service.ISummarizer,
+	memIndex storage.IInMemoryIndex,
 	logger *zap.Logger,
 ) *QuerySvc {
 	return &QuerySvc{
@@ -48,6 +51,7 @@ func NewQuerySvc(
 		tagRepo:     tagRepo,
 		groupRepo:   groupRepo,
 		summarizer:  summarizer,
+		memIndex:    memIndex,
 		logger:      logger,
 	}
 }
@@ -87,6 +91,7 @@ func (s *QuerySvc) Query(ctx context.Context, question string, depth types.Summa
 // 5.2 L2 tags -> query top 100 doc summaries -> LLM filter -> docs
 // 5.3 Docs -> query chapter summaries -> LLM filter -> chapters
 // 5.4 Chapters -> query source content
+// 5.5 Cold docs -> BM25 + vector search (parallel with hot path)
 func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error) {
 	if req.MaxResults == 0 {
 		req.MaxResults = 100
@@ -97,14 +102,76 @@ func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQu
 		Steps:    []types.ProgressiveQueryStep{},
 	}
 
+	// Run hot path and cold path concurrently
+	type hotResult struct {
+		results []types.QueryItem
+		steps   []types.ProgressiveQueryStep
+		err     error
+	}
+	type coldResult struct {
+		results []types.QueryItem
+		step    types.ProgressiveQueryStep
+		err     error
+	}
+
+	hotChan := make(chan hotResult, 1)
+	coldChan := make(chan coldResult, 1)
+
+	// Hot path: Tag-based progressive query
+	go func() {
+		results, steps, err := s.queryHotPath(ctx, req)
+		hotChan <- hotResult{results: results, steps: steps, err: err}
+	}()
+
+	// Cold path: BM25 + vector search
+	go func() {
+		results, step, err := s.queryColdPath(ctx, req)
+		coldChan <- coldResult{results: results, step: step, err: err}
+	}()
+
+	// Collect results
+	hotRes := <-hotChan
+	coldRes := <-coldChan
+
+	// Process hot path results
+	if hotRes.err != nil {
+		s.logger.Error("hot path query failed", zap.Error(hotRes.err))
+	} else {
+		response.Steps = append(response.Steps, hotRes.steps...)
+	}
+
+	// Process cold path results
+	if coldRes.err != nil {
+		s.logger.Error("cold path query failed", zap.Error(coldRes.err))
+	} else {
+		response.Steps = append(response.Steps, coldRes.step)
+	}
+
+	// Merge results from both paths
+	mergedResults := s.mergeHotAndColdResults(hotRes.results, coldRes.results, req.MaxResults)
+	response.Results = mergedResults
+
+	s.logger.Info("progressive query completed",
+		zap.String("question", req.Question),
+		zap.Int("hot_results", len(hotRes.results)),
+		zap.Int("cold_results", len(coldRes.results)),
+		zap.Int("total_results", len(mergedResults)))
+
+	return response, nil
+}
+
+// queryHotPath performs the hot document query path (tag-based progressive)
+func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryRequest) ([]types.QueryItem, []types.ProgressiveQueryStep, error) {
+	var steps []types.ProgressiveQueryStep
+
 	// Step 5.1: Get L1 clusters and filter to get relevant L2 tags
 	step1Start := time.Now()
 	l2Tags, err := s.filterL2Tags(ctx, req.Question)
 	if err != nil {
 		s.logger.Error("failed to filter L2 tags", zap.Error(err))
-		return nil, fmt.Errorf("filter L2 tags: %w", err)
+		return nil, nil, fmt.Errorf("filter L2 tags: %w", err)
 	}
-	response.Steps = append(response.Steps, types.ProgressiveQueryStep{
+	steps = append(steps, types.ProgressiveQueryStep{
 		Step:     "L2_tags",
 		Input:    req.Question,
 		Output:   l2Tags,
@@ -116,9 +183,9 @@ func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQu
 	docs, err := s.queryAndFilterDocuments(ctx, req.Question, l2Tags, req.MaxResults)
 	if err != nil {
 		s.logger.Error("failed to query documents", zap.Error(err))
-		return nil, fmt.Errorf("query documents: %w", err)
+		return nil, nil, fmt.Errorf("query documents: %w", err)
 	}
-	response.Steps = append(response.Steps, types.ProgressiveQueryStep{
+	steps = append(steps, types.ProgressiveQueryStep{
 		Step:     "documents",
 		Input:    l2Tags,
 		Output:   len(docs),
@@ -133,27 +200,108 @@ func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQu
 	chapters, err := s.queryAndFilterChapters(ctx, req.Question, docs)
 	if err != nil {
 		s.logger.Error("failed to query chapters", zap.Error(err))
-		return nil, fmt.Errorf("query chapters: %w", err)
+		return nil, nil, fmt.Errorf("query chapters: %w", err)
 	}
-	response.Steps = append(response.Steps, types.ProgressiveQueryStep{
+	steps = append(steps, types.ProgressiveQueryStep{
 		Step:     "chapters",
 		Input:    len(docs),
 		Output:   len(chapters),
 		Duration: time.Since(step3Start).Milliseconds(),
 	})
 
-	// Step 5.4: Build final results with source content
+	// Step 5.4: Build final results
 	results := s.buildResults(chapters)
-	response.Results = results
 
-	s.logger.Info("progressive query completed",
-		zap.String("question", req.Question),
-		zap.Int("l2_tags", len(l2Tags)),
-		zap.Int("docs", len(docs)),
-		zap.Int("chapters", len(chapters)),
-		zap.Int("results", len(results)))
+	return results, steps, nil
+}
 
-	return response, nil
+// queryColdPath performs the cold document query path (BM25 + vector)
+func (s *QuerySvc) queryColdPath(ctx context.Context, req types.ProgressiveQueryRequest) ([]types.QueryItem, types.ProgressiveQueryStep, error) {
+	start := time.Now()
+
+	if s.memIndex == nil {
+		return nil, types.ProgressiveQueryStep{
+			Step:     "cold_docs",
+			Input:    req.Question,
+			Output:   0,
+			Duration: time.Since(start).Milliseconds(),
+		}, nil
+	}
+
+	// Generate query embedding (simplified - in production use proper embedding model)
+	queryEmbedding := memory.GenerateSimpleEmbedding(req.Question)
+
+	// Perform hybrid search
+	searchResults, err := s.memIndex.HybridSearch(req.Question, queryEmbedding, req.MaxResults/2)
+	if err != nil {
+		return nil, types.ProgressiveQueryStep{}, fmt.Errorf("hybrid search failed: %w", err)
+	}
+
+	// Convert search results to query items
+	var results []types.QueryItem
+	for _, sr := range searchResults {
+		results = append(results, types.QueryItem{
+			ID:        sr.DocumentID,
+			Title:     sr.Title,
+			Content:   sr.Content,
+			Tier:      types.TierChapter,
+			Path:      sr.DocumentID + "/snippet",
+			Relevance: sr.Score,
+			IsSource:  false,
+		})
+	}
+
+	step := types.ProgressiveQueryStep{
+		Step:     "cold_docs",
+		Input:    req.Question,
+		Output:   len(results),
+		Duration: time.Since(start).Milliseconds(),
+	}
+
+	return results, step, nil
+}
+
+// mergeHotAndColdResults merges results from hot and cold paths
+func (s *QuerySvc) mergeHotAndColdResults(hotResults, coldResults []types.QueryItem, maxResults int) []types.QueryItem {
+	// Use a map to deduplicate by document ID
+	resultMap := make(map[string]*types.QueryItem)
+
+	// Add hot results first (they have higher quality from LLM filtering)
+	for i := range hotResults {
+		r := &hotResults[i]
+		resultMap[r.ID] = r
+	}
+
+	// Add cold results, avoiding duplicates
+	for i := range coldResults {
+		r := &coldResults[i]
+		if existing, ok := resultMap[r.ID]; ok {
+			// Document exists in both - boost relevance if cold result is also found
+			if r.Relevance > existing.Relevance {
+				existing.Relevance = r.Relevance
+			}
+		} else {
+			resultMap[r.ID] = r
+		}
+	}
+
+	// Convert map to slice
+	results := make([]types.QueryItem, 0, len(resultMap))
+	for _, r := range resultMap {
+		results = append(results, *r)
+	}
+
+	// Sort by relevance descending
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Relevance > results[j].Relevance
+	})
+
+	// Return top results
+	if len(results) > maxResults {
+		results = results[:maxResults]
+	}
+
+	return results
 }
 
 // trackDocumentAccess increments query count for accessed documents
@@ -467,7 +615,7 @@ func (s *QuerySvc) filterHotDocuments(ctx context.Context, query string, docs []
 
 // filterColdDocuments filters cold documents using simple keyword matching
 func (s *QuerySvc) filterColdDocuments(query string, docs []types.Document) []types.Document {
-	keywords := extractKeywords(query, 10)
+	keywords := types.ExtractKeywords(query, 10)
 	var filteredDocs []types.Document
 
 	for _, doc := range docs {
@@ -569,7 +717,7 @@ func (s *QuerySvc) queryAndFilterChapters(ctx context.Context, query string, doc
 // createColdDocumentChapter creates a pseudo-chapter for a cold document
 // Returns a snippet around matched keywords
 func (s *QuerySvc) createColdDocumentChapter(doc types.Document, query string) *types.Summary {
-	keywords := extractKeywords(query, 5)
+	keywords := types.ExtractKeywords(query, 5)
 	content := doc.Content
 
 	// Find the first matching keyword and extract snippet around it

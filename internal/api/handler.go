@@ -8,15 +8,18 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
+	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
 // Handler holds API dependencies
 type Handler struct {
-	DocService           service.IDocumentService
-	QueryService         service.IQueryService
-	TagGroupService  service.ITagGroupService
-	Logger               *zap.Logger
+	DocService      service.IDocumentService
+	QueryService    service.IQueryService
+	TagGroupService service.ITagGroupService
+	TagRepo         storage.ITagRepository
+	SummaryRepo     storage.ISummaryRepository
+	Logger          *zap.Logger
 }
 
 // NewHandler creates a new API handler
@@ -24,12 +27,16 @@ func NewHandler(
 	docService service.IDocumentService,
 	queryService service.IQueryService,
 	tagGroupService service.ITagGroupService,
+	tagRepo storage.ITagRepository,
+	summaryRepo storage.ISummaryRepository,
 	logger *zap.Logger,
 ) *Handler {
 	return &Handler{
 		DocService:      docService,
 		QueryService:    queryService,
 		TagGroupService: tagGroupService,
+		TagRepo:         tagRepo,
+		SummaryRepo:     summaryRepo,
 		Logger:          logger,
 	}
 }
@@ -49,9 +56,16 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/query", h.Query)
 	router.POST("/query/progressive", h.ProgressiveQuery)
 
-	// Tag group endpoints
+	// Tag endpoints
+	router.GET("/tags", h.ListTags)
 	router.GET("/tags/groups", h.ListTagGroups)
 	router.POST("/tags/group", h.TriggerTagGroup)
+
+	// Document summaries endpoint
+	router.GET("/documents/:id/summaries", h.GetDocumentSummaries)
+
+	// Quota endpoint
+	router.GET("/quota", h.GetQuota)
 }
 
 // CreateDocument creates a new document
@@ -193,4 +207,41 @@ func (h *Handler) TriggerTagGroup(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "tag grouping triggered"})
+}
+
+// ListTags lists all tags (Level 2)
+func (h *Handler) ListTags(c *gin.Context) {
+	tags, err := h.TagRepo.List(c.Request.Context())
+	if err != nil {
+		h.Logger.Error("failed to list tags", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"tags": tags})
+}
+
+// GetDocumentSummaries retrieves all summaries for a document
+func (h *Handler) GetDocumentSummaries(c *gin.Context) {
+	id := c.Param("id")
+
+	summaries, err := h.SummaryRepo.GetByDocument(c.Request.Context(), id)
+	if err != nil {
+		h.Logger.Error("failed to get document summaries", zap.String("id", id), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"summaries": summaries})
+}
+
+// GetQuota returns the current quota status
+func (h *Handler) GetQuota(c *gin.Context) {
+	// This would need to be injected from the quota manager
+	// For now, return placeholder
+	c.JSON(http.StatusOK, gin.H{
+		"used":     0,
+		"total":    100,
+		"reset_at": nil,
+	})
 }

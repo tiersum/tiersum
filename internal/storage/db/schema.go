@@ -41,6 +41,12 @@ var SchemaVersions = []SchemaVersion{
 		SQLite:   sqliteSchemaV6,
 		Postgres: postgresSchemaV6,
 	},
+	{
+		Version:  7,
+		Name:     "Add document embeddings for cold docs",
+		SQLite:   sqliteSchemaV7,
+		Postgres: postgresSchemaV7,
+	},
 }
 
 // SchemaVersion represents a single schema migration
@@ -393,6 +399,30 @@ ALTER TABLE documents ADD COLUMN IF NOT EXISTS last_query_at TIMESTAMP WITH TIME
 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
 CREATE INDEX IF NOT EXISTS idx_documents_hot_score ON documents(hot_score);
 CREATE INDEX IF NOT EXISTS idx_documents_status_hot_score ON documents(status, hot_score);
+`
+
+// sqliteSchemaV7 - Add document embeddings for cold docs (SQLite)
+const sqliteSchemaV7 = `
+-- Add embedding column to documents table for vector search
+-- Stored as JSON array of floats (384 dimensions for MiniLM-L6-v2)
+ALTER TABLE documents ADD COLUMN embedding TEXT;
+
+-- Create index for status-based queries (used when loading cold docs on startup)
+CREATE INDEX IF NOT EXISTS idx_documents_status_created ON documents(status, created_at);
+`
+
+// postgresSchemaV7 - Add document embeddings for cold docs (PostgreSQL)
+const postgresSchemaV7 = `
+-- Add embedding column to documents table for vector search
+-- Using PostgreSQL array type for vector storage
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS embedding REAL[];
+
+-- Create index for status-based queries
+CREATE INDEX IF NOT EXISTS idx_documents_status_created ON documents(status, created_at);
+
+-- Optional: Create IVFFlat index for vector similarity search if pgvector extension is available
+-- Note: This requires the pgvector extension to be installed
+-- CREATE INDEX IF NOT EXISTS idx_documents_embedding ON documents USING ivfflat (embedding vector_cosine_ops);
 `
 
 // GetSchemaForDriver returns schema for specific driver and version

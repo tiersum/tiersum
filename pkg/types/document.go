@@ -101,6 +101,12 @@ type CreateDocumentRequest struct {
 	Tags    []string `json:"tags,omitempty"`
 	// ForceHot forces full LLM analysis regardless of heuristics
 	ForceHot bool `json:"force_hot,omitempty"`
+	// Summary is pre-generated document summary (from external agent)
+	Summary string `json:"summary,omitempty"`
+	// Chapters are pre-generated chapter summaries (from external agent)
+	Chapters []ChapterInfo `json:"chapters,omitempty"`
+	// Embedding is pre-computed vector embedding (from external agent)
+	Embedding []float32 `json:"embedding,omitempty"`
 }
 
 // ExtractKeywords extracts keywords from content using simple regex patterns

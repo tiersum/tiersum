@@ -98,6 +98,46 @@ func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document,
 	return doc, nil
 }
 
+// GetRecent implements IDocumentRepository.GetRecent
+func (r *DocumentRepo) GetRecent(ctx context.Context, limit int) ([]*types.Document, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	query := `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+			  FROM documents 
+			  ORDER BY created_at DESC 
+			  LIMIT ?`
+	if r.driver == "postgres" {
+		query = `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+				  FROM documents 
+				  ORDER BY created_at DESC 
+				  LIMIT $1`
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query recent documents: %w", err)
+	}
+	defer rows.Close()
+
+	var documents []*types.Document
+	for rows.Next() {
+		d := &types.Document{}
+		var tagsStr string
+		var lastQueryAt sql.NullTime
+		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, err
+		}
+		d.Tags = parseStringArray(tagsStr)
+		if lastQueryAt.Valid {
+			d.LastQueryAt = &lastQueryAt.Time
+		}
+		documents = append(documents, d)
+	}
+	return documents, rows.Err()
+}
+
 // ListByTags retrieves documents that match ANY of the given tags
 func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error) {
 	if len(tags) == 0 {

@@ -18,6 +18,9 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/di"
+	"github.com/tiersum/tiersum/internal/storage/db"
+	"github.com/tiersum/tiersum/internal/storage/memory"
+	"github.com/tiersum/tiersum/pkg/types"
 )
 
 var (
@@ -51,14 +54,33 @@ func runServer(cmd *cobra.Command, args []string) {
 	defer logger.Sync()
 
 	// Initialize database
-	db, err := initDB()
+	sqlDB, err := initDB()
 	if err != nil {
 		logger.Fatal("Failed to initialize database", zap.Error(err))
 	}
-	defer db.Close()
+	defer sqlDB.Close()
+
+	// Run database migrations
+	if err := runMigrations(sqlDB, getDriver()); err != nil {
+		logger.Error("Failed to run migrations, continuing anyway", zap.Error(err))
+		// Continue anyway - the schema might already exist
+	}
+
+	// Create memory index for cold documents
+	memIndex, err := memory.NewIndex(logger)
+	if err != nil {
+		logger.Fatal("Failed to create memory index", zap.Error(err))
+	}
+	defer memIndex.Close()
+
+	// Load cold documents into memory index
+	if err := loadColdDocuments(sqlDB, getDriver(), memIndex, logger); err != nil {
+		logger.Error("Failed to load cold documents into memory index", zap.Error(err))
+		// Continue anyway - the system can still work without cold doc search
+	}
 
 	// Wire all dependencies
-	deps, err := di.NewDependencies(db, getDriver(), logger)
+	deps, err := di.NewDependencies(sqlDB, getDriver(), memIndex, logger)
 	if err != nil {
 		logger.Fatal("Failed to wire dependencies", zap.Error(err))
 	}
@@ -78,8 +100,9 @@ func runServer(cmd *cobra.Command, args []string) {
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"status":  "healthy",
-			"version": Version,
+			"status":         "healthy",
+			"version":        Version,
+			"cold_doc_count": memIndex.GetDocumentCount(),
 		})
 	})
 
@@ -90,6 +113,18 @@ func runServer(cmd *cobra.Command, args []string) {
 	// MCP routes
 	if viper.GetBool("mcp.enabled") {
 		router.GET("/mcp/sse", deps.MCPServer.SSEHandler())
+	}
+
+	// Static files - serve frontend
+	webDir := viper.GetString("server.web_dir")
+	if webDir == "" {
+		webDir = "./web/dist"
+	}
+	if _, err := os.Stat(webDir); err == nil {
+		router.Static("/", webDir)
+		logger.Info("Serving static files", zap.String("dir", webDir))
+	} else {
+		logger.Warn("Web directory not found, API-only mode", zap.String("dir", webDir))
 	}
 
 	// Start server
@@ -110,7 +145,9 @@ func runServer(cmd *cobra.Command, args []string) {
 		}
 	}()
 
-	logger.Info("Server started", zap.Int("port", port))
+	logger.Info("Server started",
+		zap.Int("port", port),
+		zap.Int("cold_docs_indexed", memIndex.GetDocumentCount()))
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -146,6 +183,54 @@ func initDB() (*sql.DB, error) {
 	}
 }
 
+func runMigrations(sqlDB *sql.DB, driver string) error {
+	migrator := db.NewMigrator(sqlDB, driver)
+	return migrator.MigrateUpSimple()
+}
+
+func loadColdDocuments(sqlDB *sql.DB, driver string, memIndex *memory.Index, logger *zap.Logger) error {
+	start := time.Now()
+
+	// Create a simple cache for repository
+	cacheStore := &noopCache{}
+
+	// Create document repository
+	docRepo := db.NewDocumentRepo(sqlDB, driver, cacheStore)
+
+	// Query all cold documents
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	coldDocs, err := docRepo.ListByStatus(ctx, types.DocStatusCold, 0)
+	if err != nil {
+		return fmt.Errorf("failed to list cold documents: %w", err)
+	}
+
+	if len(coldDocs) == 0 {
+		logger.Info("No cold documents to load")
+		return nil
+	}
+
+	logger.Info("Loading cold documents into memory index", zap.Int("count", len(coldDocs)))
+
+	// Build index from cold documents
+	getEmbedding := func(doc *types.Document) []float32 {
+		// Try to parse embedding from document if available
+		// For now, generate simple embedding
+		return memory.GenerateSimpleEmbedding(doc.Content)
+	}
+
+	if err := memIndex.RebuildFromDocuments(ctx, coldDocs, getEmbedding); err != nil {
+		return fmt.Errorf("failed to rebuild index: %w", err)
+	}
+
+	logger.Info("Cold documents loaded successfully",
+		zap.Int("count", len(coldDocs)),
+		zap.Duration("duration", time.Since(start)))
+
+	return nil
+}
+
 func getDriver() string {
 	driver := viper.GetString("storage.database.driver")
 	if driver == "" {
@@ -153,6 +238,12 @@ func getDriver() string {
 	}
 	return driver
 }
+
+// noopCache is a no-op cache implementation for use during startup
+type noopCache struct{}
+
+func (n *noopCache) Get(key string) (interface{}, bool) { return nil, false }
+func (n *noopCache) Set(key string, value interface{})  {}
 
 func main() {
 	if err := rootCmd.Execute(); err != nil {

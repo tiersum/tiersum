@@ -5,6 +5,7 @@ package di
 import (
 	"database/sql"
 
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/api"
@@ -16,6 +17,7 @@ import (
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/internal/storage/cache"
 	"github.com/tiersum/tiersum/internal/storage/db"
+	"github.com/tiersum/tiersum/internal/storage/memory"
 )
 
 // Dependencies holds all application dependencies
@@ -34,12 +36,15 @@ type Dependencies struct {
 	// Job Layer
 	JobScheduler *job.Scheduler
 
+	// Memory Index for cold documents
+	MemIndex *memory.Index
+
 	// Logger
 	Logger *zap.Logger
 }
 
 // NewDependencies creates all dependencies with proper wiring
-func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Dependencies, error) {
+func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, logger *zap.Logger) (*Dependencies, error) {
 	// 1. Storage Layer - Cache
 	cacheStore := cache.NewCache(0)
 
@@ -49,11 +54,18 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	// 3. Client Layer - LLM
 	llmProvider := llm.NewOpenAIProvider()
 
-	// 4. Service Layer - Core domain logic
+	// 4. Quota Manager - for hot/cold document processing control
+	quotaPerHour := viper.GetInt("quota.per_hour")
+	if quotaPerHour <= 0 {
+		quotaPerHour = 100 // default
+	}
+	quotaManager := svcimpl.NewQuotaManager(quotaPerHour)
+
+	// 5. Service Layer - Core domain logic
 	summarizer := svcimpl.NewSummarizerSvc(llmProvider, logger)
 	indexer := svcimpl.NewIndexerSvc(summarizer, uow.Summaries, logger)
 
-	// 5. Service Layer - Tag grouping
+	// 6. Service Layer - Tag grouping
 	tagGroupSvc := svcimpl.NewTagGroupSvc(
 		uow.Tags,
 		uow.TagGroups,
@@ -61,13 +73,14 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 		logger,
 	)
 
-	// 6. Service Layer - Business logic
+	// 7. Service Layer - Business logic
 	queryService := svcimpl.NewQuerySvc(
 		uow.Documents,
 		uow.Summaries,
 		uow.Tags,
 		uow.TagGroups,
 		summarizer,
+		memIndex,
 		logger,
 	)
 	docService := svcimpl.NewDocumentSvc(
@@ -75,14 +88,16 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 		indexer,
 		summarizer,
 		uow.Tags,
+		memIndex,
+		quotaManager,
 		logger,
 	)
 
-	// 7. API Layer
-	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, logger)
+	// 8. API Layer
+	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, uow.Tags, uow.Summaries, logger)
 	mcpServer := api.NewMCPServer(docService, queryService, tagGroupSvc, logger)
 
-	// 8. Job Layer
+	// 9. Job Layer
 	jobScheduler := job.NewScheduler(logger)
 	// Register tag grouping job (runs every 30 minutes)
 	jobScheduler.Register(job.NewTagGroupJob(tagGroupSvc, logger))
@@ -93,13 +108,14 @@ func NewDependencies(sqlDB *sql.DB, driver string, logger *zap.Logger) (*Depende
 	jobScheduler.Register(job.NewHotScoreJob(uow.Documents, logger))
 
 	return &Dependencies{
-		DocumentService:      docService,
-		QueryService:         queryService,
+		DocumentService: docService,
+		QueryService:    queryService,
 		TagGroupService: tagGroupSvc,
-		RESTHandler:          restHandler,
-		MCPServer:            mcpServer,
-		JobScheduler:         jobScheduler,
-		Logger:               logger,
+		RESTHandler:     restHandler,
+		MCPServer:       mcpServer,
+		JobScheduler:    jobScheduler,
+		MemIndex:        memIndex,
+		Logger:          logger,
 	}, nil
 }
 
@@ -111,14 +127,15 @@ var (
 	_ storage.ITagRepository      = (*db.TagRepo)(nil)
 	_ storage.ITagGroupRepository = (*db.TagGroupRepo)(nil)
 	_ storage.ICache              = (*cache.Cache)(nil)
+	_ storage.IInMemoryIndex      = (*memory.Index)(nil)
 
 	// Service Layer
-	_ service.IDocumentService      = (*svcimpl.DocumentSvc)(nil)
-	_ service.IQueryService         = (*svcimpl.QuerySvc)(nil)
+	_ service.IDocumentService = (*svcimpl.DocumentSvc)(nil)
+	_ service.IQueryService    = (*svcimpl.QuerySvc)(nil)
 	_ service.ITagGroupService = (*svcimpl.TagGroupSvc)(nil)
-	_ service.IIndexer              = (*svcimpl.IndexerSvc)(nil)
-	_ service.ISummarizer           = (*svcimpl.SummarizerSvc)(nil)
-	_ service.ILLMFilter            = (*svcimpl.SummarizerSvc)(nil)
+	_ service.IIndexer         = (*svcimpl.IndexerSvc)(nil)
+	_ service.ISummarizer      = (*svcimpl.SummarizerSvc)(nil)
+	_ service.ILLMFilter       = (*svcimpl.SummarizerSvc)(nil)
 
 	// Client Layer
 	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)

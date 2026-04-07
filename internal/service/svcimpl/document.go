@@ -2,7 +2,6 @@ package svcimpl
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
+	"github.com/tiersum/tiersum/internal/storage/memory"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -18,7 +18,9 @@ type DocumentSvc struct {
 	docRepo       storage.IDocumentRepository
 	indexer       service.IIndexer
 	summarizer    service.ISummarizer
-	tagRepo storage.ITagRepository
+	tagRepo       storage.ITagRepository
+	memIndex      storage.IInMemoryIndex
+	quotaManager  *QuotaManager
 	logger        *zap.Logger
 }
 
@@ -28,31 +30,50 @@ func NewDocumentSvc(
 	indexer service.IIndexer,
 	summarizer service.ISummarizer,
 	tagRepo storage.ITagRepository,
+	memIndex storage.IInMemoryIndex,
+	quotaManager *QuotaManager,
 	logger *zap.Logger,
 ) *DocumentSvc {
 	return &DocumentSvc{
-		docRepo:       docRepo,
-		indexer:       indexer,
-		summarizer:    summarizer,
-		tagRepo: tagRepo,
-		logger:        logger,
+		docRepo:      docRepo,
+		indexer:      indexer,
+		summarizer:   summarizer,
+		tagRepo:      tagRepo,
+		memIndex:     memIndex,
+		quotaManager: quotaManager,
+		logger:       logger,
 	}
 }
 
-// shouldBeHot determines if a document should be processed as "hot" based on heuristics
-func shouldBeHot(content string, forceHot bool) bool {
+// shouldBeHot determines if a document should be processed as "hot" based on quota and heuristics
+func (s *DocumentSvc) shouldBeHot(content string, forceHot bool, hasPrebuiltSummary bool) bool {
+	// If force hot, always process as hot
 	if forceHot {
 		return true
 	}
+
+	// If has prebuilt summary from external agent, process as hot (no LLM needed internally)
+	if hasPrebuiltSummary {
+		return true
+	}
+
+	// Check quota - if no quota available, process as cold
+	if !s.quotaManager.CheckAndConsume() {
+		return false
+	}
+
 	// Simple heuristic: documents longer than 5000 characters are considered "hot"
-	// This can be refined based on actual usage patterns
 	return len(content) > 5000
 }
 
 // Ingest implements IDocumentService.Ingest
 func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error) {
+	// Check if document has prebuilt summary/tags from external agent
+	hasPrebuiltSummary := req.Summary != "" && len(req.Chapters) > 0
+	hasPrebuiltTags := len(req.Tags) > 0
+
 	// Determine if document should be hot or cold
-	isHot := shouldBeHot(req.Content, req.ForceHot)
+	isHot := s.shouldBeHot(req.Content, req.ForceHot, hasPrebuiltSummary)
 
 	// Create document entity
 	doc := &types.Document{
@@ -66,15 +87,60 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 	}
 
 	if isHot {
-		// Hot document: use full LLM analysis flow
 		doc.Status = types.DocStatusHot
 
-		// Analyze document with LLM (if no tags provided)
-		if len(req.Tags) == 0 {
+		// Hot document processing
+		if hasPrebuiltSummary && hasPrebuiltTags {
+			// External agent provided everything - no internal LLM needed
+			doc.Tags = req.Tags
+			
+			// Create analysis result from prebuilt data
+			analysis := &types.DocumentAnalysisResult{
+				Summary:  req.Summary,
+				Tags:     req.Tags,
+				Chapters: req.Chapters,
+			}
+
+			// Index the document with prebuilt analysis
+			if err := s.indexer.Index(ctx, doc, analysis); err != nil {
+				s.logger.Error("failed to index document with prebuilt analysis", zap.Error(err))
+			}
+		} else if hasPrebuiltTags {
+			// Has tags but needs summary/chapters from LLM
 			analysis, err := s.summarizer.AnalyzeDocument(ctx, doc.Title, doc.Content)
 			if err != nil {
 				s.logger.Warn("failed to analyze document", zap.Error(err))
-				// Continue with empty analysis
+				analysis = &types.DocumentAnalysisResult{
+					Summary:  truncateContent(doc.Content, 200),
+					Tags:     req.Tags,
+					Chapters: []types.ChapterInfo{},
+				}
+			}
+			
+			// Merge provided tags with generated tags
+			tagSet := make(map[string]bool)
+			for _, tag := range req.Tags {
+				tagSet[tag] = true
+			}
+			for _, tag := range analysis.Tags {
+				tagSet[tag] = true
+			}
+			mergedTags := make([]string, 0, len(tagSet))
+			for tag := range tagSet {
+				mergedTags = append(mergedTags, tag)
+			}
+			doc.Tags = mergedTags
+			analysis.Tags = mergedTags
+
+			// Index with analysis
+			if err := s.indexer.Index(ctx, doc, analysis); err != nil {
+				s.logger.Error("failed to index document", zap.Error(err))
+			}
+		} else {
+			// No prebuilt data - use full LLM analysis flow
+			analysis, err := s.summarizer.AnalyzeDocument(ctx, doc.Title, doc.Content)
+			if err != nil {
+				s.logger.Warn("failed to analyze document", zap.Error(err))
 				analysis = &types.DocumentAnalysisResult{
 					Summary:  truncateContent(doc.Content, 200),
 					Tags:     []string{},
@@ -87,64 +153,44 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 			// Index the document with analysis results
 			if err := s.indexer.Index(ctx, doc, analysis); err != nil {
 				s.logger.Error("failed to index document", zap.Error(err))
-				// Continue even if indexing fails
 			}
-		} else {
-			doc.Tags = req.Tags
+		}
 
-			// Analyze anyway to get chapters and summary
-			analysis, err := s.summarizer.AnalyzeDocument(ctx, doc.Title, doc.Content)
-			if err == nil {
-				// Merge provided tags with generated tags (deduplicate)
-				tagSet := make(map[string]bool)
-				for _, tag := range req.Tags {
-					tagSet[tag] = true
-				}
-				for _, tag := range analysis.Tags {
-					tagSet[tag] = true
-				}
-				mergedTags := make([]string, 0, len(tagSet))
-				for tag := range tagSet {
-					mergedTags = append(mergedTags, tag)
-				}
-				doc.Tags = mergedTags
-
-				// Index with analysis
-				if err := s.indexer.Index(ctx, doc, analysis); err != nil {
-					s.logger.Error("failed to index document", zap.Error(err))
+		// Update global tags for hot documents
+		for _, tag := range doc.Tags {
+			tagEntity := &types.Tag{
+				ID:      uuid.New().String(),
+				Name:    tag,
+				GroupID: "", // Will be assigned by clustering service
+			}
+			if err := s.tagRepo.Create(ctx, tagEntity); err != nil {
+				s.logger.Warn("failed to create global tag", zap.String("tag", tag), zap.Error(err))
+			} else {
+				if err := s.tagRepo.IncrementDocumentCount(ctx, tag); err != nil {
+					s.logger.Warn("failed to increment tag count", zap.String("tag", tag), zap.Error(err))
 				}
 			}
 		}
 	} else {
-		// Cold document: minimal processing
+		// Cold document: minimal processing, no tags, no LLM
 		doc.Status = types.DocStatusCold
+		doc.Tags = []string{} // Cold documents have no tags
 
-		// Extract keywords using regex instead of LLM
-		keywords := types.ExtractKeywords(doc.Content, 10)
+		// Generate simple embedding for vector index
+		embedding := memory.GenerateSimpleEmbedding(doc.Content)
 
-		// Merge with provided tags if any
-		if len(req.Tags) > 0 {
-			tagSet := make(map[string]bool)
-			for _, tag := range req.Tags {
-				tagSet[strings.ToLower(tag)] = true
+		// Add to memory index (bleve + vector)
+		if s.memIndex != nil {
+			if err := s.memIndex.AddDocument(doc, embedding); err != nil {
+				s.logger.Warn("failed to add cold document to memory index",
+					zap.String("doc_id", doc.ID),
+					zap.Error(err))
 			}
-			for _, kw := range keywords {
-				tagSet[kw] = true
-			}
-			mergedTags := make([]string, 0, len(tagSet))
-			for tag := range tagSet {
-				mergedTags = append(mergedTags, tag)
-			}
-			doc.Tags = mergedTags
-		} else {
-			doc.Tags = keywords
 		}
 
-		// Do NOT generate summary or chapters for cold documents
-		// Do NOT call indexer - cold documents are not indexed
-		s.logger.Info("cold document ingested with regex keywords",
+		s.logger.Info("cold document ingested",
 			zap.String("id", doc.ID),
-			zap.Int("keyword_count", len(doc.Tags)))
+			zap.Int("content_length", len(doc.Content)))
 	}
 
 	// Save document
@@ -152,23 +198,6 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 	doc.UpdatedAt = doc.CreatedAt
 	if err := s.docRepo.Create(ctx, doc); err != nil {
 		return nil, err
-	}
-
-	// Update global tags
-	for _, tag := range doc.Tags {
-		tagEntity := &types.Tag{
-			ID:      uuid.New().String(),
-			Name:    tag,
-			GroupID: "", // Will be assigned by clustering service
-		}
-		if err := s.tagRepo.Create(ctx, tagEntity); err != nil {
-			s.logger.Warn("failed to create global tag", zap.String("tag", tag), zap.Error(err))
-		} else {
-			// Increment document count
-			if err := s.tagRepo.IncrementDocumentCount(ctx, tag); err != nil {
-				s.logger.Warn("failed to increment tag count", zap.String("tag", tag), zap.Error(err))
-			}
-		}
 	}
 
 	s.logger.Info("document ingested",
@@ -191,6 +220,11 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 // Get implements IDocumentService.Get
 func (s *DocumentSvc) Get(ctx context.Context, id string) (*types.Document, error) {
 	return s.docRepo.GetByID(ctx, id)
+}
+
+// GetRecent implements IDocumentService.GetRecent
+func (s *DocumentSvc) GetRecent(ctx context.Context, limit int) ([]*types.Document, error) {
+	return s.docRepo.GetRecent(ctx, limit)
 }
 
 // truncateContent truncates content to max length
