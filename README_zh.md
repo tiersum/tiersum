@@ -1,6 +1,6 @@
 # TierSum
 
-> **分层摘要知识库** —— 基于多层抽象的无 RAG 文档检索系统。
+> **分层摘要知识库** —— 基于多层抽象和冷热文档分层的无 RAG 文档检索系统。
 
 [![Go Version](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)](https://golang.org)
 [![MCP Protocol](https://img.shields.io/badge/MCP-1.0-6E49CB)](https://modelcontextprotocol.io)
@@ -41,14 +41,58 @@
 
 | 特性 | 描述 |
 |:--------|:------------|
+| **冷热分层** | 智能文档存储：热文档（完整 LLM 分析）vs 冷文档（BM25 + 向量检索） |
 | **三层摘要** | 文档 → 章节 → 原文，由 LLM 自动生成 |
 | **两级标签层级** | L1 标签组（聚类）→ L2 标签（自动生成） |
 | **渐进式查询** | LLM 在每个步骤筛选标签 → 文档 → 章节 |
 | **自动标签聚类** | LLM 自动将相关标签分组为类别 |
+| **BM25 + 向量混合检索** | 关键词 + 语义检索，带关键词片段提取 |
 | **RAG 替代方案** | 零碎片切分；完整上下文保留 |
 | **双 API 架构** | REST API + MCP 工具，无缝集成智能体 |
+| **现代 Web UI** | Next.js 14 前端，Slate 暗色主题 |
 | **原生 Markdown** | 针对 `.md` 优化；可扩展技能支持 PDF/HTML/文档转换 |
 | **增量更新** | 智能差异比对 —— 仅重新摘要变更部分 |
+
+---
+
+## 冷热文档分层
+
+TierSum 使用两层系统平衡 LLM 成本和检索性能：
+
+### 热文档（完整分析）
+- ✅ 完整 LLM 分析，包含文档 + 章节摘要
+- ✅ 最多 10 个自动生成的标签
+- ✅ 查询时基于 LLM 的过滤
+- ✅ 存储在数据库中，带分层摘要
+- ⚡ 需要配额（默认 100/小时）
+
+**标准**：有可用配额 AND（强制热文档 OR 有预构建摘要 OR 内容 > 5000 字符）
+
+### 冷文档（高效存储）
+- ✅ 最小化处理，无 LLM 分析
+- ✅ BM25 + 向量混合检索（Bleve + HNSW）
+- ✅ 基于关键词的片段提取
+- ✅ 查询 3+ 次后自动升级
+- ⚡ 不消耗配额
+
+**存储**：内存索引，384 维向量
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    热文档                                    │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  完整 LLM 分析 → 标签 + 摘要 + 章节                   │  │
+│  │  渐进式查询（L1→L2→文档→章节）                        │  │
+│  └───────────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────────┤
+│                    冷文档                                    │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  BM25 + 向量混合检索                                  │  │
+│  │  基于关键词的片段提取                                 │  │
+│  │  查询 3 次后自动升级 → 热文档                         │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -57,6 +101,7 @@
 ### 前置条件
 
 - Go 1.23+（需要 CGO 支持 SQLite）
+- Node.js 18+（前端需要）
 - 数据库：SQLite（默认）或 PostgreSQL（可选）
 - LLM API 密钥：OpenAI 或 Anthropic
 
@@ -81,8 +126,11 @@ export ANTHROPIC_API_KEY="your-api-key"
 # 运行数据库迁移
 make migrate-up
 
-# 构建二进制文件
+# 构建后端
 make build
+
+# 构建前端
+cd web && npm install && npm run build && cd ..
 
 # 或使用 Docker Compose（包含所有服务）
 cd deployments/docker && docker-compose up -d
@@ -95,6 +143,7 @@ cd deployments/docker && docker-compose up -d
 # configs/config.yaml
 server:
   port: 8080
+  web_dir: "./web/dist"  # 前端静态文件
 
 llm:
   provider: openai
@@ -106,6 +155,14 @@ storage:
   database:
     driver: sqlite3
     dsn: ./data/tiersum.db
+
+quota:
+  per_hour: 100  # 每小时热文档数
+
+documents:
+  tiering:
+    hot_content_threshold: 5000  # 热层最小字符数
+    cold_promotion_threshold: 3  # 自动升级查询次数
 ```
 
 **PostgreSQL（可选 - 高并发场景）：**
@@ -119,15 +176,16 @@ storage:
 ### 启动服务
 
 ```bash
-# 本地运行
+# 本地运行（后端 + 前端）
 make run
 
 # 或直接运行二进制文件
 ./build/tiersum --config configs/config.yaml
 
 # 服务就绪
+# Web UI:   http://localhost:8080/
 # REST API: http://localhost:8080/api/v1
-# MCP SSE: http://localhost:8080/mcp/sse
+# MCP SSE:  http://localhost:8080/mcp/sse
 ```
 
 ---
@@ -143,10 +201,11 @@ curl -X POST http://localhost:8080/api/v1/documents \
   -d '{
     "title": "Kubernetes 架构",
     "content": "# Kubernetes 架构\n\n## 控制平面...",
-    "format": "markdown"
+    "format": "markdown",
+    "force_hot": true  # 强制完整 LLM 分析
   }'
 
-# 渐进式查询（推荐）
+# 渐进式查询（推荐）- 同时搜索热文档和冷文档
 curl -X POST http://localhost:8080/api/v1/query/progressive \
   -H "Content-Type: application/json" \
   -d '{
@@ -161,11 +220,20 @@ curl "http://localhost:8080/api/v1/query?question=kube-scheduler 是如何工作
 # 列出标签组（L1）
 curl "http://localhost:8080/api/v1/tags/groups"
 
+# 获取组内标签
+curl "http://localhost:8080/api/v1/tags?group_id=xxx"
+
 # 手动触发标签分组
 curl -X POST http://localhost:8080/api/v1/tags/group
 
 # 获取文档
 curl "http://localhost:8080/api/v1/documents/{id}"
+
+# 获取文档摘要
+curl "http://localhost:8080/api/v1/documents/{id}/summaries"
+
+# 检查配额
+curl "http://localhost:8080/api/v1/quota"
 ```
 
 ### MCP 工具（面向智能体）
@@ -175,7 +243,7 @@ curl "http://localhost:8080/api/v1/documents/{id}"
   "tools": [
     {
       "name": "tiersum_query",
-      "description": "查询知识库获取相关内容",
+      "description": "查询知识库获取相关内容（传统）",
       "inputSchema": {
         "question": "string",
         "depth": "document|chapter|source"
@@ -209,6 +277,19 @@ curl "http://localhost:8080/api/v1/documents/{id}"
       }
     },
     {
+      "name": "tiersum_ingest_document",
+      "description": "录入文档，可携带预构建摘要",
+      "inputSchema": {
+        "title": "string",
+        "content": "string",
+        "format": "markdown|md",
+        "tags": ["string"],
+        "force_hot": "boolean",
+        "summary": "string (optional)",
+        "chapters": [{"title": "string", "summary": "string", "content": "string"}]
+      }
+    },
+    {
       "name": "tiersum_trigger_tag_grouping",
       "description": "手动触发标签分组（每 30 分钟自动运行）",
       "inputSchema": {}
@@ -217,20 +298,16 @@ curl "http://localhost:8080/api/v1/documents/{id}"
 }
 ```
 
-**OpenClaw 集成**：
-```yaml
-# openclaw-skill/skill.yaml
-mcpServers:
-  tiersum:
-    type: sse
-    url: http://localhost:8080/mcp/sse
-    tools:
-      - tiersum_query
-      - tiersum_progressive_query
-      - tiersum_get_document
-      - tiersum_list_tag_groups
-      - tiersum_get_tags_by_group
-      - tiersum_trigger_tag_grouping
+**Claude Desktop 集成**：
+```json
+{
+  "mcpServers": {
+    "tiersum": {
+      "command": "npx",
+      "args": ["-y", "@anthropics/mcp-proxy", "http://localhost:8080/mcp/sse"]
+    }
+  }
+}
 ```
 
 ---
@@ -242,13 +319,13 @@ mcpServers:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        客户端层                               │
-│  (OpenClaw / Claude Desktop / 自定义智能体 / REST 客户端)    │
+│  (Claude Desktop / 自定义智能体 / REST 客户端 / Web UI)    │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                      API 层 (internal/api)                   │
 │  ┌──────────────┐  ┌──────────────┐                         │
-│  │   REST API   │  │  MCP Server  │                         │
+│  │   REST API   │  │  MCP 服务    │                         │
 │  └──────────────┘  └──────────────┘                         │
 └─────────────────────────────────────────────────────────────┘
                               │
@@ -259,26 +336,20 @@ mcpServers:
 │  └─────────────────────────────────────────────────────────┘│
 │  ┌─────────────────────────────────────────────────────────┐│
 │  │  svcimpl/: 实现 (DocumentSvc, QuerySvc, 等)             ││
-│  │  包括：Indexer, Summarizer, TagGroupSvc                 ││
+│  │  包括：Indexer, Summarizer, TagGroupSvc, Quota         ││
 │  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                   存储层 (internal/storage)                  │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  interface.go: I* 接口 (IDocumentRepository, 等)        ││
-│  └─────────────────────────────────────────────────────────┘│
-│  ┌──────────────────┐    ┌──────────────────┐              ││
-│  │  db/repository.go│    │  cache/cache.go  │              ││
-│  │  (SQLite/PG)     │    │  (内存缓存)       │              ││
-│  └──────────────────┘    └──────────────────┘              ││
+│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────┐│
+│  │  db/repository.go│  │  cache/cache.go  │  │ memory/    ││
+│  │  (SQLite/PG)     │  │  (内存缓存)       │  │ (BM25+HNSW)││
+│  └──────────────────┘  └──────────────────┘  └────────────┘│
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    客户端层 (internal/client)                │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  interface.go: ILLMProvider                             ││
-│  └─────────────────────────────────────────────────────────┘│
 │  ┌─────────────────────────────────────────────────────────┐│
 │  │  llm/openai.go: OpenAIProvider 实现                     ││
 │  └─────────────────────────────────────────────────────────┘│
@@ -300,18 +371,100 @@ mcpServers:
 输入 (Markdown)
     │
     ▼
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   解析器     │───▶│  结构化器    │───▶│  摘要生成器  │
-│ (Goldmark)  │    │ (标题层级)   │    │  (LLM API)  │
-│             │    │             │    │             │
-└─────────────┘    └─────────────┘    └──────┬──────┘
-                                             │
-                   ┌─────────────────────────┼─────────────────┐
-                   ▼                         ▼                 ▼
-           ┌─────────────┐          ┌─────────────┐    ┌─────────────┐
-           │  文档摘要    │          │  章节摘要    │    │  原文内容    │
-           │ (摘要)      │          │ (大纲)      │    │ (原始内容)   │
-           └─────────────┘          └─────────────┘    └─────────────┘
+┌─────────────┐    ┌──────────────────────────────────────┐
+│   解析器     │───▶│  分层决策                            │
+│ (Goldmark)  │    │  ┌─────────────────────────────────┐ │
+└─────────────┘    │  │ 热文档? (配额 + 大小/摘要)      │ │
+                   │  └──────────────┬──────────────────┘ │
+                   └─────────────────┼────────────────────┘
+                                     │
+                    ┌────────────────┼────────────────┐
+                    ▼                ▼                ▼
+            ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+            │ 热文档路径   │    │ 冷文档路径   │    │ 摘要生成器   │
+            │             │    │             │    │ (LLM)       │
+            │ • 完整 LLM  │    │ • 简单向量  │    │             │
+            │   分析      │    │ • BM25      │    │ • 摘要      │
+            │ • 标签      │    │ • 向量检索  │    │ • 标签      │
+            │ • 章节      │    │             │    │ • 章节      │
+            └──────┬──────┘    └──────┬──────┘    └──────┬──────┘
+                   │                  │                  │
+                   └──────────────────┴──────────────────┘
+                                      │
+                                      ▼
+                            ┌──────────────────┐
+                            │  数据库          │
+                            │  (SQLite/PG)     │
+                            └──────────────────┘
+```
+
+---
+
+## Web UI
+
+TierSum 包含现代化的 Next.js 14 前端，具有以下功能：
+
+### 查询页 (`/`)
+- 中央搜索框，支持渐进式查询
+- 分栏结果：左侧文档列表，右侧章节详情
+- 同时显示热文档和冷文档结果
+- 显示相关性评分和来源标识
+
+### 文档页 (`/docs/[id]`)
+- 文档元数据（标题、标签、格式、状态）
+- 热度评分和查询次数统计
+- 章节导航，支持层级选择
+- 原文内容查看器，带语法高亮
+
+### 标签浏览器 (`/tags`)
+- 两级标签导航
+- 左侧面板：L1 标签组（分类）
+- 右侧面板：L2 标签及文档数量
+- 点击标签过滤文档
+
+### 技术栈
+- **框架**：Next.js 14（App Router）
+- **语言**：TypeScript
+- **样式**：Tailwind CSS 4
+- **组件**：shadcn/ui
+- **主题**：Slate 暗色主题
+- **构建**：静态导出到 `web/dist/`
+
+---
+
+## 片段提取算法
+
+对于冷文档，TierSum 提取基于关键词的片段，在无需加载完整文档的情况下提供相关上下文：
+
+```
+查询: "kube-scheduler 是如何工作的？"
+    │
+    ▼
+提取关键词: ["kube-scheduler", "work", "schedule", ...]
+    │
+    ▼
+在文档中定位: 查找所有关键词位置
+    │
+    ▼
+上下文窗口: 提取每个匹配前后 200 字符
+    │
+    ▼
+合并重叠: 合并 50 字符内的片段
+    │
+    ▼
+返回前 3 个: 最相关的合并片段
+```
+
+**示例输出：**
+```
+... kube-scheduler 是控制平面组件，负责将
+Pod 分配给节点。它通过监听新创建的 Pod
+并选择最佳节点来运行它们 ...
+
+...
+
+... 调度决策考虑资源需求、亲和性规则和污
+点/容忍。调度器使用评分算法对节点进行排名 ...
 ```
 
 ---
@@ -321,43 +474,53 @@ mcpServers:
 ```
 tiersum/
 ├── cmd/
-│   └── main.go            # API 服务器入口
-├── configs/               # 配置文件
+│   └── main.go                 # API 服务器入口
+├── configs/                    # 配置文件
 │   ├── config.example.yaml
 │   └── config.yaml
 deployments/
-│   └── docker/            # Docker 和 docker-compose 文件
+│   └── docker/                 # Docker 和 docker-compose 文件
 db/
-│   └── migrations/        # 数据库迁移文件
+│   └── migrations/             # 数据库迁移文件（7 个版本）
 ├── internal/
-│   ├── api/               # 第 1 层：API（REST + MCP 处理器）
-│   ├── service/           # 第 2 层：业务逻辑
-│   │   ├── interface.go   # I* 接口 (IDocumentService, 等)
-│   │   └── svcimpl/       # 实现
-│   │       ├── document.go
-│   │       ├── query.go
-│   │       ├── tag_grouping.go
-│   │       ├── indexer.go
-│   │       └── summarizer.go
-│   ├── storage/           # 第 3 层：数据持久化
-│   │   ├── interface.go   # I* 接口
+│   ├── api/                    # 第 1 层：API（REST + MCP 处理器）
+│   ├── service/                # 第 2 层：业务逻辑
+│   │   ├── interface.go        # I* 接口
+│   │   └── svcimpl/            # 实现
+│   │       ├── document.go     # 冷热分层
+│   │       ├── query.go        # 渐进式查询
+│   │       ├── tag_grouping.go # 自动聚类
+│   │       ├── indexer.go      # 摘要索引
+│   │       ├── summarizer.go   # LLM 分析
+│   │       └── quota.go        # 速率限制
+│   ├── storage/                # 第 3 层：数据持久化
+│   │   ├── interface.go
 │   │   ├── db/
-│   │   │   ├── repository.go
-│   │   │   ├── schema.go
-│   │   │   └── migrator.go
-│   │   └── cache/
-│   │       └── cache.go
-│   ├── client/            # 第 4 层：外部依赖
-│   │   ├── interface.go   # ILLMProvider
+│   │   │   ├── repository.go   # SQL 仓库
+│   │   │   ├── schema.go       # 数据库架构
+│   │   │   └── migrator.go     # 迁移
+│   │   ├── cache/
+│   │   │   └── cache.go        # 内存缓存
+│   │   └── memory/
+│   │       └── index.go        # BM25 + HNSW 索引
+│   ├── client/                 # 第 4 层：外部依赖
+│   │   ├── interface.go
 │   │   └── llm/
-│   │       └── openai.go
-│   ├── job/               # 后台任务
+│   │       └── openai.go       # OpenAI/Anthropic
+│   ├── job/                    # 后台任务
 │   │   ├── scheduler.go
-│   │   └── jobs.go
-│   └── di/                # 依赖注入
+│   │   ├── jobs.go             # 索引器、标签分组
+│   │   ├── promote_job.go      # 冷→热升级
+│   │   └── hotscore_job.go     # 热度计算
+│   └── di/                     # 依赖注入
 │       └── container.go
+├── web/                        # Next.js 14 前端
+│   ├── app/                    # App Router 页面
+│   ├── components/ui/          # shadcn/ui 组件
+│   ├── lib/api.ts              # API 客户端
+│   └── dist/                   # 静态导出
 ├── pkg/
-│   └── types/             # 公共 API 类型
+│   └── types/                  # 公共 API 类型
 ├── go.mod
 ├── Makefile
 ├── README.md
@@ -383,18 +546,26 @@ make dev
 
 # 多平台构建
 make build-all
+
+# 前端开发
+cd web
+npm run dev          # 开发服务器
+npm run build        # 生产构建
 ```
 
 ---
 
 ## 路线图
 
+- [x] 冷热文档分层与自动升级
+- [x] BM25 + 向量混合检索与片段提取
 - [x] 三层摘要引擎（文档 + 章节 + 原文）
 - [x] 两级标签层级与自动分组
 - [x] 渐进式查询，每步都有 LLM 过滤
 - [x] LLM 自动标签
 - [x] REST API + MCP 服务
-- [x] SQLite/PostgreSQL + 内存缓存 存储
+- [x] SQLite/PostgreSQL + 内存缓存存储
+- [x] Next.js 14 前端，Slate 主题
 - [ ] OpenClaw 技能包（转换 + 更新）
 - [ ] 实时协作编辑
 - [ ] 多模态支持（图片、图表）
@@ -409,7 +580,7 @@ make build-all
 **适合新手的任务**：
 - 额外的文档格式解析器（LaTeX、AsciiDoc）
 - 本地 LLM 适配器（Ollama、vLLM）
-- 文档探索 Web UI
+- Web UI 功能增强
 
 ---
 
@@ -423,4 +594,4 @@ make build-all
 
 - 灵感来自 [Anthropic's Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval)
 - MCP 协议由 [Anthropic](https://modelcontextprotocol.io) 开发
-- 基于 [Gin](https://gin-gonic.com)、[Goldmark](https://github.com/yuin/goldmark) 构建
+- 基于 [Gin](https://gin-gonic.com)、[Goldmark](https://github.com/yuin/goldmark)、[Bleve](https://blevesearch.com)、[HNSW](https://github.com/chewxy/hnsw) 构建

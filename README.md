@@ -1,6 +1,6 @@
 # TierSum
 
-> **Hierarchical Summary Knowledge Base** — A RAG-free document retrieval system powered by multi-layer abstraction.
+> **Hierarchical Summary Knowledge Base** — A RAG-free document retrieval system powered by multi-layer abstraction and hot/cold document tiering.
 
 [![Go Version](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)](https://golang.org)
 [![MCP Protocol](https://img.shields.io/badge/MCP-1.0-6E49CB)](https://modelcontextprotocol.io)
@@ -41,14 +41,58 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 | Feature | Description |
 |:--------|:------------|
+| **Hot/Cold Tiering** | Smart document storage: Hot (full LLM analysis) vs Cold (BM25 + vector search) |
 | **3-Tier Summarization** | Document → Chapter → Source, auto-generated via LLM |
 | **Two-Level Tag Hierarchy** | L1 Tag Groups → L2 Tags (auto-generated) |
 | **Progressive Query** | LLM filters tags → documents → chapters at each step |
 | **Auto Tag Grouping** | LLM automatically groups related tags into categories |
+| **BM25 + Vector Hybrid Search** | Keyword + semantic search with keyword-based snippet extraction |
 | **RAG Alternative** | Zero chunk fragmentation; full context preservation |
 | **Dual API** | REST API + MCP Tools for seamless agent integration |
+| **Modern Web UI** | Next.js 14 frontend with Slate dark theme |
 | **Markdown-Native** | Optimized for `.md`; extensible skills for PDF/HTML/Docs |
 | **Incremental Updates** | Smart diffing — re-summarize only changed sections |
+
+---
+
+## Hot/Cold Document Tiering
+
+TierSum uses a two-tier system to balance LLM cost and retrieval performance:
+
+### Hot Documents (Full Analysis)
+- ✅ Full LLM analysis with document + chapter summaries
+- ✅ Up to 10 auto-generated tags
+- ✅ LLM-based filtering during queries
+- ✅ Stored in database with tiered summaries
+- ⚡ Requires quota (100/hour default)
+
+**Criteria**: Quota available AND (force_hot OR has prebuilt summaries OR content > 5000 chars)
+
+### Cold Documents (Efficient Storage)
+- ✅ Minimal processing, no LLM analysis
+- ✅ BM25 + Vector hybrid search (Bleve + HNSW)
+- ✅ Keyword-based snippet extraction
+- ✅ Automatic promotion after 3+ queries
+- ⚡ No quota consumption
+
+**Storage**: In-memory index with 384-dim embeddings
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Hot Documents                            │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  Full LLM Analysis → Tags + Summaries + Chapters     │  │
+│  │  Progressive Query (L1→L2→Docs→Chapters)             │  │
+│  └───────────────────────────────────────────────────────┘  │
+├─────────────────────────────────────────────────────────────┤
+│                    Cold Documents                           │
+│  ┌───────────────────────────────────────────────────────┐  │
+│  │  BM25 + Vector Hybrid Search                          │  │
+│  │  Keyword-based Snippet Extraction                     │  │
+│  │  Auto-promote after 3 queries → Hot                   │  │
+│  └───────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -57,6 +101,7 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 ### Prerequisites
 
 - Go 1.23+ (with CGO enabled for SQLite)
+- Node.js 18+ (for frontend)
 - Database: SQLite (default) or PostgreSQL (optional)
 - LLM API Key: OpenAI or Anthropic
 
@@ -81,8 +126,11 @@ export ANTHROPIC_API_KEY="your-api-key"
 # Run database migrations
 make migrate-up
 
-# Build binary
+# Build backend
 make build
+
+# Build frontend
+cd web && npm install && npm run build && cd ..
 
 # Or use Docker Compose (includes all services)
 cd deployments/docker && docker-compose up -d
@@ -95,6 +143,7 @@ cd deployments/docker && docker-compose up -d
 # configs/config.yaml
 server:
   port: 8080
+  web_dir: "./web/dist"  # Serve frontend static files
 
 llm:
   provider: openai
@@ -106,6 +155,14 @@ storage:
   database:
     driver: sqlite3
     dsn: ./data/tiersum.db
+
+quota:
+  per_hour: 100  # Hot documents per hour
+
+documents:
+  tiering:
+    hot_content_threshold: 5000  # Min chars for hot tier
+    cold_promotion_threshold: 3  # Query count for auto-promotion
 ```
 
 **PostgreSQL (Optional - for high concurrency):**
@@ -119,15 +176,16 @@ storage:
 ### Start Server
 
 ```bash
-# Run locally
+# Run locally (backend + frontend)
 make run
 
 # Or run binary directly
 ./build/tiersum --config configs/config.yaml
 
 # Server ready
+# Web UI:   http://localhost:8080/
 # REST API: http://localhost:8080/api/v1
-# MCP SSE: http://localhost:8080/mcp/sse
+# MCP SSE:  http://localhost:8080/mcp/sse
 ```
 
 ---
@@ -143,10 +201,11 @@ curl -X POST http://localhost:8080/api/v1/documents \
   -d '{
     "title": "Kubernetes Architecture",
     "content": "# Kubernetes Architecture\n\n## Control Plane...",
-    "format": "markdown"
+    "format": "markdown",
+    "force_hot": true  # Force full LLM analysis
   }'
 
-# Progressive query (recommended)
+# Progressive query (recommended) - searches both hot and cold docs
 curl -X POST http://localhost:8080/api/v1/query/progressive \
   -H "Content-Type: application/json" \
   -d '{
@@ -161,11 +220,20 @@ curl "http://localhost:8080/api/v1/query?question=How does kube-scheduler work?&
 # List tag groups (Level 1)
 curl "http://localhost:8080/api/v1/tags/groups"
 
+# Get tags by group
+curl "http://localhost:8080/api/v1/tags?group_id=xxx"
+
 # Trigger tag grouping manually
 curl -X POST http://localhost:8080/api/v1/tags/group
 
 # Get document
 curl "http://localhost:8080/api/v1/documents/{id}"
+
+# Get document summaries
+curl "http://localhost:8080/api/v1/documents/{id}/summaries"
+
+# Check quota
+curl "http://localhost:8080/api/v1/quota"
 ```
 
 ### MCP Tools (for Agents)
@@ -175,7 +243,7 @@ curl "http://localhost:8080/api/v1/documents/{id}"
   "tools": [
     {
       "name": "tiersum_query",
-      "description": "Query knowledge base for relevant content",
+      "description": "Query knowledge base for relevant content (legacy)",
       "inputSchema": {
         "question": "string",
         "depth": "document|chapter|source"
@@ -209,6 +277,19 @@ curl "http://localhost:8080/api/v1/documents/{id}"
       }
     },
     {
+      "name": "tiersum_ingest_document",
+      "description": "Ingest a document with optional pre-built summaries",
+      "inputSchema": {
+        "title": "string",
+        "content": "string",
+        "format": "markdown|md",
+        "tags": ["string"],
+        "force_hot": "boolean",
+        "summary": "string (optional)",
+        "chapters": [{"title": "string", "summary": "string", "content": "string"}]
+      }
+    },
+    {
       "name": "tiersum_trigger_tag_grouping",
       "description": "Manually trigger tag grouping (runs automatically every 30 minutes)",
       "inputSchema": {}
@@ -217,20 +298,16 @@ curl "http://localhost:8080/api/v1/documents/{id}"
 }
 ```
 
-**OpenClaw Integration**:
-```yaml
-# openclaw-skill/skill.yaml
-mcpServers:
-  tiersum:
-    type: sse
-    url: http://localhost:8080/mcp/sse
-    tools:
-      - tiersum_query
-      - tiersum_progressive_query
-      - tiersum_get_document
-      - tiersum_list_tag_groups
-      - tiersum_get_tags_by_group
-      - tiersum_trigger_tag_grouping
+**Claude Desktop Integration**:
+```json
+{
+  "mcpServers": {
+    "tiersum": {
+      "command": "npx",
+      "args": ["-y", "@anthropics/mcp-proxy", "http://localhost:8080/mcp/sse"]
+    }
+  }
+}
 ```
 
 ---
@@ -242,7 +319,7 @@ mcpServers:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                        Client Layer                          │
-│  (OpenClaw / Claude Desktop / Custom Agents / REST Clients) │
+│  (Claude Desktop / Custom Agents / REST Clients / Web UI)  │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
@@ -259,26 +336,20 @@ mcpServers:
 │  └─────────────────────────────────────────────────────────┘│
 │  ┌─────────────────────────────────────────────────────────┐│
 │  │  svcimpl/: Implementations (DocumentSvc, QuerySvc, etc)││
-│  │  Includes: Indexer, Summarizer, TagGroupSvc           ││
+│  │  Includes: Indexer, Summarizer, TagGroupSvc, Quota    ││
 │  └─────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                   Storage Layer (internal/storage)           │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  interface.go: I* interfaces (IDocumentRepository, etc)││
-│  └─────────────────────────────────────────────────────────┘│
-│  ┌──────────────────┐    ┌──────────────────┐              ││
-│  │  db/repository.go│    │  cache/cache.go  │              ││
-│  │  (SQLite/PG)     │    │  (In-memory)     │              ││
-│  └──────────────────┘    └──────────────────┘              ││
+│  ┌──────────────────┐  ┌──────────────────┐  ┌────────────┐│
+│  │  db/repository.go│  │  cache/cache.go  │  │ memory/    ││
+│  │  (SQLite/PG)     │  │  (In-memory)     │  │ (BM25+HNSW)││
+│  └──────────────────┘  └──────────────────┘  └────────────┘│
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    Client Layer (internal/client)            │
-│  ┌─────────────────────────────────────────────────────────┐│
-│  │  interface.go: ILLMProvider                            ││
-│  └─────────────────────────────────────────────────────────┘│
 │  ┌─────────────────────────────────────────────────────────┐│
 │  │  llm/openai.go: OpenAIProvider implementation          ││
 │  └─────────────────────────────────────────────────────────┘│
@@ -300,18 +371,101 @@ mcpServers:
 Input (Markdown)
     │
     ▼
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│   Parser    │───▶│  Structurer │───▶│ Summarizer  │
-│ (Goldmark)  │    │ (Heading    │    │  (LLM API)  │
-│             │    │  Hierarchy) │    │             │
-└─────────────┘    └─────────────┘    └──────┬──────┘
-                                             │
-                   ┌─────────────────────────┼─────────────────┐
-                   ▼                         ▼                 ▼
-           ┌─────────────┐          ┌─────────────┐    ┌─────────────┐
-           │Doc Summary  │          │Chapter Sum. │    │Source Text  │
-           │(Abstract)   │          │(Outline)    │    │(Original)   │
-           └─────────────┘          └─────────────┘    └─────────────┘
+┌─────────────┐    ┌──────────────────────────────────────┐
+│   Parser    │───▶│  Tier Decision                       │
+│ (Goldmark)  │    │  ┌─────────────────────────────────┐ │
+└─────────────┘    │  │ Hot? (quota + size/summary)    │ │
+                   │  └──────────────┬──────────────────┘ │
+                   └─────────────────┼────────────────────┘
+                                     │
+                    ┌────────────────┼────────────────┐
+                    ▼                ▼                ▼
+            ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+            │ Hot Path    │    │ Cold Path   │    │ Summarizer  │
+            │             │    │             │    │ (LLM)       │
+            │ • Full LLM  │    │ • Simple    │    │             │
+            │   analysis  │    │   embedding │    │ • Summary   │
+            │ • Tags      │    │ • BM25      │    │ • Tags      │
+            │ • Chapters  │    │ • Vector    │    │ • Chapters  │
+            └──────┬──────┘    └──────┬──────┘    └──────┬──────┘
+                   │                  │                  │
+                   └──────────────────┴──────────────────┘
+                                      │
+                                      ▼
+                            ┌──────────────────┐
+                            │  Database        │
+                            │  (SQLite/PG)     │
+                            └──────────────────┘
+```
+
+---
+
+## Web UI
+
+TierSum includes a modern Next.js 14 frontend with the following features:
+
+### Query Page (`/`)
+- Central search box with Progressive Query support
+- Split-panel results: document list (left) + chapter details (right)
+- Displays both hot and cold document results
+- Shows relevance scores and source indicators
+
+### Document Page (`/docs/[id]`)
+- Document metadata (title, tags, format, status)
+- Hot score and query count statistics
+- Chapter navigation with tier selection
+- Source content viewer with syntax highlighting
+
+### Tag Browser (`/tags`)
+- Two-level tag navigation
+- Left panel: L1 Tag Groups (categories)
+- Right panel: L2 Tags with document counts
+- Click tags to filter documents
+
+### Tech Stack
+- **Framework**: Next.js 14 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS 4
+- **Components**: shadcn/ui
+- **Theme**: Slate dark theme
+- **Build**: Static export to `web/dist/`
+
+---
+
+## Snippet Extraction Algorithm
+
+For cold documents, TierSum extracts keyword-based snippets to provide relevant context without loading full documents:
+
+```
+Query: "How does kube-scheduler work?"
+    │
+    ▼
+Extract Keywords: ["kube-scheduler", "work", "schedule", ...]
+    │
+    ▼
+Locate in Document: Find all keyword positions
+    │
+    ▼
+Context Windows: Extract 200 chars before/after each match
+    │
+    ▼
+Merge Overlapping: Combine snippets within 50 chars
+    │
+    ▼
+Return Top 3: Most relevant merged snippets
+```
+
+**Example Output:**
+```
+... The kube-scheduler is the control plane component that
+assigns pods to nodes. It works by watching for newly created
+pods and selecting the best node for them to run on ...
+
+...
+
+... Scheduling decisions consider resource requirements,
+affinity rules, and taints/tolerations. The scheduler
+uses a scoring algorithm to rank nodes ...
 ```
 
 ---
@@ -321,43 +475,53 @@ Input (Markdown)
 ```
 tiersum/
 ├── cmd/
-│   └── main.go            # API server entrypoint
-├── configs/               # Configuration files
+│   └── main.go                 # API server entrypoint
+├── configs/                    # Configuration files
 │   ├── config.example.yaml
 │   └── config.yaml
 deployments/
-│   └── docker/            # Docker and docker-compose files
+│   └── docker/                 # Docker and docker-compose files
 db/
-│   └── migrations/        # Database migration files
+│   └── migrations/             # Database migration files (7 versions)
 ├── internal/
-│   ├── api/               # Layer 1: API (REST + MCP handlers)
-│   ├── service/           # Layer 2: Business logic
-│   │   ├── interface.go   # I* interfaces (IDocumentService, etc.)
-│   │   └── svcimpl/       # Implementations
-│   │       ├── document.go
-│   │       ├── query.go
-│   │       ├── tag_grouping.go
-│   │       ├── indexer.go
-│   │       └── summarizer.go
-│   ├── storage/           # Layer 3: Data persistence
-│   │   ├── interface.go   # I* interfaces
+│   ├── api/                    # Layer 1: API (REST + MCP handlers)
+│   ├── service/                # Layer 2: Business logic
+│   │   ├── interface.go        # I* interfaces
+│   │   └── svcimpl/            # Implementations
+│   │       ├── document.go     # Hot/cold tiering
+│   │       ├── query.go        # Progressive query
+│   │       ├── tag_grouping.go # Auto clustering
+│   │       ├── indexer.go      # Summary indexing
+│   │       ├── summarizer.go   # LLM analysis
+│   │       └── quota.go        # Rate limiting
+│   ├── storage/                # Layer 3: Data persistence
+│   │   ├── interface.go
 │   │   ├── db/
-│   │   │   ├── repository.go
-│   │   │   ├── schema.go
-│   │   │   └── migrator.go
-│   │   └── cache/
-│   │       └── cache.go
-│   ├── client/            # Layer 4: External dependencies
-│   │   ├── interface.go   # ILLMProvider
+│   │   │   ├── repository.go   # SQL repositories
+│   │   │   ├── schema.go       # DB schemas
+│   │   │   └── migrator.go     # Migrations
+│   │   ├── cache/
+│   │   │   └── cache.go        # In-memory cache
+│   │   └── memory/
+│   │       └── index.go        # BM25 + HNSW index
+│   ├── client/                 # Layer 4: External dependencies
+│   │   ├── interface.go
 │   │   └── llm/
-│   │       └── openai.go
-│   ├── job/               # Background tasks
+│   │       └── openai.go       # OpenAI/Anthropic
+│   ├── job/                    # Background tasks
 │   │   ├── scheduler.go
-│   │   └── jobs.go
-│   └── di/                # Dependency injection
+│   │   ├── jobs.go             # Indexer, TagGroup
+│   │   ├── promote_job.go      # Cold→Hot promotion
+│   │   └── hotscore_job.go     # Hot score calc
+│   └── di/                     # Dependency injection
 │       └── container.go
+├── web/                        # Next.js 14 frontend
+│   ├── app/                    # App Router pages
+│   ├── components/ui/          # shadcn/ui components
+│   ├── lib/api.ts              # API client
+│   └── dist/                   # Static export
 ├── pkg/
-│   └── types/             # Public API types
+│   └── types/                  # Public API types
 ├── go.mod
 ├── Makefile
 ├── README.md
@@ -383,18 +547,26 @@ make dev
 
 # Build for multiple platforms
 make build-all
+
+# Frontend development
+cd web
+npm run dev          # Development server
+npm run build        # Production build
 ```
 
 ---
 
 ## Roadmap
 
+- [x] Hot/Cold document tiering with auto-promotion
+- [x] BM25 + Vector hybrid search with snippet extraction
 - [x] 3-tier summarization engine (Document + Chapter + Source)
 - [x] Two-level tag hierarchy with auto-grouping
 - [x] Progressive query with LLM filtering at each step
 - [x] LLM auto-tagging for documents
 - [x] REST API + MCP Server
 - [x] SQLite/PostgreSQL + in-memory cache storage
+- [x] Next.js 14 frontend with Slate theme
 - [ ] OpenClaw skill pack (convert + update)
 - [ ] Real-time collaborative editing
 - [ ] Multi-modal support (images, diagrams)
@@ -409,7 +581,7 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 **Good first issues**:
 - Additional document format parsers (LaTeX, AsciiDoc)
 - Local LLM adapter (Ollama, vLLM)
-- Web UI for document exploration
+- Enhanced Web UI features
 
 ---
 
@@ -423,4 +595,4 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 - Inspired by [Anthropic's Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval)
 - MCP Protocol by [Anthropic](https://modelcontextprotocol.io)
-- Built with [Gin](https://gin-gonic.com), [Goldmark](https://github.com/yuin/goldmark)
+- Built with [Gin](https://gin-gonic.com), [Goldmark](https://github.com/yuin/goldmark), [Bleve](https://blevesearch.com), [HNSW](https://github.com/chewxy/hnsw)

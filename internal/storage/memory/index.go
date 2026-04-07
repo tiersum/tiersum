@@ -46,18 +46,18 @@ type DocumentIndex struct {
 type SearchResult struct {
 	DocumentID string   `json:"document_id"`
 	Title      string   `json:"title"`
-	Content    string   `json:"content"`    // 提取的片段内容
+	Content    string   `json:"content"`    // Extracted snippet content
 	Score      float64  `json:"score"`
 	Source     string   `json:"source"`     // "bm25", "vector", or "hybrid"
-	Snippets   []Snippet `json:"snippets"`  // 多个关键词命中的片段列表
+	Snippets   []Snippet `json:"snippets"`  // List of snippets from multiple keyword hits
 }
 
 // Snippet represents a text snippet extracted around a keyword match
 type Snippet struct {
-	Text       string `json:"text"`        // 片段文本
-	StartPos   int    `json:"start_pos"`   // 在原文中的起始位置
-	EndPos     int    `json:"end_pos"`     // 在原文中的结束位置
-	Keyword    string `json:"keyword"`     // 命中的关键词
+	Text       string `json:"text"`        // Snippet text
+	StartPos   int    `json:"start_pos"`   // Start position in original text
+	EndPos     int    `json:"end_pos"`     // End position in original text
+	Keyword    string `json:"keyword"`     // Matched keyword
 }
 
 // FragmentConfig configures the snippet extraction behavior
@@ -279,7 +279,7 @@ func (idx *Index) SearchWithBleve(queryText string, topK int) ([]SearchResult, e
 			continue
 		}
 
-		// 提取基于关键词的片段
+		// Extract keyword-based snippets
 		snippets := idx.ExtractSnippets(doc.Content, queryText)
 		content := idx.FormatSnippets(snippets, doc.Content)
 
@@ -331,7 +331,7 @@ func (idx *Index) SearchWithVector(queryEmbedding []float32, topK int, queryText
 			similarity = 0
 		}
 
-		// 如果有查询文本，提取基于关键词的片段；否则返回前 MaxSnippetLength 个字符
+		// If query text exists, extract keyword-based snippets; otherwise return first MaxSnippetLength characters
 		var snippets []Snippet
 		var content string
 		if queryText != "" {
@@ -500,14 +500,14 @@ func (idx *Index) truncateContent(content string, maxLen int) string {
 }
 
 // ExtractSnippets extracts relevant snippets from content based on query keywords
-// 1. 关键词定位：在原文中定位查询词出现位置
-// 2. 上下文窗口：取关键词前后固定字符数（如前后 200 字符）作为片段
-// 3. 去重合并：若多个关键词命中同一文档，合并重叠片段，确保返回内容连贯
+// 1. Keyword positioning: locate query term positions in original text
+// 2. Context window: extract fixed chars before/after keyword (e.g., 200 chars) as snippet
+// 3. Deduplication & merging: merge overlapping snippets from multiple keyword hits
 func (idx *Index) ExtractSnippets(content string, query string) []Snippet {
-	// 提取查询关键词
+	// Extract query keywords
 	keywords := extractKeywords(query, 10)
 	if len(keywords) == 0 {
-		// 没有关键词，返回前 MaxSnippetLength 个字符作为默认片段
+		// No keywords found, return first MaxSnippetLength characters as default snippet
 		end := MaxSnippetLength
 		if len(content) < end {
 			end = len(content)
@@ -520,13 +520,13 @@ func (idx *Index) ExtractSnippets(content string, query string) []Snippet {
 		}}
 	}
 
-	// 查找所有关键词位置并创建片段
+	// Find all keyword positions and create snippets
 	var snippets []Snippet
 	contentLower := strings.ToLower(content)
 
 	for _, keyword := range keywords {
 		keywordLower := strings.ToLower(keyword)
-		// 查找所有出现位置
+		// Find all occurrence positions
 		start := 0
 		for {
 			pos := strings.Index(contentLower[start:], keywordLower)
@@ -535,7 +535,7 @@ func (idx *Index) ExtractSnippets(content string, query string) []Snippet {
 			}
 			actualPos := start + pos
 			
-			// 计算片段边界
+			// Calculate snippet boundaries
 			snippetStart := actualPos - ContextWindowSize
 			if snippetStart < 0 {
 				snippetStart = 0
@@ -552,10 +552,10 @@ func (idx *Index) ExtractSnippets(content string, query string) []Snippet {
 				Keyword:  keyword,
 			})
 			
-			// 继续查找下一个位置
+			// Continue to find next position
 			start = actualPos + 1
 			
-			// 限制每个关键词的匹配次数
+			// Limit match count per keyword
 			if len(snippets) >= MaxSnippetsPerDoc*2 {
 				break
 			}
@@ -563,7 +563,7 @@ func (idx *Index) ExtractSnippets(content string, query string) []Snippet {
 	}
 
 	if len(snippets) == 0 {
-		// 没有关键词命中，返回前 MaxSnippetLength 个字符
+		// No keyword hits, return first MaxSnippetLength characters
 		end := MaxSnippetLength
 		if len(content) < end {
 			end = len(content)
@@ -576,7 +576,7 @@ func (idx *Index) ExtractSnippets(content string, query string) []Snippet {
 		}}
 	}
 
-	// 按位置排序
+	// Sort by position
 	for i := 0; i < len(snippets); i++ {
 		for j := i + 1; j < len(snippets); j++ {
 			if snippets[j].StartPos < snippets[i].StartPos {
@@ -585,10 +585,10 @@ func (idx *Index) ExtractSnippets(content string, query string) []Snippet {
 		}
 	}
 
-	// 合并重叠或相邻的片段
-	merged := mergeSnippets(snippets)
+	// Merge overlapping or adjacent snippets
+	merged := mergeSnippets(snippets, content)
 
-	// 限制返回数量
+	// Limit return count
 	if len(merged) > MaxSnippetsPerDoc {
 		merged = merged[:MaxSnippetsPerDoc]
 	}
@@ -597,7 +597,7 @@ func (idx *Index) ExtractSnippets(content string, query string) []Snippet {
 }
 
 // mergeSnippets merges overlapping or adjacent snippets
-func mergeSnippets(snippets []Snippet) []Snippet {
+func mergeSnippets(snippets []Snippet, originalContent string) []Snippet {
 	if len(snippets) <= 1 {
 		return snippets
 	}
@@ -608,27 +608,27 @@ func mergeSnippets(snippets []Snippet) []Snippet {
 	for i := 1; i < len(snippets); i++ {
 		next := snippets[i]
 		
-		// 检查是否重叠或相邻（距离小于 MergeDistance）
+		// Check if overlapping or adjacent (distance less than MergeDistance)
 		if next.StartPos <= current.EndPos+MergeDistance {
-			// 合并片段
+			// Merge snippets - extend end position
 			if next.EndPos > current.EndPos {
 				current.EndPos = next.EndPos
-				// 更新文本为合并后的内容
-				// 注意：这里假设原始 content 是连续的，实际需要从原文重新提取
 			}
-			// 合并关键词列表
+			// Merge keyword lists
 			if current.Keyword != "" && next.Keyword != "" {
 				current.Keyword = current.Keyword + "," + next.Keyword
 			} else if next.Keyword != "" {
 				current.Keyword = next.Keyword
 			}
 		} else {
-			// 保存当前片段，开始新片段
+			// Save current snippet, re-extract full text from original content
+			current.Text = originalContent[current.StartPos:current.EndPos]
 			merged = append(merged, current)
 			current = next
 		}
 	}
-	// 添加最后一个片段
+	// Add last snippet, re-extract full text from original content
+	current.Text = originalContent[current.StartPos:current.EndPos]
 	merged = append(merged, current)
 
 	return merged
@@ -651,12 +651,12 @@ func (idx *Index) FormatSnippets(snippets []Snippet, originalContent string) str
 		return text
 	}
 
-	// 多个片段，用分隔符连接
+	// Multiple snippets, join with separator
 	var parts []string
 	for i, snip := range snippets {
 		text := snip.Text
 		
-		// 添加省略号
+		// Add ellipsis
 		if snip.StartPos > 0 && i == 0 {
 			text = "..." + text
 		}
