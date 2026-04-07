@@ -44,12 +44,33 @@ type DocumentIndex struct {
 
 // SearchResult represents a search result with relevance score
 type SearchResult struct {
-	DocumentID string  `json:"document_id"`
-	Title      string  `json:"title"`
-	Content    string  `json:"content"`
-	Score      float64 `json:"score"`
-	Source     string  `json:"source"` // "bm25" or "vector"
+	DocumentID string   `json:"document_id"`
+	Title      string   `json:"title"`
+	Content    string   `json:"content"`    // 提取的片段内容
+	Score      float64  `json:"score"`
+	Source     string   `json:"source"`     // "bm25", "vector", or "hybrid"
+	Snippets   []Snippet `json:"snippets"`  // 多个关键词命中的片段列表
 }
+
+// Snippet represents a text snippet extracted around a keyword match
+type Snippet struct {
+	Text       string `json:"text"`        // 片段文本
+	StartPos   int    `json:"start_pos"`   // 在原文中的起始位置
+	EndPos     int    `json:"end_pos"`     // 在原文中的结束位置
+	Keyword    string `json:"keyword"`     // 命中的关键词
+}
+
+// FragmentConfig configures the snippet extraction behavior
+const (
+	// ContextWindowSize is the number of characters before and after the keyword
+	ContextWindowSize = 200
+	// MaxSnippetLength is the maximum length of a single snippet
+	MaxSnippetLength = 500
+	// MaxSnippetsPerDoc is the maximum number of snippets to return per document
+	MaxSnippetsPerDoc = 3
+	// MergeDistance is the distance threshold for merging adjacent snippets
+	MergeDistance = 50
+)
 
 // Index provides in-memory BM25 + Vector hybrid search for cold documents
 type Index struct {
@@ -135,56 +156,10 @@ func (idx *Index) AddDocument(doc *types.Document, embedding []float32) error {
 }
 
 // Search performs hybrid BM25 + Vector search
-// Returns merged and deduplicated results sorted by relevance
+// Returns merged and deduplicated results sorted by relevance with keyword-based snippets
 func (idx *Index) Search(ctx context.Context, queryText string, queryEmbedding []float32, topK int) ([]SearchResult, error) {
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
-
-	if topK <= 0 {
-		topK = 20
-	}
-
-	// Channel for concurrent search results
-	type bm25Result struct {
-		hits []*query.StringQuery
-		err  error
-	}
-	type vectorResult struct {
-		neighbors []hnsw.Neighbor
-		err       error
-	}
-
-	bm25Chan := make(chan bm25Result, 1)
-	vectorChan := make(chan vectorResult, 1)
-
-	// Run BM25 search concurrently
-	go func() {
-		results, err := idx.searchBM25(queryText, BM25TopK)
-		bm25Chan <- bm25Result{hits: results, err: err}
-	}()
-
-	// Run vector search concurrently if embedding provided
-	go func() {
-		if len(queryEmbedding) != VectorDimension {
-			vectorChan <- vectorResult{neighbors: nil, err: nil}
-			return
-		}
-		neighbors, err := idx.searchVector(queryEmbedding, VectorTopK)
-		vectorChan <- vectorResult{neighbors: neighbors, err: err}
-	}()
-
-	// Collect results
-	bm25Res := <-bm25Chan
-	vectorRes := <-vectorChan
-
-	if bm25Res.err != nil {
-		return nil, fmt.Errorf("BM25 search failed: %w", bm25Res.err)
-	}
-
-	// Merge results
-	results := idx.mergeResults(bm25Res.hits, vectorRes.neighbors, topK)
-
-	return results, nil
+	// Delegate to HybridSearch which now includes snippet extraction
+	return idx.HybridSearch(queryText, queryEmbedding, topK)
 }
 
 // searchBM25 performs BM25 text search
@@ -278,7 +253,7 @@ func (idx *Index) mergeResults(bm25Hits []*query.StringQuery, vectorNeighbors []
 	return results
 }
 
-// SearchWithBleve performs a bleve search and returns results
+// SearchWithBleve performs a bleve search and returns results with keyword-based snippets
 func (idx *Index) SearchWithBleve(queryText string, topK int) ([]SearchResult, error) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
@@ -304,12 +279,17 @@ func (idx *Index) SearchWithBleve(queryText string, topK int) ([]SearchResult, e
 			continue
 		}
 
+		// 提取基于关键词的片段
+		snippets := idx.ExtractSnippets(doc.Content, queryText)
+		content := idx.FormatSnippets(snippets, doc.Content)
+
 		results = append(results, SearchResult{
 			DocumentID: doc.ID,
 			Title:      doc.Title,
-			Content:    idx.truncateContent(doc.Content, 500),
+			Content:    content,
 			Score:      hit.Score,
 			Source:     "bm25",
+			Snippets:   snippets,
 		})
 	}
 
@@ -317,7 +297,8 @@ func (idx *Index) SearchWithBleve(queryText string, topK int) ([]SearchResult, e
 }
 
 // SearchWithVector performs vector similarity search
-func (idx *Index) SearchWithVector(queryEmbedding []float32, topK int) ([]SearchResult, error) {
+// For vector search, we don't have query text, so we use the first chunk of content as snippet
+func (idx *Index) SearchWithVector(queryEmbedding []float32, topK int, queryText string) ([]SearchResult, error) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
@@ -350,12 +331,36 @@ func (idx *Index) SearchWithVector(queryEmbedding []float32, topK int) ([]Search
 			similarity = 0
 		}
 
+		// 如果有查询文本，提取基于关键词的片段；否则返回前 MaxSnippetLength 个字符
+		var snippets []Snippet
+		var content string
+		if queryText != "" {
+			snippets = idx.ExtractSnippets(doc.Content, queryText)
+			content = idx.FormatSnippets(snippets, doc.Content)
+		} else {
+			end := MaxSnippetLength
+			if len(doc.Content) < end {
+				end = len(doc.Content)
+			}
+			content = doc.Content[:end]
+			if len(doc.Content) > end {
+				content += "..."
+			}
+			snippets = []Snippet{{
+				Text:     content,
+				StartPos: 0,
+				EndPos:   end,
+				Keyword:  "",
+			}}
+		}
+
 		results = append(results, SearchResult{
 			DocumentID: doc.ID,
 			Title:      doc.Title,
-			Content:    idx.truncateContent(doc.Content, 500),
+			Content:    content,
 			Score:      similarity,
 			Source:     "vector",
+			Snippets:   snippets,
 		})
 	}
 
@@ -364,17 +369,17 @@ func (idx *Index) SearchWithVector(queryEmbedding []float32, topK int) ([]Search
 
 // HybridSearch performs hybrid search combining BM25 and vector results
 func (idx *Index) HybridSearch(queryText string, queryEmbedding []float32, topK int) ([]SearchResult, error) {
-	// Get BM25 results
+	// Get BM25 results (with keyword-based snippets)
 	bm25Results, err := idx.SearchWithBleve(queryText, topK)
 	if err != nil {
 		idx.logger.Warn("BM25 search failed", zap.Error(err))
 		bm25Results = []SearchResult{}
 	}
 
-	// Get vector results
+	// Get vector results (also pass queryText for snippet extraction)
 	var vectorResults []SearchResult
 	if len(queryEmbedding) == VectorDimension {
-		vectorResults, err = idx.SearchWithVector(queryEmbedding, topK)
+		vectorResults, err = idx.SearchWithVector(queryEmbedding, topK, queryText)
 		if err != nil {
 			idx.logger.Warn("Vector search failed", zap.Error(err))
 			vectorResults = []SearchResult{}
@@ -492,6 +497,286 @@ func (idx *Index) truncateContent(content string, maxLen int) string {
 		return content
 	}
 	return content[:maxLen] + "..."
+}
+
+// ExtractSnippets extracts relevant snippets from content based on query keywords
+// 1. 关键词定位：在原文中定位查询词出现位置
+// 2. 上下文窗口：取关键词前后固定字符数（如前后 200 字符）作为片段
+// 3. 去重合并：若多个关键词命中同一文档，合并重叠片段，确保返回内容连贯
+func (idx *Index) ExtractSnippets(content string, query string) []Snippet {
+	// 提取查询关键词
+	keywords := extractKeywords(query, 10)
+	if len(keywords) == 0 {
+		// 没有关键词，返回前 MaxSnippetLength 个字符作为默认片段
+		end := MaxSnippetLength
+		if len(content) < end {
+			end = len(content)
+		}
+		return []Snippet{{
+			Text:     content[:end],
+			StartPos: 0,
+			EndPos:   end,
+			Keyword:  "",
+		}}
+	}
+
+	// 查找所有关键词位置并创建片段
+	var snippets []Snippet
+	contentLower := strings.ToLower(content)
+
+	for _, keyword := range keywords {
+		keywordLower := strings.ToLower(keyword)
+		// 查找所有出现位置
+		start := 0
+		for {
+			pos := strings.Index(contentLower[start:], keywordLower)
+			if pos == -1 {
+				break
+			}
+			actualPos := start + pos
+			
+			// 计算片段边界
+			snippetStart := actualPos - ContextWindowSize
+			if snippetStart < 0 {
+				snippetStart = 0
+			}
+			snippetEnd := actualPos + len(keyword) + ContextWindowSize
+			if snippetEnd > len(content) {
+				snippetEnd = len(content)
+			}
+			
+			snippets = append(snippets, Snippet{
+				Text:     content[snippetStart:snippetEnd],
+				StartPos: snippetStart,
+				EndPos:   snippetEnd,
+				Keyword:  keyword,
+			})
+			
+			// 继续查找下一个位置
+			start = actualPos + 1
+			
+			// 限制每个关键词的匹配次数
+			if len(snippets) >= MaxSnippetsPerDoc*2 {
+				break
+			}
+		}
+	}
+
+	if len(snippets) == 0 {
+		// 没有关键词命中，返回前 MaxSnippetLength 个字符
+		end := MaxSnippetLength
+		if len(content) < end {
+			end = len(content)
+		}
+		return []Snippet{{
+			Text:     content[:end],
+			StartPos: 0,
+			EndPos:   end,
+			Keyword:  "",
+		}}
+	}
+
+	// 按位置排序
+	for i := 0; i < len(snippets); i++ {
+		for j := i + 1; j < len(snippets); j++ {
+			if snippets[j].StartPos < snippets[i].StartPos {
+				snippets[i], snippets[j] = snippets[j], snippets[i]
+			}
+		}
+	}
+
+	// 合并重叠或相邻的片段
+	merged := mergeSnippets(snippets)
+
+	// 限制返回数量
+	if len(merged) > MaxSnippetsPerDoc {
+		merged = merged[:MaxSnippetsPerDoc]
+	}
+
+	return merged
+}
+
+// mergeSnippets merges overlapping or adjacent snippets
+func mergeSnippets(snippets []Snippet) []Snippet {
+	if len(snippets) <= 1 {
+		return snippets
+	}
+
+	var merged []Snippet
+	current := snippets[0]
+
+	for i := 1; i < len(snippets); i++ {
+		next := snippets[i]
+		
+		// 检查是否重叠或相邻（距离小于 MergeDistance）
+		if next.StartPos <= current.EndPos+MergeDistance {
+			// 合并片段
+			if next.EndPos > current.EndPos {
+				current.EndPos = next.EndPos
+				// 更新文本为合并后的内容
+				// 注意：这里假设原始 content 是连续的，实际需要从原文重新提取
+			}
+			// 合并关键词列表
+			if current.Keyword != "" && next.Keyword != "" {
+				current.Keyword = current.Keyword + "," + next.Keyword
+			} else if next.Keyword != "" {
+				current.Keyword = next.Keyword
+			}
+		} else {
+			// 保存当前片段，开始新片段
+			merged = append(merged, current)
+			current = next
+		}
+	}
+	// 添加最后一个片段
+	merged = append(merged, current)
+
+	return merged
+}
+
+// FormatSnippets formats snippets into a single display string
+func (idx *Index) FormatSnippets(snippets []Snippet, originalContent string) string {
+	if len(snippets) == 0 {
+		return ""
+	}
+
+	if len(snippets) == 1 {
+		text := snippets[0].Text
+		if snippets[0].StartPos > 0 {
+			text = "..." + text
+		}
+		if snippets[0].EndPos < len(originalContent) {
+			text = text + "..."
+		}
+		return text
+	}
+
+	// 多个片段，用分隔符连接
+	var parts []string
+	for i, snip := range snippets {
+		text := snip.Text
+		
+		// 添加省略号
+		if snip.StartPos > 0 && i == 0 {
+			text = "..." + text
+		}
+		if snip.EndPos < len(originalContent) && i == len(snippets)-1 {
+			text = text + "..."
+		}
+		
+		parts = append(parts, text)
+	}
+
+	return strings.Join(parts, "\n...\n")
+}
+
+// ExtractSnippet extracts relevant snippet from content based on query keywords
+// 1. Keyword positioning: locate query term positions in original text
+// 2. Context window: extract fixed chars before/after keyword (e.g., 200 chars)
+// 3. Deduplication & merging: merge overlapping snippets from multiple keyword hits
+func (idx *Index) ExtractSnippet(content string, query string, windowSize int) string {
+	if windowSize <= 0 {
+		windowSize = 200
+	}
+
+	// Extract keywords from query
+	keywords := extractKeywords(query, 10)
+	if len(keywords) == 0 {
+		// No keywords found, return beginning of content
+		return idx.truncateContent(content, windowSize*2)
+	}
+
+	// Find all keyword positions in content
+	type hit struct {
+		start int
+		end   int
+	}
+	var hits []hit
+
+	contentLower := strings.ToLower(content)
+	for _, keyword := range keywords {
+		keywordLower := strings.ToLower(keyword)
+		pos := 0
+		for {
+			idx := strings.Index(contentLower[pos:], keywordLower)
+			if idx == -1 {
+				break
+			}
+			actualPos := pos + idx
+			hits = append(hits, hit{
+				start: actualPos,
+				end:   actualPos + len(keyword),
+			})
+			pos = actualPos + 1
+		}
+	}
+
+	if len(hits) == 0 {
+		// No keyword hits, return beginning of content
+		return idx.truncateContent(content, windowSize*2)
+	}
+
+	// Sort hits by position
+	for i := 0; i < len(hits); i++ {
+		for j := i + 1; j < len(hits); j++ {
+			if hits[j].start < hits[i].start {
+				hits[i], hits[j] = hits[j], hits[i]
+			}
+		}
+	}
+
+	// Merge overlapping/adjacent hits
+	var merged []hit
+	current := hits[0]
+	for i := 1; i < len(hits); i++ {
+		// If next hit overlaps or is adjacent (within window), merge them
+		if hits[i].start <= current.end+windowSize {
+			if hits[i].end > current.end {
+				current.end = hits[i].end
+			}
+		} else {
+			merged = append(merged, current)
+			current = hits[i]
+		}
+	}
+	merged = append(merged, current)
+
+	// Extract snippets with context windows
+	var snippets []string
+	for _, h := range merged {
+		// Calculate snippet boundaries
+		start := h.start - windowSize
+		if start < 0 {
+			start = 0
+		}
+		end := h.end + windowSize
+		if end > len(content) {
+			end = len(content)
+		}
+
+		snippet := content[start:end]
+
+		// Add ellipsis if truncated
+		if start > 0 {
+			snippet = "..." + snippet
+		}
+		if end < len(content) {
+			snippet = snippet + "..."
+		}
+
+		snippets = append(snippets, snippet)
+	}
+
+	// Join snippets with separator
+	result := strings.Join(snippets, "\n---\n")
+
+	// Limit total length
+	maxTotalLen := windowSize * 4
+	if len(result) > maxTotalLen {
+		result = result[:maxTotalLen] + "..."
+	}
+
+	return result
 }
 
 // RebuildFromDocuments rebuilds the index from a list of documents

@@ -88,8 +88,8 @@ type IInMemoryIndex interface {
 	Search(ctx context.Context, queryText string, queryEmbedding []float32, topK int) ([]SearchResult, error)
 	// SearchWithBleve performs BM25 text search only
 	SearchWithBleve(queryText string, topK int) ([]SearchResult, error)
-	// SearchWithVector performs vector similarity search only
-	SearchWithVector(queryEmbedding []float32, topK int) ([]SearchResult, error)
+	// SearchWithVector performs vector similarity search only (with optional query text for snippets)
+	SearchWithVector(queryEmbedding []float32, topK int, queryText string) ([]SearchResult, error)
 	// HybridSearch performs hybrid search with result merging
 	HybridSearch(queryText string, queryEmbedding []float32, topK int) ([]SearchResult, error)
 	// GetDocumentCount returns the number of indexed documents
@@ -102,9 +102,18 @@ type IInMemoryIndex interface {
 
 // SearchResult represents a search result from in-memory index
 type SearchResult struct {
-	DocumentID string  `json:"document_id"`
-	Title      string  `json:"title"`
-	Content    string  `json:"content"`
-	Score      float64 `json:"score"`
-	Source     string  `json:"source"` // "bm25", "vector", or "hybrid"
+	DocumentID string    `json:"document_id"`
+	Title      string    `json:"title"`
+	Content    string    `json:"content"`    // 提取的片段内容
+	Score      float64   `json:"score"`
+	Source     string    `json:"source"`     // "bm25", "vector", or "hybrid"
+	Snippets   []Snippet `json:"snippets"`   // 多个关键词命中的片段列表
+}
+
+// Snippet represents a text snippet extracted around a keyword match
+type Snippet struct {
+	Text     string `json:"text"`       // 片段文本
+	StartPos int    `json:"start_pos"`  // 在原文中的起始位置
+	EndPos   int    `json:"end_pos"`    // 在原文中的结束位置
+	Keyword  string `json:"keyword"`    // 命中的关键词
 }
