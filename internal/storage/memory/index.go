@@ -20,6 +20,7 @@ import (
 	"github.com/yanyiwu/gojieba"
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -46,23 +47,11 @@ type DocumentIndex struct {
 	Embedding []float32 `json:"embedding"`
 }
 
-// SearchResult represents a search result with relevance score
-type SearchResult struct {
-	DocumentID string   `json:"document_id"`
-	Title      string   `json:"title"`
-	Content    string   `json:"content"`    // Extracted snippet content
-	Score      float64  `json:"score"`
-	Source     string   `json:"source"`     // "bm25", "vector", or "hybrid"
-	Snippets   []Snippet `json:"snippets"`  // List of snippets from multiple keyword hits
-}
+// SearchResult is an alias for storage.SearchResult
+type SearchResult = storage.SearchResult
 
-// Snippet represents a text snippet extracted around a keyword match
-type Snippet struct {
-	Text       string `json:"text"`        // Snippet text
-	StartPos   int    `json:"start_pos"`   // Start position in original text
-	EndPos     int    `json:"end_pos"`     // End position in original text
-	Keyword    string `json:"keyword"`     // Matched keyword
-}
+// Snippet is an alias for storage.Snippet
+type Snippet = storage.Snippet
 
 // FragmentConfig configures the snippet extraction behavior
 const (

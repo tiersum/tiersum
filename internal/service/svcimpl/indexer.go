@@ -3,7 +3,6 @@ package svcimpl
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 
 	"go.uber.org/zap"
@@ -15,17 +14,17 @@ import (
 
 // IndexerSvc implements service.IIndexer
 type IndexerSvc struct {
-	summarizer service.ISummarizer
+	summarizer  service.ISummarizer
 	summaryRepo storage.ISummaryRepository
-	logger     *zap.Logger
+	logger      *zap.Logger
 }
 
 // NewIndexerSvc creates a new indexer service
 func NewIndexerSvc(summarizer service.ISummarizer, summaryRepo storage.ISummaryRepository, logger *zap.Logger) *IndexerSvc {
 	return &IndexerSvc{
-		summarizer: summarizer,
+		summarizer:  summarizer,
 		summaryRepo: summaryRepo,
-		logger:     logger,
+		logger:      logger,
 	}
 }
 

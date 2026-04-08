@@ -5,7 +5,6 @@ package api
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -18,11 +17,11 @@ import (
 
 // MCPServer handles MCP protocol
 type MCPServer struct {
-	docService           service.IDocumentService
-	queryService         service.IQueryService
-	tagGroupService    service.ITagGroupService
-	logger               *zap.Logger
-	mcp                  *mcpserver.MCPServer
+	docService      service.IDocumentService
+	queryService    service.IQueryService
+	tagGroupService service.ITagGroupService
+	logger          *zap.Logger
+	mcp             *mcpserver.MCPServer
 }
 
 // NewMCPServer creates a new MCP server
@@ -128,8 +127,8 @@ func (s *MCPServer) registerTools() {
 			mcp.Description("Document format: markdown or md (default: markdown)"),
 			mcp.Enum("markdown", "md"),
 		),
-		mcp.WithArray("tags",
-			mcp.Description("Optional pre-built tags"),
+		mcp.WithString("tags",
+			mcp.Description("Optional pre-built tags (JSON array string, e.g.: [\"tag1\", \"tag2\"])"),
 		),
 		mcp.WithString("summary",
 			mcp.Description("Optional pre-built document summary (from external agent)"),
