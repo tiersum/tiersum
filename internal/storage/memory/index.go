@@ -178,9 +178,14 @@ func createIndexMapping() (mapping.IndexMapping, error) {
 			return nil, err
 		}
 		
-		lowercaseFilter, err := cache.TokenFilterNamed("lowercase")
+		// Import and use the lowercase filter directly
+		// Note: lowercase filter is registered as "to_lower" in bleve registry
+		lowercaseFilter, err := cache.TokenFilterNamed("to_lower")
 		if err != nil {
-			return nil, err
+			// If not found, create analyzer without token filter
+			return &analysis.DefaultAnalyzer{
+				Tokenizer: tokenizer,
+			}, nil
 		}
 		
 		return &analysis.DefaultAnalyzer{
