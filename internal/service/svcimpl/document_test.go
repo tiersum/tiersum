@@ -449,12 +449,3 @@ func TestTruncateContent(t *testing.T) {
 		})
 	}
 }
-
-// Helper function to create a string of specified length
-func makeString(length int) string {
-	result := make([]byte, length)
-	for i := range result {
-		result[i] = 'a' + byte(i%26)
-	}
-	return string(result)
-}

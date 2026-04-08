@@ -735,3 +735,20 @@ func (m *MockQuotaManager) GetRemaining() int {
 func testLogger() *zap.Logger {
 	return zap.NewNop()
 }
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// makeString creates a string of specified length with repeating characters
+func makeString(length int) string {
+	result := make([]byte, length)
+	for i := range result {
+		result[i] = 'a' + byte(i%26)
+	}
+	return string(result)
+}
