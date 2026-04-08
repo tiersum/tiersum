@@ -16,8 +16,7 @@ import (
 	"github.com/blevesearch/bleve/v2/analysis"
 	"github.com/blevesearch/bleve/v2/mapping"
 	"github.com/blevesearch/bleve/v2/registry"
-	"github.com/blevesearch/bleve/v2/search/query"
-	"github.com/chewxy/hnsw"
+	"github.com/coder/hnsw"
 	"github.com/yanyiwu/gojieba"
 	"go.uber.org/zap"
 
@@ -77,14 +76,20 @@ const (
 	MergeDistance = 50
 )
 
+// hnswConfig stores HNSW configuration parameters
+type hnswConfig struct {
+	M        int
+	EfSearch int
+}
+
 // Index provides in-memory BM25 + Vector hybrid search for cold documents
 type Index struct {
 	mu           sync.RWMutex
 	bleveIndex   bleve.Index
-	hnswIndex    *hnsw.HNSW
+	hnswIndex    *hnsw.Graph[string]
 	documents    map[string]*DocumentIndex
 	logger       *zap.Logger
-	hnswConfig   hnsw.Config
+	hnswConfig   hnswConfig
 }
 
 // GojiebaTokenizer implements bleve's Tokenizer interface using gojieba
@@ -151,24 +156,21 @@ func NewIndex(logger *zap.Logger) (*Index, error) {
 		return nil, fmt.Errorf("failed to create bleve index: %w", err)
 	}
 
-	// Create HNSW index configuration
-	config := hnsw.Config{
-		M:              DefaultHNSWM,
-		EfConstruction: DefaultHNSWEfConstruction,
-		EfSearch:       DefaultHNSWEfSearch,
-		SpaceType:      hnsw.SpaceCosine,
-		Dim:            VectorDimension,
-	}
-
 	// Create HNSW index
-	hnswIdx := hnsw.NewHNSW(config)
+	hnswIdx := hnsw.NewGraph[string]()
+	hnswIdx.Distance = hnsw.CosineDistance
+	hnswIdx.M = DefaultHNSWM
+	hnswIdx.EfSearch = DefaultHNSWEfSearch
 
 	return &Index{
 		bleveIndex: bleveIdx,
 		hnswIndex:  hnswIdx,
 		documents:  make(map[string]*DocumentIndex),
 		logger:     logger,
-		hnswConfig: config,
+		hnswConfig: hnswConfig{
+			M:        DefaultHNSWM,
+			EfSearch: DefaultHNSWEfSearch,
+		},
 	}, nil
 }
 
@@ -176,22 +178,27 @@ func NewIndex(logger *zap.Logger) (*Index, error) {
 func createIndexMapping() (mapping.IndexMapping, error) {
 	// Register gojieba tokenizer in bleve registry
 	// This must be done before creating the index mapping
-	bleve.RegisterTokenizer("gojieba", func(config map[string]interface{}, cache *registry.Cache) (analysis.Tokenizer, error) {
+	registry.RegisterTokenizer("gojieba", func(config map[string]interface{}, cache *registry.Cache) (analysis.Tokenizer, error) {
 		return NewGojiebaTokenizer(), nil
 	})
 	
 	// Register custom analyzer that uses gojieba tokenizer
-	bleve.RegisterAnalyzer("jieba_analyzer", func(config map[string]interface{}, cache *registry.Cache) (*analysis.Analyzer, error) {
+	registry.RegisterAnalyzer("jieba_analyzer", func(config map[string]interface{}, cache *registry.Cache) (analysis.Analyzer, error) {
 		tokenizer, err := cache.TokenizerNamed("gojieba")
 		if err != nil {
 			return nil, err
 		}
 		
-		return &analysis.Analyzer{
+		lowercaseFilter, err := cache.TokenFilterNamed("lowercase")
+		if err != nil {
+			return nil, err
+		}
+		
+		return &analysis.DefaultAnalyzer{
 			Tokenizer: tokenizer,
 			TokenFilters: []analysis.TokenFilter{
 				// Add lowercase filter for English text
-				cache.TokenFilterNamed("lowercase"),
+				lowercaseFilter,
 			},
 		}, nil
 	})
@@ -251,19 +258,9 @@ func (idx *Index) AddDocument(doc *types.Document, embedding []float32) error {
 
 	// Index in HNSW (vector) if embedding provided
 	if len(embedding) == VectorDimension {
-		// Convert []float32 to []float64 for hnsw
-		vec64 := make([]float64, VectorDimension)
-		for i, v := range embedding {
-			vec64[i] = float64(v)
-		}
-		
 		// Add to HNSW - the ID is the document ID
-		if err := idx.hnswIndex.Add(doc.ID, vec64); err != nil {
-			idx.logger.Warn("failed to add document to HNSW index", 
-				zap.String("doc_id", doc.ID), 
-				zap.Error(err))
-			// Continue even if HNSW fails - BM25 is still available
-		}
+		// Note: coder/hnsw uses []float32 directly, no conversion needed
+		idx.hnswIndex.Add(hnsw.MakeNode(doc.ID, embedding))
 	}
 
 	// Store document
@@ -277,97 +274,6 @@ func (idx *Index) AddDocument(doc *types.Document, embedding []float32) error {
 func (idx *Index) Search(ctx context.Context, queryText string, queryEmbedding []float32, topK int) ([]SearchResult, error) {
 	// Delegate to HybridSearch which now includes snippet extraction
 	return idx.HybridSearch(queryText, queryEmbedding, topK)
-}
-
-// searchBM25 performs BM25 text search
-func (idx *Index) searchBM25(queryText string, topK int) ([]*query.StringQuery, error) {
-	// Create a query string query
-	q := bleve.NewQueryStringQuery(queryText)
-	
-	// Create search request
-	searchRequest := bleve.NewSearchRequest(q)
-	searchRequest.Size = topK
-	searchRequest.Fields = []string{"*"}
-
-	// Execute search
-	searchResult, err := idx.bleveIndex.Search(searchRequest)
-	if err != nil {
-		return nil, err
-	}
-
-	return nil, nil // We'll process searchResult directly in merge
-}
-
-// searchVector performs vector similarity search using HNSW
-func (idx *Index) searchVector(queryEmbedding []float32, topK int) ([]hnsw.Neighbor, error) {
-	if len(queryEmbedding) != VectorDimension {
-		return nil, nil
-	}
-
-	// Convert []float32 to []float64
-	vec64 := make([]float64, VectorDimension)
-	for i, v := range queryEmbedding {
-		vec64[i] = float64(v)
-	}
-
-	// Search HNSW
-	neighbors, err := idx.hnswIndex.Search(vec64, topK)
-	if err != nil {
-		return nil, err
-	}
-
-	return neighbors, nil
-}
-
-// mergeResults merges BM25 and vector search results
-func (idx *Index) mergeResults(bm25Hits []*query.StringQuery, vectorNeighbors []hnsw.Neighbor, topK int) []SearchResult {
-	resultMap := make(map[string]*SearchResult)
-
-	// Process BM25 results
-	if bm25Hits == nil {
-		// Actually we need to get the real results from bleve search
-		// This is a placeholder - the actual implementation processes searchResult
-	}
-
-	// For now, simplified merge - in production this would properly merge scores
-	// from both BM25 and vector search with proper normalization
-
-	var results []SearchResult
-	seen := make(map[string]bool)
-
-	// Add vector results first (they have better semantic matching)
-	for _, neighbor := range vectorNeighbors {
-		if seen[neighbor.ID] {
-			continue
-		}
-		seen[neighbor.ID] = true
-
-		doc, ok := idx.documents[neighbor.ID]
-		if !ok {
-			continue
-		}
-
-		// Convert cosine distance to similarity score (0-1)
-		// HNSW returns distance, so we convert: similarity = 1 - distance
-		similarity := 1.0 - neighbor.Distance
-		if similarity < 0 {
-			similarity = 0
-		}
-
-		results = append(results, SearchResult{
-			DocumentID: doc.ID,
-			Title:      doc.Title,
-			Content:    idx.truncateContent(doc.Content, 500),
-			Score:      similarity,
-			Source:     "vector",
-		})
-
-		if len(results) >= topK {
-			break
-		}
-	}
-
-	return results
 }
 
 // SearchWithBleve performs a bleve search and returns results with keyword-based snippets
@@ -423,27 +329,18 @@ func (idx *Index) SearchWithVector(queryEmbedding []float32, topK int, queryText
 		return nil, fmt.Errorf("invalid embedding dimension: expected %d, got %d", VectorDimension, len(queryEmbedding))
 	}
 
-	// Convert []float32 to []float64
-	vec64 := make([]float64, VectorDimension)
-	for i, v := range queryEmbedding {
-		vec64[i] = float64(v)
-	}
-
-	// Search HNSW
-	neighbors, err := idx.hnswIndex.Search(vec64, topK)
-	if err != nil {
-		return nil, err
-	}
+	// Search HNSW - coder/hnsw uses []float32 directly
+	neighbors := idx.hnswIndex.Search(queryEmbedding, topK)
 
 	var results []SearchResult
 	for _, neighbor := range neighbors {
-		doc, ok := idx.documents[neighbor.ID]
+		doc, ok := idx.documents[neighbor.Key]
 		if !ok {
 			continue
 		}
 
-		// Convert cosine distance to similarity score
-		similarity := 1.0 - neighbor.Distance
+		// Calculate cosine similarity from the query and neighbor vectors
+		similarity := float64(ComputeSimilarity(queryEmbedding, neighbor.Value))
 		if similarity < 0 {
 			similarity = 0
 		}
@@ -583,9 +480,9 @@ func (idx *Index) RemoveDocument(docID string) error {
 		return fmt.Errorf("failed to delete from bleve: %w", err)
 	}
 
-	// Delete from HNSW
-	if err := idx.hnswIndex.Delete(docID); err != nil {
-		idx.logger.Warn("failed to delete from HNSW", zap.String("doc_id", docID), zap.Error(err))
+	// Delete from HNSW - coder/hnsw Delete returns bool
+	if !idx.hnswIndex.Delete(docID) {
+		idx.logger.Warn("failed to delete from HNSW", zap.String("doc_id", docID))
 	}
 
 	// Delete from documents map

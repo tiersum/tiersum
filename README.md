@@ -538,4 +538,4 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 - Inspired by [Anthropic's Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval)
 - MCP Protocol by [Anthropic](https://modelcontextprotocol.io)
-- Built with [Gin](https://gin-gonic.com), [Goldmark](https://github.com/yuin/goldmark), [Bleve](https://blevesearch.com), [HNSW](https://github.com/chewxy/hnsw)
+- Built with [Gin](https://gin-gonic.com), [Goldmark](https://github.com/yuin/goldmark), [Bleve](https://blevesearch.com), [HNSW](https://github.com/coder/hnsw)

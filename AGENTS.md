@@ -448,7 +448,7 @@ ILLMProvider interface {
 - **Web**: Gin (`github.com/gin-gonic/gin`)
 - **MCP**: `github.com/mark3labs/mcp-go`
 - **Search**: Bleve (`github.com/blevesearch/bleve/v2`) for BM25
-- **Vector**: HNSW (`github.com/chewxy/hnsw`) for vector similarity
+- **Vector**: HNSW (`github.com/coder/hnsw`) for vector similarity
 - **SQLite**: `github.com/mattn/go-sqlite3` (default)
 - **Postgres**: `github.com/jackc/pgx/v5` (optional)
 - **Markdown**: `github.com/yuin/goldmark`

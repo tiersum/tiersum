@@ -537,4 +537,4 @@ npm run build        # 生产构建
 
 - 灵感来自 [Anthropic's Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval)
 - MCP 协议由 [Anthropic](https://modelcontextprotocol.io) 开发
-- 基于 [Gin](https://gin-gonic.com)、[Goldmark](https://github.com/yuin/goldmark)、[Bleve](https://blevesearch.com)、[HNSW](https://github.com/chewxy/hnsw) 构建
+- 基于 [Gin](https://gin-gonic.com)、[Goldmark](https://github.com/yuin/goldmark)、[Bleve](https://blevesearch.com)、[HNSW](https://github.com/coder/hnsw) 构建
