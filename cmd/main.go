@@ -97,6 +97,19 @@ func runServer(cmd *cobra.Command, args []string) {
 	router := gin.New()
 	router.Use(gin.Recovery())
 
+	// Static files configuration
+	webDir := viper.GetString("server.web_dir")
+	if webDir == "" {
+		webDir = "./web/dist"
+	}
+	webDirExists := false
+	if _, err := os.Stat(webDir); err == nil {
+		webDirExists = true
+		logger.Info("Serving static files", zap.String("dir", webDir))
+	} else {
+		logger.Warn("Web directory not found, API-only mode", zap.String("dir", webDir))
+	}
+
 	// Health check
 	router.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -115,16 +128,14 @@ func runServer(cmd *cobra.Command, args []string) {
 		router.GET("/mcp/sse", deps.MCPServer.SSEHandler())
 	}
 
-	// Static files - serve frontend
-	webDir := viper.GetString("server.web_dir")
-	if webDir == "" {
-		webDir = "./web/dist"
-	}
-	if _, err := os.Stat(webDir); err == nil {
-		router.Static("/", webDir)
-		logger.Info("Serving static files", zap.String("dir", webDir))
-	} else {
-		logger.Warn("Web directory not found, API-only mode", zap.String("dir", webDir))
+	// Static files - serve after API routes to avoid conflicts
+	if webDirExists {
+		// Serve static files from /static path
+		router.Static("/static", webDir)
+		// Use NoRoute for SPA fallback - serve index.html for non-API routes
+		router.NoRoute(func(c *gin.Context) {
+			c.File(webDir + "/index.html")
+		})
 	}
 
 	// Start server
