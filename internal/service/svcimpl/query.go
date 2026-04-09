@@ -215,7 +215,7 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 	results := s.buildResults(chapters)
 
 	// Record metrics
-	metrics.QueryDuration.WithLabelValues("hot_path").Observe(time.Since(start).Seconds())
+	metrics.RecordQueryLatency(metrics.QueryPathHot, time.Since(start).Seconds(), len(results))
 
 	return results, steps, nil
 }
