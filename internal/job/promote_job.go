@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
@@ -47,14 +48,19 @@ func (j *PromoteJob) Interval() time.Duration {
 // Execute performs the promotion job
 // Finds cold documents with query_count > 3 and promotes them to hot status
 func (j *PromoteJob) Execute(ctx context.Context) error {
+	start := time.Now()
 	j.logger.Info("running document promotion job")
 
 	// Find cold documents that need promotion (query_count > 3)
 	docs, err := j.docRepo.ListByStatus(ctx, types.DocStatusCold, 100)
 	if err != nil {
 		j.logger.Error("failed to list cold documents", zap.Error(err))
+		metrics.RecordJobExecution(j.Name(), false, time.Since(start).Seconds())
 		return err
 	}
+
+	// Update cold document count metric
+	metrics.UpdateDocumentCount(string(types.DocStatusCold), len(docs))
 
 	var promotedCount int
 	for _, doc := range docs {
@@ -70,9 +76,15 @@ func (j *PromoteJob) Execute(ctx context.Context) error {
 		}
 	}
 
+	// Get hot document count
+	hotDocs, _ := j.docRepo.ListByStatus(ctx, types.DocStatusHot, 0)
+	metrics.UpdateDocumentCount(string(types.DocStatusHot), len(hotDocs))
+
 	j.logger.Info("document promotion job completed",
 		zap.Int("checked", len(docs)),
 		zap.Int("promoted", promotedCount))
+
+	metrics.RecordJobExecution(j.Name(), true, time.Since(start).Seconds())
 	return nil
 }
 
@@ -114,6 +126,9 @@ func (j *PromoteJob) promoteDocument(ctx context.Context, doc *types.Document) e
 	j.logger.Info("document promoted successfully",
 		zap.String("doc_id", doc.ID),
 		zap.Int("chapters", len(analysis.Chapters)))
+
+	// Record promotion metric
+	metrics.RecordDocumentPromotion(string(types.DocStatusCold), string(types.DocStatusHot))
 
 	return nil
 }

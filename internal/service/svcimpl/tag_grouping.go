@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
+	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
@@ -181,6 +182,9 @@ Response format (JSON only):
   {"tag": "another-tag", "relevance": 0.82}
 ]`, query, tagList.String())
 
+	// Record LLM call metric
+	metrics.RecordLLMCall(metrics.PathL2TagFilter, estimateTokens(prompt))
+
 	response, err := s.provider.Generate(ctx, prompt, 1500)
 	if err != nil {
 		s.logger.Error("LLM tag filter failed", zap.Error(err))
@@ -231,6 +235,9 @@ Response format (JSON only):
 ]
 
 Make sure every tag appears in exactly one category.`, targetGroups, tagList)
+
+	// Record LLM call metric
+	metrics.RecordLLMCall(metrics.PathTagGroup, estimateTokens(prompt))
 
 	response, err := s.provider.Generate(ctx, prompt, 3000)
 	if err != nil {

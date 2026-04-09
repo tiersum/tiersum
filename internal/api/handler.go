@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
@@ -66,6 +67,9 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 
 	// Quota endpoint
 	router.GET("/quota", h.GetQuota)
+
+	// Prometheus metrics endpoint
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 }
 
 // CreateDocument creates a new document

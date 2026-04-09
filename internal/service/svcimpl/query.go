@@ -162,6 +162,7 @@ func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQu
 
 // queryHotPath performs the hot document query path (tag-based progressive)
 func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryRequest) ([]types.QueryItem, []types.ProgressiveQueryStep, error) {
+	start := time.Now()
 	var steps []types.ProgressiveQueryStep
 
 	// Step 1: Get L1 clusters and filter to get relevant L2 tags
@@ -209,10 +210,64 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 		Duration: time.Since(step3Start).Milliseconds(),
 	})
 
-	// Step 5.4: Build final results
+	// Step 4: Build final results
 	results := s.buildResults(chapters)
 
+	// Record metrics
+	duration := time.Since(start).Seconds()
+	metrics.RecordQueryLatency(metrics.QueryPathHot, duration, len(results))
+
 	return results, steps, nil
+}
+
+// queryColdPath performs the cold document query path (BM25 + vector)
+func (s *QuerySvc) queryColdPath(ctx context.Context, req types.ProgressiveQueryRequest) ([]types.QueryItem, types.ProgressiveQueryStep, error) {
+	start := time.Now()
+
+	if s.memIndex == nil {
+		return nil, types.ProgressiveQueryStep{
+			Step:     "cold_docs",
+			Input:    req.Question,
+			Output:   0,
+			Duration: time.Since(start).Milliseconds(),
+		}, nil
+	}
+
+	// Generate query embedding (simplified - in production use proper embedding model)
+	queryEmbedding := memory.GenerateSimpleEmbedding(req.Question)
+
+	// Perform hybrid search
+	searchResults, err := s.memIndex.HybridSearch(req.Question, queryEmbedding, req.MaxResults/2)
+	if err != nil {
+		return nil, types.ProgressiveQueryStep{}, fmt.Errorf("hybrid search failed: %w", err)
+	}
+
+	// Convert search results to query items
+	var results []types.QueryItem
+	for _, sr := range searchResults {
+		results = append(results, types.QueryItem{
+			ID:        sr.DocumentID,
+			Title:     sr.Title,
+			Content:   sr.Content,
+			Tier:      types.TierChapter,
+			Path:      sr.DocumentID + "/snippet",
+			Relevance: sr.Score,
+			IsSource:  false,
+		})
+	}
+
+	step := types.ProgressiveQueryStep{
+		Step:     "cold_docs",
+		Input:    req.Question,
+		Output:   len(results),
+		Duration: time.Since(start).Milliseconds(),
+	}
+
+	// Record metrics
+	duration := time.Since(start).Seconds()
+	metrics.RecordQueryLatency(metrics.QueryPathCold, duration, len(results))
+
+	return results, step, nil
 }
 
 // queryColdPath performs the cold document query path (BM25 + vector)

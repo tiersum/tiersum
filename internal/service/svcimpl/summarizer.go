@@ -7,11 +7,13 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
+	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/pkg/types"
 )
@@ -102,6 +104,9 @@ Return ONLY the JSON object, no other text.`,
 		s.config.ChapterSummaryMax,
 	)
 
+	// Record LLM call metric
+	metrics.RecordLLMCall(metrics.PathDocAnalyze, estimateTokens(prompt))
+
 	response, err := s.provider.Generate(ctx, prompt, 4000)
 	if err != nil {
 		return nil, fmt.Errorf("LLM generation failed: %w", err)
@@ -147,11 +152,14 @@ Only include documents with relevance >= 0.5. Sort by relevance descending.
 Documents:
 %s
 
-Response format (JSON only):
+	Response format (JSON only):
 [
   {"id": "doc_id", "relevance": 0.95},
   ...
 ]`, query, docList.String())
+
+	// Record LLM call metric
+	metrics.RecordLLMCall(metrics.PathDocFilter, estimateTokens(prompt))
 
 	response, err := s.provider.Generate(ctx, prompt, 1500)
 	if err != nil {
@@ -183,11 +191,14 @@ Only include chapters with relevance >= 0.5. Sort by relevance descending.
 Chapters:
 %s
 
-Response format (JSON only):
+	Response format (JSON only):
 [
   {"id": "doc_id/chapter_title", "relevance": 0.88},
   ...
 ]`, query, chapterList.String())
+
+	// Record LLM call metric
+	metrics.RecordLLMCall(metrics.PathChapterFilter, estimateTokens(prompt))
 
 	response, err := s.provider.Generate(ctx, prompt, 1500)
 	if err != nil {
@@ -221,11 +232,14 @@ Select at most 3 groups.
 Available tag groups:
 %s
 
-Response format (JSON only):
+	Response format (JSON only):
 [
   {"id": "group_id", "relevance": 0.95},
   {"id": "another_group_id", "relevance": 0.82}
 ]`, query, groupList.String())
+
+	// Record LLM call metric
+	metrics.RecordLLMCall(metrics.PathL1GroupFilter, estimateTokens(prompt))
 
 	response, err := s.provider.Generate(ctx, prompt, 1500)
 	if err != nil {
@@ -256,11 +270,14 @@ Only include tags with relevance >= 0.5. Sort by relevance descending.
 Available tags:
 %s
 
-Response format (JSON only):
+	Response format (JSON only):
 [
   {"tag": "tag-name", "relevance": 0.95},
   {"tag": "another-tag", "relevance": 0.82}
 ]`, query, tagList.String())
+
+	// Record LLM call metric
+	metrics.RecordLLMCall(metrics.PathL2TagFilter, estimateTokens(prompt))
 
 	response, err := s.provider.Generate(ctx, prompt, 1500)
 	if err != nil {
@@ -477,6 +494,34 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// estimateTokens provides a rough token estimate
+func estimateTokens(text string) int {
+	if text == "" {
+		return 0
+	}
+	// Rough heuristic: 1 token ~ 2.5 characters for mixed content
+	charCount := len(text)
+
+	// Count Chinese characters (typically 1 char = 1 token)
+	chineseCount := 0
+	for _, r := range text {
+		if r > 127 {
+			chineseCount++
+		}
+	}
+
+	// Adjust calculation based on Chinese character ratio
+	if chineseCount > 0 {
+		// Mixed content: Chinese chars + English tokens
+		englishChars := charCount - chineseCount
+		tokens := chineseCount + englishChars/4
+		return tokens
+	}
+
+	// English only: ~4 chars per token
+	return charCount / 4
 }
 
 var _ service.ISummarizer = (*SummarizerSvc)(nil)
