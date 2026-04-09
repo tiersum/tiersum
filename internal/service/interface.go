@@ -17,6 +17,8 @@ type IDocumentService interface {
 	Get(ctx context.Context, id string) (*types.Document, error)
 	// GetRecent retrieves recent documents up to a limit
 	GetRecent(ctx context.Context, limit int) ([]*types.Document, error)
+	// List retrieves all documents
+	List(ctx context.Context) ([]types.Document, error)
 }
 
 // IQueryService defines query business logic

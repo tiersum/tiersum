@@ -228,6 +228,11 @@ func (s *DocumentSvc) GetRecent(ctx context.Context, limit int) ([]*types.Docume
 	return s.docRepo.GetRecent(ctx, limit)
 }
 
+// List implements IDocumentService.List
+func (s *DocumentSvc) List(ctx context.Context) ([]types.Document, error) {
+	return s.docRepo.ListAll(ctx, 1000)
+}
+
 // truncateContent truncates content to max length
 func truncateContent(content string, maxLen int) string {
 	if len(content) <= maxLen {

@@ -33,6 +33,14 @@ export interface Document {
   created_at: string
 }
 
+export interface CreateDocumentRequest {
+  title: string
+  content: string
+  format: string
+  tags: string[]
+  force_hot?: boolean
+}
+
 export interface SummaryNode {
   id: string
   document_id: string
@@ -84,6 +92,19 @@ export const api = {
   },
 
   // Documents
+  getDocuments: async () => {
+    const res = await fetchAPI<{ documents: Document[] }>('/api/v1/documents')
+    return res.documents
+  },
+
+  createDocument: async (doc: CreateDocumentRequest) => {
+    const res = await fetchAPI<Document>('/api/v1/documents', {
+      method: 'POST',
+      body: JSON.stringify(doc),
+    })
+    return res
+  },
+
   getDocument: async (id: string) => {
     const res = await fetchAPI<{ document?: Document } & Document>(`/api/v1/documents/${id}`)
     // Handle both wrapped and unwrapped responses

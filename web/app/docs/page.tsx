@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { ArrowLeft, FileText, Plus, Calendar, Hash, Sparkles, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,44 +13,37 @@ import { Input } from "@/components/ui/input";
 import { Document, api } from "@/lib/api";
 import { UploadDialog } from "./_components/upload-dialog";
 
-// Mock data for now - would be fetched from API
-const mockDocuments: Document[] = [
-  {
-    id: "doc-001",
-    title: "Getting Started with TierSum",
-    content: "TierSum is a hierarchical summary knowledge base...",
-    format: "markdown",
-    tags: ["tutorial", "getting-started"],
-    status: "indexed",
-    hot_score: 0.95,
-    query_count: 42,
-    created_at: "2024-01-15T10:00:00Z",
-  },
-  {
-    id: "doc-002",
-    title: "Architecture Overview",
-    content: "The system uses a 5-layer architecture...",
-    format: "markdown",
-    tags: ["architecture", "design"],
-    status: "indexed",
-    hot_score: 0.88,
-    query_count: 28,
-    created_at: "2024-01-14T15:30:00Z",
-  },
-];
-
 export default function DocsPage() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
-  useEffect(() => {
-    // Simulate API call
-    setTimeout(() => {
-      setDocuments(mockDocuments);
+  const loadDocuments = useCallback(async () => {
+    try {
+      setLoading(true);
+      const docs = await api.getDocuments();
+      setDocuments(docs);
+    } catch (error) {
+      console.error("Failed to load documents:", error);
+    } finally {
       setLoading(false);
-    }, 500);
+    }
   }, []);
+
+  useEffect(() => {
+    loadDocuments();
+  }, [loadDocuments]);
+
+  const handleUpload = async (doc: {
+    title: string;
+    content: string;
+    format: string;
+    tags: string[];
+  }) => {
+    await api.createDocument(doc);
+    // Refresh the list after upload
+    await loadDocuments();
+  };
 
   const filteredDocs = documents.filter(doc =>
     doc.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -98,12 +91,7 @@ export default function DocsPage() {
               Browse and manage your knowledge base documents
             </p>
           </div>
-          <UploadDialog 
-            onUpload={async (doc) => {
-              // TODO: Implement actual upload
-              console.log("Uploading document:", doc);
-            }}
-          />
+          <UploadDialog onUpload={handleUpload} />
         </div>
 
         {/* Search */}
@@ -135,11 +123,7 @@ export default function DocsPage() {
               <FileText className="w-16 h-16 mx-auto mb-4 text-slate-600" />
               <h3 className="text-xl font-medium text-slate-300 mb-2">No documents found</h3>
               <p className="text-slate-500 mb-6">Get started by adding your first document</p>
-              <UploadDialog 
-                onUpload={async (doc) => {
-                  console.log("Uploading document:", doc);
-                }}
-              />
+              <UploadDialog onUpload={handleUpload} />
             </div>
           ) : (
             filteredDocs.map((doc) => (
@@ -156,6 +140,15 @@ export default function DocsPage() {
                           <Badge variant="outline" className="border-blue-500/50 text-blue-400 text-xs">
                             {doc.format}
                           </Badge>
+                          <Badge variant="secondary" className={`text-xs ${
+                            doc.status === 'hot' 
+                              ? 'bg-orange-500/20 text-orange-400' 
+                              : doc.status === 'cold'
+                              ? 'bg-blue-500/20 text-blue-400'
+                              : 'bg-slate-800 text-slate-400'
+                          }`}>
+                            {doc.status}
+                          </Badge>
                         </div>
                         <p className="text-slate-500 text-sm mb-3 line-clamp-1">
                           {doc.content.substring(0, 100)}...
@@ -165,18 +158,17 @@ export default function DocsPage() {
                             <Calendar className="w-4 h-4" />
                             {formatDate(doc.created_at)}
                           </div>
-                          <div className="flex items-center gap-1 text-slate-500">
-                            <Hash className="w-4 h-4" />
-                            {doc.tags.join(", ")}
-                          </div>
-                          <Badge variant="secondary" className="bg-slate-800 text-slate-400">
-                            {doc.status}
-                          </Badge>
+                          {doc.tags && doc.tags.length > 0 && (
+                            <div className="flex items-center gap-1 text-slate-500">
+                              <Hash className="w-4 h-4" />
+                              {doc.tags.join(", ")}
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="text-right ml-4">
                         <div className="text-2xl font-bold text-slate-200">
-                          {doc.hot_score.toFixed(2)}
+                          {(doc.hot_score || 0).toFixed(2)}
                         </div>
                         <div className="text-xs text-slate-500">hot score</div>
                       </div>

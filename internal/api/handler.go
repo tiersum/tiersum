@@ -88,10 +88,14 @@ func (h *Handler) CreateDocument(c *gin.Context) {
 
 // ListDocuments lists all documents
 func (h *Handler) ListDocuments(c *gin.Context) {
-	// For now, return empty list
-	// TODO: Implement pagination
+	docs, err := h.DocService.List(c.Request.Context())
+	if err != nil {
+		h.Logger.Error("failed to list documents", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list documents"})
+		return
+	}
 	c.JSON(http.StatusOK, gin.H{
-		"documents": []types.Document{},
+		"documents": docs,
 	})
 }
 
