@@ -1,11 +1,27 @@
+<!-- From: /Users/luodaijun/GolandProjects/tiersum/AGENTS.md -->
 # AGENTS.md — TierSum
+
+## Project Overview
+
+TierSum is a **Hierarchical Summary Knowledge Base** — a RAG-free document retrieval system powered by multi-layer abstraction and hot/cold document tiering. It uses a two-tier document storage strategy to balance LLM cost and query performance while preserving knowledge architecture through layered summarization.
+
+**Key Characteristics:**
+- **Language:** Go 1.23+ (backend), TypeScript/React (frontend)
+- **Architecture:** 5-Layer Architecture with Interface+Impl Pattern
+- **Database:** SQLite (default) or PostgreSQL (optional)
+- **Search:** BM25 (Bleve) + Vector (HNSW) hybrid search for cold documents
+- **LLM Integration:** OpenAI, Anthropic, or local (Ollama)
+- **Protocol Support:** REST API + MCP (Model Context Protocol)
+- **Frontend:** Next.js 14 with Slate dark theme
+
+---
 
 ## Quick Commands
 
 ```bash
 # Build server binary
 make build                  # Output: ./build/tiersum
-go build -o tiersum ./cmd/server  # Direct go build
+go build -o tiersum ./cmd   # Direct go build
 
 # Development
 make run                    # Build + run with config.yaml
@@ -31,71 +47,100 @@ cd web && npm run dev       # Development server
 cd web && npm run build     # Build static files to web/dist/
 ```
 
+---
+
+## Technology Stack
+
+### Backend (Go)
+| Component | Technology |
+|-----------|------------|
+| Web Framework | Gin (`github.com/gin-gonic/gin`) |
+| MCP Protocol | `github.com/mark3labs/mcp-go` |
+| Search | Bleve v2 (BM25 text search) |
+| Vector Search | HNSW (`github.com/coder/hnsw`) |
+| Chinese Tokenization | gojieba (`github.com/yanyiwu/gojieba`) |
+| Database | SQLite (`github.com/mattn/go-sqlite3`) or PostgreSQL |
+| CLI | Cobra + Viper |
+| Logging | Uber Zap |
+| Testing | Testify |
+
+### Frontend (Next.js)
+| Component | Technology |
+|-----------|------------|
+| Framework | Next.js 16.2.2 (App Router) |
+| Language | TypeScript 5 |
+| React | React 19.2.4 |
+| Styling | Tailwind CSS 4 |
+| UI Components | shadcn/ui |
+| Icons | Lucide React |
+
+---
+
 ## Project Structure
-
-Go module: `github.com/tiersum/tiersum` (Go 1.23+)
-
-### 5-Layer Architecture with Interface+Impl Pattern
 
 ```
 cmd/
-  main.go              # API server entrypoint (main binary)
-configs/               # Configuration files
-deployments/
-  docker/              # Docker and docker-compose files
+  main.go                    # API server entrypoint (single binary)
+configs/
+  config.example.yaml        # Configuration template
 db/
-  migrations/          # Database migration files
+  migrations/                # Database migration files
     001_initial_schema.sql
     002_topic_summaries.sql
-    003_topic_source.sql
-    004_add_is_source.sql
-    005_tag_clustering.sql
-    006_hot_cold_tier.sql
-    007_add_embedding.sql
+deployments/
+  docker/
+    Dockerfile               # Multi-stage build (Go 1.23-alpine)
+    docker-compose.yml       # SQLite default, optional PostgreSQL
 internal/
-  api/                 # Layer 1: API Layer
-    handler.go         # REST API handlers
-    mcp.go             # MCP protocol handlers
-  service/             # Layer 2: Service Layer
-    interface.go       # I-prefixed service interfaces
-    svcimpl/           # Implementation subpackage
-      document.go      # DocumentSvc implements IDocumentService
-      query.go         # QuerySvc implements IQueryService
-      tag_grouping.go  # TagGroupSvc implements ITagGroupService
-      indexer.go       # IndexerSvc implements IIndexer
-      summarizer.go    # SummarizerSvc implements ISummarizer
-      quota.go         # QuotaManager for hot doc rate limiting
-  storage/             # Layer 3: Storage Layer
-    interface.go       # I-prefixed storage interfaces
-    db/                # Database repository implementations
-      repository.go    # DocumentRepo, SummaryRepo, TagRepo, TagGroupRepo
-      schema.go        # Database schema definitions
-      migrator.go      # Schema migration manager
-    cache/             # Cache implementation
-      cache.go         # Cache implements ICache
-    memory/            # In-memory index for cold documents
-      index.go         # BM25 + Vector hybrid index with snippet extraction
-  client/              # Layer 4: Client Layer
-    interface.go       # I-prefixed client interfaces
-    llm/               # LLM client implementations
-      openai.go        # OpenAIProvider implements ILLMProvider
-  job/                 # Job Layer (background tasks)
-    scheduler.go       # Job scheduler
-    jobs.go            # IndexerJob, TagGroupJob
-    promote_job.go     # Cold-to-hot promotion job
-    hotscore_job.go    # Hot score recalculation job
-  di/                  # Dependency Injection (composition root)
-    container.go       # Wires all layers together
-web/                   # Next.js frontend (Next.js 14 + shadcn/ui)
-  app/                 # App Router
-    page.tsx           # Query homepage with progressive search
-    docs/              # Document pages
-    tags/              # Tag browser
-  components/ui/       # shadcn/ui components
-  lib/api.ts           # API client
-  dist/                # Static export output (for Gin hosting)
-pkg/types/             # Public API types
+  api/                       # Layer 1: API Layer
+    handler.go               # REST API handlers
+    handler_test.go          # Handler tests
+    mcp.go                   # MCP protocol handlers
+  service/                   # Layer 2: Service Layer
+    interface.go             # I-prefixed service interfaces
+    svcimpl/                 # Implementation subpackage
+      document.go            # DocumentSvc implements IDocumentService
+      query.go               # QuerySvc implements IQueryService
+      tag_grouping.go        # TagGroupSvc implements ITagGroupService
+      indexer.go             # IndexerSvc implements IIndexer
+      summarizer.go          # SummarizerSvc implements ISummarizer
+      quota.go               # QuotaManager for hot doc rate limiting
+      *_test.go              # Unit tests with mocks
+  storage/                   # Layer 3: Storage Layer
+    interface.go             # I-prefixed storage interfaces
+    db/                      # Database repository implementations
+      repository.go          # DocumentRepo, SummaryRepo, TagRepo, TagGroupRepo
+      schema.go              # Database schema definitions
+      migrator.go            # Schema migration manager
+    cache/                   # Cache implementation
+      cache.go               # Cache implements ICache
+    memory/                  # In-memory index for cold documents
+      index.go               # BM25 + Vector hybrid index with Chinese support
+  client/                    # Layer 4: Client Layer
+    interface.go             # I-prefixed client interfaces
+    llm/                     # LLM client implementations
+      openai.go              # OpenAIProvider implements ILLMProvider
+  job/                       # Job Layer (background tasks)
+    scheduler.go             # Job scheduler
+    jobs.go                  # IndexerJob, TagGroupJob
+    promote_job.go           # Cold-to-hot promotion job
+    hotscore_job.go          # Hot score recalculation job
+  di/                        # Dependency Injection (composition root)
+    container.go             # Wires all layers together
+pkg/types/                   # Public API types
+  document.go                # Document, Summary, Tag types
+  query.go                   # Query request/response types
+web/                         # Next.js frontend
+  app/                       # App Router
+    page.tsx                 # Query homepage with progressive search
+    docs/                    # Document pages
+    tags/                    # Tag browser
+  components/ui/             # shadcn/ui components
+  lib/api.ts                 # API client
+  dist/                      # Static export output (for Gin hosting)
 ```
+
+---
 
 ## Architecture Principles
 
@@ -115,25 +160,161 @@ Job Layer can use: Service Layer, Storage Layer
 
 ### Key Rules
 
-1. **Interface+Impl Pattern**: Each layer defines interfaces in `interface.go`, implementations in subpackage
+1. **Interface+Impl Pattern**: Each layer defines interfaces in `interface.go`, implementations in subpackage (`svcimpl/` for services)
 2. **I-prefix Naming**: All interfaces start with I (e.g., `IDocumentService`, `ICache`, `ILLMProvider`)
 3. **Layer owns interfaces**: No central ports package, each layer manages its own interfaces
 4. **DI in di/**: All wiring happens in `internal/di/container.go`
 5. **API unified**: REST and MCP handlers in same package (`internal/api/`)
 6. **English Comments Only**: All code comments must be written in English
 
+---
+
+## Build Process
+
+### Local Development
+```bash
+# Install dependencies
+make deps
+
+# Copy and configure
+cp configs/config.example.yaml configs/config.yaml
+# Edit configs/config.yaml and set OPENAI_API_KEY
+
+# Build
+make build
+
+# Run with hot reload (requires air)
+make dev
+```
+
+### Production Build
+```bash
+# Build for current platform
+make build
+
+# Build for all platforms (Linux, Darwin, Windows)
+make build-all
+
+# Docker build
+make docker-build
+```
+
+### Frontend Build
+```bash
+cd web
+npm install
+npm run build  # Output: web/dist/ (served by Gin)
+```
+
+---
+
+## Configuration
+
+Key configuration file: `configs/config.yaml` (copy from `config.example.yaml`)
+
+### Required Settings
+```yaml
+llm:
+  provider: openai
+  openai:
+    api_key: ${OPENAI_API_KEY}  # Required environment variable
+```
+
+### Key Configuration Sections
+| Section | Purpose |
+|---------|---------|
+| `server` | HTTP port, CORS, timeouts |
+| `llm` | OpenAI/Anthropic/Local provider settings |
+| `storage.database` | SQLite (default) or PostgreSQL |
+| `quota` | Hot document rate limiting (default: 100/hour) |
+| `memory_index` | HNSW parameters for vector search |
+| `documents.tiering` | Hot/cold thresholds |
+| `mcp` | MCP protocol settings |
+
+---
+
+## Testing Strategy
+
+### Running Tests
+```bash
+# Run all tests with coverage
+make test
+
+# Run specific package tests
+go test -v ./internal/service/svcimpl/
+
+# Run with race detection
+go test -race ./...
+```
+
+### Test Structure
+- Test files: `*_test.go` alongside source files
+- Mock implementations in `internal/service/svcimpl/mocks_test.go`
+- Uses `testify/assert` and `testify/require`
+- Tests cover:
+  - Hot/cold document tiering logic
+  - Progressive query filtering
+  - Tag grouping
+  - Quota management
+  - API handlers
+
+### Adding New Tests
+```go
+func TestFeature(t *testing.T) {
+    // Create mocks
+    docRepo := NewMockDocumentRepository()
+    
+    // Create service with mocks
+    svc := NewDocumentSvc(docRepo, ...)
+    
+    // Execute and assert
+    result, err := svc.Method(ctx, req)
+    require.NoError(t, err)
+    assert.Equal(t, expected, result)
+}
+```
+
+---
+
+## Database Schema
+
+### Documents Table
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT | Primary key (UUID) |
+| title | TEXT | Document title |
+| content | TEXT | Full markdown content |
+| format | TEXT | 'markdown' or 'md' |
+| tags | TEXT[] | Document tags (hot docs) |
+| status | TEXT | 'hot', 'cold', 'warming' |
+| hot_score | REAL | Calculated hot score |
+| query_count | INTEGER | Number of queries |
+| last_query_at | TIMESTAMP | Last access time |
+| created_at | TIMESTAMP | Creation time |
+
+### Summaries Table
+| Column | Type | Description |
+|--------|------|-------------|
+| id | TEXT | Primary key |
+| document_id | FK | Reference to documents |
+| tier | TEXT | 'document', 'chapter', 'source' |
+| path | TEXT | 'doc_id' or 'doc_id/chapter_title' |
+| content | TEXT | Summary or source content |
+
+### Global Tags & Tag Clusters
+- `global_tags` - Level 2 tags with document counts
+- `tag_clusters` - Level 1 groups (created by LLM clustering)
+
+---
+
 ## Hot/Cold Document Tiering
 
-TierSum uses a two-tier document storage strategy to balance LLM cost and query performance:
-
 ### Document Status
-
 - **`hot`** - Full LLM analysis, tagged, indexed with summaries (requires quota)
 - **`cold`** - Minimal processing, stored in memory index with BM25 + vector search
 - **`warming`** - Being promoted from cold to hot (async process)
 
 ### Hot Document Criteria
-
 A document becomes hot when:
 1. Quota available (default 100/hour)
 2. AND one of:
@@ -142,7 +323,6 @@ A document becomes hot when:
    - Content length > 5000 characters
 
 ### Cold Document Flow
-
 ```
 Ingest (cold)
     ↓
@@ -159,107 +339,7 @@ If query_count >= 3 → PromoteQueue
 PromoteJob (every 5 min) → Full LLM analysis → hot
 ```
 
-### Memory Index (internal/storage/memory/index.go)
-
-**Components:**
-- **Bleve** - BM25 text search with TF-IDF scoring, now with Chinese tokenization support
-- **HNSW** - Vector similarity search (384 dimensions, cosine distance)
-- **Hybrid Search** - Combines BM25 (50%) + Vector (50%) scores
-- **Chinese Tokenization** - Integrated gojieba for Chinese text segmentation
-
-**Snippet Extraction Algorithm:**
-1. **Keyword positioning** - Extract top 10 keywords from query, locate all positions
-2. **Context window** - Take 200 chars before/after each keyword match
-3. **Deduplication & merging** - Merge overlapping snippets (threshold: 50 chars)
-4. **Max snippets** - Return up to 3 merged snippets per document
-
-```go
-const (
-    ContextWindowSize = 200   // Characters before/after keyword
-    MaxSnippetLength  = 500   // Maximum snippet length
-    MaxSnippetsPerDoc = 3     // Maximum snippets per document
-    MergeDistance     = 50    // Distance threshold for merging
-)
-```
-
-**Chinese Text Segmentation:**
-The memory index now uses gojieba for Chinese tokenization:
-- **Tokenizer**: gojieba with CutForSearch mode for better recall
-- **Analyzer**: Custom "jieba_analyzer" registered in bleve
-- **Fields**: Both title and content fields use Chinese tokenization
-- **Supported**: Mixed Chinese and English text
-
-## Two-Level Tag-Based Progressive Query
-
-The system uses a hierarchical tag structure for document organization and retrieval:
-
-### Tag Hierarchy
-
-```
-Level 1: Tag Groups (created by LLM clustering)
-    ├── "Cloud Native"
-    │       ├── Level 2: kubernetes
-    │       ├── Level 2: docker
-    │       └── Level 2: helm
-    ├── "Programming Languages"
-    │       ├── Level 2: golang
-    │       ├── Level 2: python
-    │       └── Level 2: rust
-    └── ...
-```
-
-### Progressive Query Flow
-
-```
-User Query
-    │
-    ▼
-Step 1: L2 Tag Filtering (adaptive)
-    │──▶ If tag count < 200: Direct L2 filter with LLM
-    │──▶ If tag count >= 200: L1 → L2 two-level filter
-    │       • LLM selects 1-3 relevant L1 groups
-    │       • Collect L2 tags from selected groups
-    │       • LLM filters L2 tags (relevance >= 0.5)
-    │
-    ▼
-Step 2: Query & Filter Documents
-    │──▶ Query documents by L2 tags (OR logic)
-    │──▶ Separate hot/cold documents
-    │──▶ Hot docs: LLM filter (relevance >= 0.5)
-    │──▶ Cold docs: Keyword matching
-    │
-    ▼
-Step 3: Query & Filter Chapters
-    │──▶ Get chapters for hot docs from summary repo
-    │──▶ Create pseudo-chapters for cold docs (snippets)
-    │──▶ LLM filter chapters (relevance >= 0.5)
-    │
-    ▼
-Step 4: Cold Path (parallel)
-    │──▶ BM25 + Vector hybrid search on cold docs
-    │──▶ Extract keyword-based snippets
-    │
-    ▼
-Step 5: Merge Results
-    │──▶ Combine hot and cold results
-    │──▶ Deduplicate by document ID
-    │──▶ Boost relevance if found in both paths
-    │──▶ Sort by relevance, return top K
-    │
-    ▼
-Step 6: Track Access
-    └──▶ Increment query_count
-        └──▶ If cold doc queried 3+ times → PromoteQueue
-```
-
-### Tag Grouping Job
-
-The `TagGroupJob` runs every 30 minutes to:
-1. Check if grouping is needed (tag count changed or 30 min elapsed)
-2. Use LLM to group all L2 tags into 3-10 L1 groups (target: ~10 tags per group)
-3. Clear existing groups, create new ones
-4. Update group assignments in database
-5. Log refresh metrics
+---
 
 ## Job Layer (Background Tasks)
 
@@ -275,467 +355,95 @@ The `TagGroupJob` runs every 30 minutes to:
 - Tracks last execution per job
 - 5-minute timeout per job
 
-## Interface Definitions
+---
 
-### Service Layer Interfaces (`internal/service/interface.go`)
+## API Endpoints
 
+### REST API
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/documents` | Ingest document |
+| GET | `/api/v1/documents` | List documents |
+| GET | `/api/v1/documents/:id` | Get document |
+| GET | `/api/v1/documents/:id/summaries` | Get document summaries |
+| GET | `/api/v1/query` | Legacy hierarchical query |
+| POST | `/api/v1/query/progressive` | Progressive query (recommended) |
+| GET | `/api/v1/tags` | List all tags |
+| GET | `/api/v1/tags/groups` | List tag groups (L1) |
+| POST | `/api/v1/tags/group` | Trigger tag grouping |
+| GET | `/api/v1/quota` | Check quota status |
+| GET | `/health` | Health check |
+
+### MCP Endpoints
+| Path | Description |
+|------|-------------|
+| `/mcp/sse` | MCP Server-Sent Events endpoint |
+
+---
+
+## Development Conventions
+
+### Code Style
+- **Go**: Standard Go formatting (`go fmt`)
+- **Imports**: Grouped - standard lib, third-party, internal
+- **Comments**: English only, complete sentences
+- **Error Handling**: Explicit error returns, wrapped with context
+
+### Interface Pattern
 ```go
-// Business Logic
-IDocumentService interface {
-    // Ingest processes and stores a new document
-    // Automatically generates tags, summary, and chapter summaries
-    // Uses hot/cold tiering based on quota and content size
-    Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error)
-    // Get retrieves a document by ID
-    Get(ctx context.Context, id string) (*types.Document, error)
+// In interface.go
+type IMyService interface {
+    DoSomething(ctx context.Context) error
 }
 
-IQueryService interface {
-    // Query performs hierarchical query with LLM filtering (legacy)
-    Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error)
-    // ProgressiveQuery performs the new two-level tag-based progressive query
-    // Combines hot path (LLM filtering) and cold path (BM25 + vector search)
-    ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error)
-}
+// In svcimpl/my_service.go
+type MySvc struct{}
 
-ITagGroupService interface {
-    // ClusterTags performs LLM-based clustering of all global tags
-    // Creates Level 1 clusters from Level 2 tags
-    ClusterTags(ctx context.Context) error
-    // ShouldRefresh checks if clustering should be performed
-    ShouldRefresh(ctx context.Context) (bool, error)
-    // GetL1Groups retrieves all Level 1 clusters
-    GetL1Groups(ctx context.Context) ([]types.TagGroup, error)
-    // GetL2TagsByGroup retrieves Level 2 tags belonging to a group
-    GetL2TagsByGroup(ctx context.Context, groupID string) ([]types.Tag, error)
-    // FilterL2TagsByQuery uses LLM to filter L2 tags based on query
-    FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error)
-}
+func (s *MySvc) DoSomething(ctx context.Context) error { ... }
 
-// Core Domain Logic (in service/svcimpl/)
-IIndexer interface {
-    // Index processes and indexes a document
-    // Creates document summary, chapter summaries, and stores source content
-    Index(ctx context.Context, doc *types.Document, analysis *types.DocumentAnalysisResult) error
-}
-
-ISummarizer interface {
-    // AnalyzeDocument performs full document analysis
-    // Returns document summary, tags (max 10), and chapter summaries
-    AnalyzeDocument(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error)
-    // FilterDocuments selects relevant documents based on query
-    FilterDocuments(ctx context.Context, query string, docs []types.Document) ([]types.LLMFilterResult, error)
-    // FilterChapters selects relevant chapters based on query
-    FilterChapters(ctx context.Context, query string, chapters []types.Summary) ([]types.LLMFilterResult, error)
-    // GroupTags performs LLM-based clustering of tags into groups
-    GroupTags(ctx context.Context, tags []string) (*types.TagGroupingResult, error)
-}
+// Compile-time check
+var _ service.IMyService = (*MySvc)(nil)
 ```
 
-### Storage Layer Interfaces (`internal/storage/interface.go`)
+### Adding New Features
+1. **Define interface** in layer's `interface.go`
+2. **Implement** in subpackage (e.g., `service/svcimpl/`)
+3. **Wire** in `di/container.go`
+4. **Add tests** in `*_test.go`
 
-```go
-IDocumentRepository interface {
-    Create(ctx context.Context, doc *types.Document) error
-    GetByID(ctx context.Context, id string) (*types.Document, error)
-    // ListByTags retrieves documents that match ANY of the given tags (OR logic)
-    ListByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error)
-    // ListByStatus retrieves documents by status (hot/cold/warming)
-    ListByStatus(ctx context.Context, status types.DocumentStatus, limit int) ([]types.Document, error)
-}
+---
 
-ISummaryRepository interface {
-    Create(ctx context.Context, summary *types.Summary) error
-    GetByDocument(ctx context.Context, docID string) ([]types.Summary, error)
-    // GetByPath retrieves a summary by its exact path
-    GetByPath(ctx context.Context, path string) (*types.Summary, error)
-    // QueryByTierAndPrefix queries summaries by tier and path prefix
-    QueryByTierAndPrefix(ctx context.Context, tier types.SummaryTier, pathPrefix string) ([]types.Summary, error)
-    // DeleteByDocument removes all summaries for a document
-    DeleteByDocument(ctx context.Context, docID string) error
-}
+## Security Considerations
 
-ITagRepository interface {
-    Create(ctx context.Context, tag *types.Tag) error
-    GetByName(ctx context.Context, name string) (*types.Tag, error)
-    List(ctx context.Context) ([]types.Tag, error)
-    ListByGroup(ctx context.Context, groupID string) ([]types.Tag, error)
-    IncrementDocumentCount(ctx context.Context, tagName string) error
-    DeleteAll(ctx context.Context) error
-    GetCount(ctx context.Context) (int, error)
-}
+- API key authentication supported (optional, via config)
+- JWT token authentication supported
+- CORS configuration for web UI
+- No sensitive data in logs (use zap logging)
+- Database credentials via environment variables
+- LLM API keys via environment variables
 
-ITagGroupRepository interface {
-    Create(ctx context.Context, group *types.TagGroup) error
-    GetByID(ctx context.Context, id string) (*types.TagGroup, error)
-    List(ctx context.Context) ([]types.TagGroup, error)
-    DeleteAll(ctx context.Context) error
-    GetCount(ctx context.Context) (int, error)
-}
+---
 
-ITagGroupRefreshLogRepository interface {
-    Create(ctx context.Context, tagCountBefore, tagCountAfter, groupCount int, durationMs int64) error
-    GetLastRefresh(ctx context.Context) (*TagGroupRefreshLog, error)
-}
+## Deployment
 
-ICache interface {
-    Get(key string) (interface{}, bool)
-    Set(key string, value interface{})
-}
-
-// IInMemoryIndex provides BM25 + Vector hybrid search for cold documents
-type IInMemoryIndex interface {
-    AddDocument(doc *types.Document, embedding []float32) error
-    RemoveDocument(docID string) error
-    Search(ctx context.Context, queryText string, queryEmbedding []float32, topK int) ([]SearchResult, error)
-    SearchWithBleve(queryText string, topK int) ([]SearchResult, error)
-    SearchWithVector(queryEmbedding []float32, topK int, queryText string) ([]SearchResult, error)
-    HybridSearch(queryText string, queryEmbedding []float32, topK int) ([]SearchResult, error)
-    RebuildFromDocuments(ctx context.Context, docs []types.Document, getEmbedding func(doc *types.Document) []float32) error
-    Close() error
-}
-```
-
-### Client Layer Interfaces (`internal/client/interface.go`)
-
-```go
-ILLMProvider interface {
-    Generate(ctx context.Context, prompt string, maxTokens int) (string, error)
-}
-```
-
-## Key Features
-
-### 3-Tier Summary Hierarchy
-- **Document**: Document-level summary (max 300 chars)
-- **Chapter**: Section/chapter summary + source content
-- **Source**: Original content stored separately
-
-### Two-Level Tag System
-- **Level 1 (Tag Groups)**: High-level categories created by LLM grouping (3-10 groups)
-- **Level 2 (Tags)**: Individual tags extracted from documents (max 10 per doc)
-
-### Hot/Cold Tiering
-- **Hot**: Full LLM analysis with tiered summaries, tag-based retrieval
-- **Cold**: BM25 + Vector hybrid search with keyword-based snippet extraction
-- **Promotion**: Automatic upgrade after 3+ queries
-
-### LLM-Powered Features
-- **Auto-generated tags**: Documents get tags via LLM analysis if not provided
-- **Document analysis**: Summary + tags + chapter summaries in single prompt
-- **Tag grouping**: Automatic clustering of related tags into L1 categories
-- **Progressive filtering**: LLM filters tags → documents → chapters at each step
-
-### Hybrid Search (Cold Documents)
-- **BM25**: Keyword-based text search using Bleve
-- **Vector**: Semantic similarity using HNSW (384-dim embeddings)
-- **Hybrid**: Combined scoring (50/50 weight) with deduplication
-- **Snippets**: Keyword-based context extraction (200 char window)
-
-### Dual API
-- **REST API**: `/api/v1/*` for HTTP clients
-- **MCP API**: `/mcp/sse` for Model Control Protocol (tools for agents)
-
-### Web UI (Next.js 14)
-- **Query Page**: Progressive search with split-panel results
-- **Document Page**: Metadata, tags, chapter navigation, code highlighting
-- **Tag Browser**: Two-level tag navigation (L1 groups, L2 tags)
-- **Tech Stack**: Next.js 14 + TypeScript + Tailwind CSS + shadcn/ui
-- **Theme**: Slate dark theme, exported to `web/dist/` for Gin hosting
-
-## Key Dependencies
-
-- **Web**: Gin (`github.com/gin-gonic/gin`)
-- **MCP**: `github.com/mark3labs/mcp-go`
-- **Search**: Bleve (`github.com/blevesearch/bleve/v2`) for BM25
-- **Vector**: HNSW (`github.com/coder/hnsw`) for vector similarity
-- **SQLite**: `github.com/mattn/go-sqlite3` (default)
-- **Postgres**: `github.com/jackc/pgx/v5` (optional)
-- **Markdown**: `github.com/yuin/goldmark`
-- **CLI**: `github.com/spf13/cobra` + `github.com/spf13/viper`
-- **Jobs**: Internal scheduler with configurable intervals
-- **Frontend**: Next.js 14, React 19, Tailwind CSS 4, shadcn/ui
-
-## Configuration
-
-- Copy `configs/config.example.yaml` → `configs/config.yaml`
-- Required env vars: `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`
-- Optional: `JWT_SECRET`
-
-### Key Configuration Options
-
-```yaml
-server:
-  port: 8080
-  web_dir: "./web/dist"  # Static files for frontend
-
-llm:
-  provider: openai
-  openai:
-    api_key: ${OPENAI_API_KEY}
-    base_url: https://api.openai.com/v1
-    model: gpt-4o-mini
-    temperature: 0.3
-
-quota:
-  per_hour: 100  # Max hot documents per hour
-
-documents:
-  tiering:
-    hot_content_threshold: 5000  # Min chars for hot tier
-    cold_promotion_threshold: 3  # Query count for promotion
-
-memory_index:
-  vector_dimension: 384
-  hnsw_m: 16
-  hnsw_ef_construction: 200
-  hnsw_ef_search: 100
-```
-
-## Database Schema Versions
-
-| Version | Name | Key Changes |
-|---------|------|-------------|
-| 1 | Initial schema | documents, summaries tables |
-| 2 | Topic summaries | Added topic_summaries, topic_documents |
-| 3 | Topic source | Added source column |
-| 4 | Hierarchy flags | Added is_source flag |
-| 5 | Tag clustering | Added global_tags, tag_clusters; removed topics |
-| 6 | Hot/cold tiering | Added status, hot_score, query_count, last_query_at |
-| 7 | Embeddings | Added embedding column for vector search |
-
-### Table Schema
-
-#### documents
-Main document storage table.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT/UUID | Primary key |
-| title | TEXT | Document title |
-| content | TEXT | Full content (markdown) |
-| format | TEXT | 'markdown' or 'md' |
-| tags | TEXT[] | Document tags (hot docs) |
-| status | TEXT | 'hot', 'cold', 'warming' |
-| hot_score | REAL | Calculated hot score |
-| query_count | INTEGER | Number of queries |
-| last_query_at | TIMESTAMP | Last access time |
-| embedding | TEXT/REAL[] | Vector embedding (cold docs) |
-| created_at | TIMESTAMP | Creation time |
-| updated_at | TIMESTAMP | Last update |
-
-#### summaries
-Tiered summary storage.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT/UUID | Primary key |
-| document_id | FK | Reference to documents |
-| tier | TEXT | 'document', 'chapter', 'source' |
-| path | TEXT | 'doc_id' or 'doc_id/chapter_title' |
-| content | TEXT | Summary or source content |
-| is_source | BOOLEAN | True if original content |
-| created_at | TIMESTAMP | Creation time |
-| updated_at | TIMESTAMP | Last update |
-
-#### global_tags
-Level 2 tags.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT/UUID | Primary key |
-| name | TEXT | Tag name (unique) |
-| cluster_id | FK | L1 group assignment |
-| document_count | INTEGER | Usage count |
-| created_at | TIMESTAMP | Creation time |
-| updated_at | TIMESTAMP | Last update |
-
-#### tag_clusters
-Level 1 groups.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT/UUID | Primary key |
-| name | TEXT | Group name (unique) |
-| description | TEXT | Group description |
-| tags | TEXT[] | Tags in this group |
-| created_at | TIMESTAMP | Creation time |
-| updated_at | TIMESTAMP | Last update |
-
-#### tag_group_refresh_logs
-Tag grouping job logs.
-
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT/UUID | Primary key |
-| tag_count_before | INTEGER | Tags before refresh |
-| tag_count_after | INTEGER | Tags after refresh |
-| group_count | INTEGER | Number of groups created |
-| duration_ms | INTEGER | Duration in milliseconds |
-| created_at | TIMESTAMP | Creation time |
-
-### Relationships
-
-```
-┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
-│   tag_clusters  │─────│   global_tags   │     │   documents     │
-│   (L1 Groups)   │ 1:M │   (L2 Tags)     │ M:N │  (Documents)    │
-└─────────────────┘     └─────────────────┘     └─────────────────┘
-         │                                               │
-         │                                               │ 1:M
-         │                                               │
-         │                                      ┌─────────────────┐
-         │                                      │    summaries    │
-         │                                      │ (Document Tier) │
-         │                                      └─────────────────┘
-         │
-         │ 1:1
-         │
-┌─────────────────┐
-│ tag_group_      │
-│ refresh_logs    │
-└─────────────────┘
-```
-
-### Key Design Decisions
-
-1. **JSON Arrays for Tags**: PostgreSQL/SQLite support array types for tags
-2. **Path-based Hierarchy**: Summaries use path field for tier hierarchy
-3. **Soft Relationships**: No foreign key constraints enforced in SQLite
-4. **Type Flexibility**: embedding column stores JSON or array depending on DB
-
-## Adding New Features
-
-1. **Define interface** in layer's `interface.go`:
-```go
-type IAnalyzer interface {
-    Analyze(ctx context.Context, doc *types.Document) error
-}
-```
-
-2. **Implement** in subpackage (e.g., `service/svcimpl/`):
-```go
-type AnalyzerSvc struct{}
-
-func (a *AnalyzerSvc) Analyze(...) error { ... }
-
-var _ service.IAnalyzer = (*AnalyzerSvc)(nil)  // Compile-time check
-```
-
-3. **Wire** in `di/container.go`:
-```go
-analyzer := svcimpl.NewAnalyzerSvc()
-deps := &Dependencies{ Analyzer: analyzer, ... }
-```
-
-## Data Flow
-
-### Document Ingestion Flow
-
-```
-1. API Layer
-   POST /api/v1/documents
-   │
-   ▼
-2. Service Layer (DocumentSvc.Ingest)
-   ├─ Check Quota (QuotaManager)
-   ├─ Determine hot vs cold:
-   │   ├─ Hot: quota && (force_hot || has_summary || len > 5000)
-   │   └─ Cold: otherwise
-   │
-   ▼
-3a. HOT Path:
-   ├─ SummarizerSvc.AnalyzeDocument()
-   │   ├─ LLM generates summary
-   │   ├─ LLM extracts up to 10 tags
-   │   └─ LLM identifies chapters
-   ├─ IndexerSvc.Index()
-   │   ├─ Store document summary
-   │   ├─ Store chapter summaries
-   │   └─ Store source content
-   └─ TagRepo.Create() [update global tags]
-   │
-3b. COLD Path:
-   ├─ GenerateSimpleEmbedding() [n-gram hash]
-   ├─ MemoryIndex.AddDocument()
-   │   ├─ Bleve index (BM25)
-   │   └─ HNSW index (vector)
-   │
-   ▼
-4. Storage Layer
-   DocumentRepo.Create()
-   │
-   ▼
-5. Database
-   INSERT INTO documents (...)
-```
-
-### Query Flow (Progressive)
-
-```
-1. API Layer
-   POST /api/v1/query/progressive
-   │
-   ▼
-2. Service Layer (QuerySvc.ProgressiveQuery)
-   │
-   ├─ Step 1: Tag Filtering
-   │   ├─ Get all L2 tags
-   │   ├─ If < 200 tags: Direct LLM filter
-   │   └─ If >= 200 tags: L1 → L2 two-level filter
-   │
-   ├─ Step 2: Document Retrieval
-   │   ├─ Query docs by filtered L2 tags (OR logic)
-   │   ├─ Separate hot/cold
-   │   ├─ Hot: LLM filter (relevance >= 0.5)
-   │   └─ Cold: Keyword matching
-   │
-   ├─ Step 3: Chapter Retrieval
-   │   ├─ Hot: SummaryRepo.GetByDocument()
-   │   ├─ Cold: Create pseudo-chapters from snippets
-   │   └─ LLM filter chapters
-   │
-   ├─ Step 4: Cold Path (Parallel)
-   │   ├─ MemoryIndex.HybridSearch()
-   │   │   ├─ BM25 search
-   │   │   ├─ Vector search
-   │   │   └─ Merge results (50/50)
-   │   └─ Extract snippets
-   │
-   ├─ Step 5: Merge Results
-   │   ├─ Combine hot and cold
-   │   ├─ Deduplicate by doc ID
-   │   ├─ Boost if found in both paths
-   │   └─ Sort by relevance
-   │
-   └─ Step 6: Track Access
-       ├─ Increment query_count
-       └─ Promote if >= 3 queries
-   │
-   ▼
-3. Build Response
-   ProgressiveQueryResponse{
-       Question: "...",
-       Steps: [...],      // Execution trace
-       Results: [...]     // QueryItem list
-   }
-```
-
-## Build Targets
-
+### Docker (Recommended)
 ```bash
-make build-linux            # Linux amd64
-make build-all              # Linux + Darwin (amd64/arm64) + Windows
-make docker-build           # Build container image
+cd deployments/docker
+docker-compose up -d
 ```
 
-## Development Notes
+Default setup uses SQLite with volume-mounted data directory.
 
-- **Hot reload**: Install `air` first (`go install github.com/air-verse/air@latest`)
-- **Linting**: Install `golangci-lint` separately
-- **DB Migrations**: Use `make migrate-up` / `make migrate-down`
-- **Dependencies**: `make deps` runs `go mod download/tidy/verify`
-- **Frontend**: Build with `cd web && npm run build`, output to `web/dist/`
+### Environment Variables
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `OPENAI_API_KEY` | Yes* | OpenAI API key |
+| `ANTHROPIC_API_KEY` | Yes* | Anthropic API key (alternative) |
+| `JWT_SECRET` | No | JWT signing secret |
+
+*At least one LLM provider key required
+
+---
 
 ## Important Paths
 
@@ -748,34 +456,31 @@ make docker-build           # Build container image
 | `internal/storage/interface.go` | Storage interfaces (I-prefix) |
 | `internal/storage/db` | Repository implementations |
 | `internal/storage/memory/index.go` | BM25 + Vector index with snippet extraction |
-| `internal/storage/db/schema.go` | Database schema definitions |
-| `internal/client/interface.go` | Client interfaces (I-prefix) |
-| `internal/di` | Dependency injection / composition root |
+| `internal/di/container.go` | Dependency injection / composition root |
 | `internal/job` | Background scheduled tasks |
 | `web/` | Next.js frontend |
 | `web/dist/` | Static export for Gin hosting |
 | `db/migrations/` | Database migration files |
 | `pkg/types` | Public types used across all layers |
 
-## Architecture Evolution
+---
 
-### Previous Structure (Clean Architecture)
-- `internal/ports/` - Central interface definitions
-- `internal/adapters/` - Repository implementations
-- `internal/domain/service/` - Business logic
-- `internal/domain/core/` - Core domain logic
-- `internal/app/` - Dependency injection
-- `internal/mcp/` - MCP handlers
+## Troubleshooting
 
-### Current Structure (Interface+Impl Pattern)
-- `cmd/main.go` - Single entry point
-- `db/migrations/` - Database migrations
-- `internal/service/interface.go` - Service interfaces (I-prefix)
-- `internal/service/svcimpl/` - Service implementations
-- `internal/storage/interface.go` - Storage interfaces (I-prefix)
-- `internal/storage/db/` - Repository implementations + schema
-- `internal/storage/memory/` - In-memory BM25 + vector index
-- `internal/client/interface.go` - Client interfaces (I-prefix)
-- `internal/di/` - Dependency injection
-- `internal/api/` - Unified API layer (REST + MCP)
-- `web/` - Next.js frontend
+### Common Issues
+
+**Build fails with SQLite error:**
+- Ensure CGO is enabled: `CGO_ENABLED=1`
+- On macOS: `brew install sqlite3`
+
+**Frontend not loading:**
+- Check `web/dist/` exists after `npm run build`
+- Verify `server.web_dir` in config points to correct path
+
+**MCP connection issues:**
+- Verify `mcp.enabled: true` in config
+- Check `/mcp/sse` endpoint is accessible
+
+**Cold document search not working:**
+- Check memory index loaded on startup (see startup logs)
+- Verify documents have `status: cold` in database
