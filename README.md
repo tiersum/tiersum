@@ -6,7 +6,7 @@
 [![MCP Protocol](https://img.shields.io/badge/MCP-1.0-6E49CB)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-Project documentation is maintained in **English** only. See [README_zh.md](README_zh.md) for a short redirect note.
+[English](README.md) | [简体中文](README_zh.md)
 
 ---
 
@@ -213,13 +213,12 @@ curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_
 curl "http://localhost:8080/api/v1/hot/doc_chapters?doc_ids=uuid1,uuid2&max_results=100"
 curl "http://localhost:8080/api/v1/hot/doc_source?chapter_paths=docId/chapter-title&max_results=100"
 curl "http://localhost:8080/api/v1/cold/doc_source?q=scheduler,pods&max_results=100"
-curl "http://localhost:8080/api/v1/tags?group_ids=group1,group2&max_results=100"
 
 # List tag groups (Level 1)
 curl "http://localhost:8080/api/v1/tags/groups"
 
-# Get tags by group
-curl "http://localhost:8080/api/v1/tags?group_id=xxx"
+# List tags filtered by L1 groups (comma-separated group_ids; optional max_results)
+curl "http://localhost:8080/api/v1/tags?group_ids=group1,group2&max_results=100"
 
 # Trigger tag grouping manually
 curl -X POST http://localhost:8080/api/v1/tags/group
@@ -236,65 +235,25 @@ curl "http://localhost:8080/api/v1/quota"
 
 ### MCP Tools (for Agents)
 
-```json
-{
-  "tools": [
-    {
-      "name": "tiersum_query",
-      "description": "Query knowledge base for relevant content (legacy)",
-      "inputSchema": {
-        "question": "string",
-        "depth": "document|chapter|source"
-      }
-    },
-    {
-      "name": "tiersum_progressive_query",
-      "description": "Perform progressive query using two-level tag hierarchy (recommended)",
-      "inputSchema": {
-        "question": "string",
-        "max_results": "number (default: 100)"
-      }
-    },
-    {
-      "name": "tiersum_get_document",
-      "description": "Retrieve a document by ID",
-      "inputSchema": {
-        "document_id": "string"
-      }
-    },
-    {
-      "name": "tiersum_list_tag_groups",
-      "description": "List all tag groups (Level 1 categories)",
-      "inputSchema": {}
-    },
-    {
-      "name": "tiersum_get_tags_by_group",
-      "description": "Get all tags (Level 2) belonging to a specific group",
-      "inputSchema": {
-        "group_id": "string"
-      }
-    },
-    {
-      "name": "tiersum_ingest_document",
-      "description": "Ingest a document with optional pre-built summaries",
-      "inputSchema": {
-        "title": "string",
-        "content": "string",
-        "format": "markdown|md",
-        "tags": ["string"],
-        "force_hot": "boolean",
-        "summary": "string (optional)",
-        "chapters": [{"title": "string", "summary": "string", "content": "string"}]
-      }
-    },
-    {
-      "name": "tiersum_trigger_tag_grouping",
-      "description": "Manually trigger tag grouping (runs automatically every 30 minutes)",
-      "inputSchema": {}
-    }
-  ]
-}
-```
+MCP tool names and JSON bodies align with the REST API under `/api/v1` (see `internal/api/mcp.go`).
+
+| Tool | REST equivalent |
+|------|-----------------|
+| `api_v1_documents_post` | `POST /documents` |
+| `api_v1_documents_list` | `GET /documents` |
+| `api_v1_documents_get` | `GET /documents/:id` (`id`) |
+| `api_v1_documents_chapters_get` | `GET /documents/:id/chapters` (`id`) |
+| `api_v1_documents_summaries_get` | `GET /documents/:id/summaries` (`id`) |
+| `api_v1_query_progressive_post` | `POST /query/progressive` (`question`, `max_results`) |
+| `api_v1_tags_get` | `GET /tags` (`group_ids`, `max_results` optional) |
+| `api_v1_tags_groups_get` | `GET /tags/groups` |
+| `api_v1_tags_group_post` | `POST /tags/group` |
+| `api_v1_hot_doc_summaries_get` | `GET /hot/doc_summaries` (`tags`, `max_results`) |
+| `api_v1_hot_doc_chapters_get` | `GET /hot/doc_chapters` (`doc_ids`, `max_results`) |
+| `api_v1_hot_doc_source_get` | `GET /hot/doc_source` (`chapter_paths`, `max_results`) |
+| `api_v1_cold_doc_source_get` | `GET /cold/doc_source` (`q`, `max_results`) |
+| `api_v1_quota_get` | `GET /quota` |
+| `api_v1_metrics_get` | `GET /metrics` |
 
 **Claude Desktop Integration**:
 ```json
@@ -337,7 +296,7 @@ TierSum uses a **5-Layer Architecture** with Interface+Impl Pattern:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-📚 **See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture documentation.**
+📚 **See [AGENTS.md](AGENTS.md) for architecture, layout, and conventions.**
 
 ---
 
