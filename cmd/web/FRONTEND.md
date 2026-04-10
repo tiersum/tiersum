@@ -24,7 +24,7 @@ cmd/web/
 Assets are embedded into the Go binary:
 
 1. Files live under `cmd/web/`.
-2. `//go:embed web/*` in `cmd/static.go` (same `main` package as `cmd/main.go`).
+2. `//go:embed web/*` in `cmd/main.go` (same `main` package).
 3. `StaticFileServer()` serves them at runtime.
 
 ## Build

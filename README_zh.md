@@ -329,7 +329,7 @@ TierSum 采用 **五层架构** + **接口与实现分离**（`I*` 接口 + `svc
 - **组件**：DaisyUI（CDN）  
 - **Markdown**：Marked.js（CDN）  
 - **主题**：Slate 系暗色  
-- **发布**：由 `cmd` 包内 `//go:embed web/*` 嵌入二进制（见 `cmd/static.go`）  
+- **发布**：由 `cmd` 包内 `//go:embed web/*` 嵌入二进制（见 `cmd/main.go`）  
 
 ---
 
@@ -379,7 +379,7 @@ uses a scoring algorithm to rank nodes ...
 tiersum/
 ├── cmd/
 │   ├── main.go
-│   ├── static.go             # //go:embed web/*
+│   ├── main.go               # entrypoint; //go:embed web/*
 │   └── web/                    # Vue 3 CDN 前端（嵌入二进制）
 │       ├── index.html
 │       └── app.js

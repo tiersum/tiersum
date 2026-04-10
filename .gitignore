@@ -1,7 +1,3 @@
 /data/tiersum.db
 /data/tiersum.db-shm
 /data/tiersum.db-wal
-
-# Next.js / Node (experimental web app under web/)
-web/.next/
-web/node_modules/

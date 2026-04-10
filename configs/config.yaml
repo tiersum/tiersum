@@ -6,7 +6,6 @@ server:
   host: 0.0.0.0
   timeout: 30s
   max_body_size: 10MB
-  web_dir: /Users/luodaijun/GolandProjects/tiersum/web/dist
   cors:
     enabled: true
     allowed_origins:

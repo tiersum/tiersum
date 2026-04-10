@@ -201,12 +201,9 @@ const getDetailUrl = (item: QueryItem, status: 'hot' | 'cold') => {
 
 ---
 
-## 6. Likely file paths (Next.js app, if present)
+## 6. Likely file paths (Vue 3 CDN UI, embedded)
 
-- Home / query: `web/app/page.tsx` or `web/app/components/QueryInterface.tsx`
-- API client: `web/lib/api.ts` (types may already exist)
-- Document detail: `web/app/docs/[id]/page.tsx`
-- New component: `web/app/components/ChapterCard.tsx`
+The shipped UI lives under **`cmd/web/`** (`index.html`, `app.js`, `api.js`). There is no separate root `web/` app in this repo.
 
 ---
 
