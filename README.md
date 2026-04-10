@@ -187,6 +187,8 @@ make run
 
 ## API Usage
 
+**Core flows** (ingest tiering, progressive query, tag grouping, hot/cold retrieval, hybrid cold search): see [docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md).
+
 ### REST API
 
 ```bash

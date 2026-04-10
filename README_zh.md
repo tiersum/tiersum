@@ -189,6 +189,8 @@ make run
 
 ## API 说明
 
+**核心流程**（录入冷热判定、渐进式查询、标签聚类、热/冷检索、冷文档混合检索等）见 [docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md)（英文技术文档）。
+
 ### REST API
 
 ```bash

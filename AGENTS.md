@@ -1,4 +1,5 @@
-<!-- From: /Users/luodaijun/GolandProjects/tiersum/AGENTS.md -->
+
+
 # AGENTS.md — TierSum
 
 ## Project Overview
@@ -6,6 +7,7 @@
 TierSum is a **Hierarchical Summary Knowledge Base** — a RAG-free document retrieval system powered by multi-layer abstraction and hot/cold document tiering. It uses a two-tier document storage strategy to balance LLM cost and query performance while preserving knowledge architecture through layered summarization.
 
 **Key Characteristics:**
+
 - **Language:** Go 1.23+ (backend), Vue 3 CDN (frontend)
 - **Architecture:** 5-Layer Architecture with Interface+Impl Pattern
 - **Database:** SQLite (default) or PostgreSQL (optional)
@@ -47,27 +49,33 @@ cd deployments/docker && docker-compose up -d  # Starts tiersum (SQLite by defau
 ## Technology Stack
 
 ### Backend (Go)
-| Component | Technology |
-|-----------|------------|
-| Web Framework | Gin (`github.com/gin-gonic/gin`) |
-| MCP Protocol | `github.com/mark3labs/mcp-go` |
-| Search | Bleve v2 (BM25 text search) |
-| Vector Search | HNSW (`github.com/coder/hnsw`) |
-| Chinese Tokenization | gojieba (`github.com/yanyiwu/gojieba`) |
-| Database | SQLite (`github.com/mattn/go-sqlite3`) or PostgreSQL |
-| CLI | Cobra + Viper |
-| Logging | Uber Zap |
-| Testing | Testify |
+
+
+| Component            | Technology                                           |
+| -------------------- | ---------------------------------------------------- |
+| Web Framework        | Gin (`github.com/gin-gonic/gin`)                     |
+| MCP Protocol         | `github.com/mark3labs/mcp-go`                        |
+| Search               | Bleve v2 (BM25 text search)                          |
+| Vector Search        | HNSW (`github.com/coder/hnsw`)                       |
+| Chinese Tokenization | gojieba (`github.com/yanyiwu/gojieba`)               |
+| Database             | SQLite (`github.com/mattn/go-sqlite3`) or PostgreSQL |
+| CLI                  | Cobra + Viper                                        |
+| Logging              | Uber Zap                                             |
+| Testing              | Testify                                              |
+
 
 ### Frontend (CDN-based)
-| Component | Technology |
-|-----------|------------|
-| Framework | Vue 3 (CDN) |
-| Router | Vue Router 4 (CDN) |
-| Styling | Tailwind CSS (CDN) |
-| UI Components | DaisyUI (CDN) |
-| Markdown | Marked.js (CDN) |
-| Deployment | Go embed (embedded in binary)
+
+
+| Component     | Technology                    |
+| ------------- | ----------------------------- |
+| Framework     | Vue 3 (CDN)                   |
+| Router        | Vue Router 4 (CDN)            |
+| Styling       | Tailwind CSS (CDN)            |
+| UI Components | DaisyUI (CDN)                 |
+| Markdown      | Marked.js (CDN)               |
+| Deployment    | Go embed (embedded in binary) |
+
 
 ---
 
@@ -163,6 +171,7 @@ Job Layer can use: Service Layer, Storage Layer
 ## Build Process
 
 ### Local Development
+
 ```bash
 # Install dependencies
 make deps
@@ -179,6 +188,7 @@ make dev
 ```
 
 ### Production Build
+
 ```bash
 # Build for current platform (includes embedded frontend)
 make build
@@ -197,6 +207,7 @@ make docker-build
 Key configuration file: `configs/config.yaml` (copy from `config.example.yaml`)
 
 ### Required Settings
+
 ```yaml
 llm:
   provider: openai  # Options: openai, anthropic, local (ollama)
@@ -207,6 +218,7 @@ llm:
 ### LLM Provider Configuration
 
 **OpenAI (default):**
+
 ```yaml
 llm:
   provider: openai
@@ -219,6 +231,7 @@ llm:
 ```
 
 **Anthropic Claude:**
+
 ```yaml
 llm:
   provider: anthropic
@@ -231,6 +244,7 @@ llm:
 ```
 
 **Local/Ollama:**
+
 ```yaml
 llm:
   provider: local  # or 'ollama'
@@ -243,17 +257,20 @@ llm:
 **OpenAI-Compatible Providers:**
 Any provider with OpenAI-compatible API can use `provider: openai` with custom `base_url`:
 
-| Provider | base_url | Example Model |
-|----------|----------|---------------|
-| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
-| Groq | `https://api.groq.com/openai/v1` | `llama-3.1-8b-instant` |
-| Zhipu AI (GLM) | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-flash` |
-| Moonshot (Kimi) | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` |
-| OpenRouter | `https://openrouter.ai/api/v1` | `anthropic/claude-3.5-haiku` |
-| SiliconFlow | `https://api.siliconflow.cn/v1` | `deepseek-ai/DeepSeek-V2.5` |
-| Azure OpenAI | `https://{resource}.openai.azure.com/openai/deployments/{deployment}` | deployment name |
+
+| Provider        | base_url                                                              | Example Model                |
+| --------------- | --------------------------------------------------------------------- | ---------------------------- |
+| DeepSeek        | `https://api.deepseek.com/v1`                                         | `deepseek-chat`              |
+| Groq            | `https://api.groq.com/openai/v1`                                      | `llama-3.1-8b-instant`       |
+| Zhipu AI (GLM)  | `https://open.bigmodel.cn/api/paas/v4`                                | `glm-4-flash`                |
+| Moonshot (Kimi) | `https://api.moonshot.cn/v1`                                          | `moonshot-v1-8k`             |
+| OpenRouter      | `https://openrouter.ai/api/v1`                                        | `anthropic/claude-3.5-haiku` |
+| SiliconFlow     | `https://api.siliconflow.cn/v1`                                       | `deepseek-ai/DeepSeek-V2.5`  |
+| Azure OpenAI    | `https://{resource}.openai.azure.com/openai/deployments/{deployment}` | deployment name              |
+
 
 Example for DeepSeek:
+
 ```yaml
 llm:
   provider: openai
@@ -266,21 +283,25 @@ llm:
 ```
 
 ### Key Configuration Sections
-| Section | Purpose |
-|---------|---------|
-| `server` | HTTP port, CORS, timeouts |
-| `llm` | OpenAI/Anthropic/Local provider settings |
-| `storage.database` | SQLite (default) or PostgreSQL |
-| `quota` | Hot document rate limiting (default: 100/hour) |
-| `memory_index` | HNSW parameters for vector search |
-| `documents.tiering` | Hot/cold thresholds |
-| `mcp` | MCP protocol settings |
+
+
+| Section             | Purpose                                        |
+| ------------------- | ---------------------------------------------- |
+| `server`            | HTTP port, CORS, timeouts                      |
+| `llm`               | OpenAI/Anthropic/Local provider settings       |
+| `storage.database`  | SQLite (default) or PostgreSQL                 |
+| `quota`             | Hot document rate limiting (default: 100/hour) |
+| `memory_index`      | HNSW parameters for vector search              |
+| `documents.tiering` | Hot/cold thresholds                            |
+| `mcp`               | MCP protocol settings                          |
+
 
 ---
 
 ## Testing Strategy
 
 ### Running Tests
+
 ```bash
 # Run all tests with coverage
 make test
@@ -293,6 +314,7 @@ go test -race ./...
 ```
 
 ### Test Structure
+
 - Test files: `*_test.go` alongside source files
 - Mock implementations in `internal/service/svcimpl/mocks_test.go`
 - Uses `testify/assert` and `testify/require`
@@ -304,6 +326,7 @@ go test -race ./...
   - API handlers
 
 ### Adding New Tests
+
 ```go
 func TestFeature(t *testing.T) {
     // Create mocks
@@ -324,29 +347,36 @@ func TestFeature(t *testing.T) {
 ## Database Schema
 
 ### Documents Table
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT | Primary key (UUID) |
-| title | TEXT | Document title |
-| content | TEXT | Full markdown content |
-| format | TEXT | 'markdown' or 'md' |
-| tags | TEXT[] | Document tags (hot docs) |
-| status | TEXT | 'hot', 'cold', 'warming' |
-| hot_score | REAL | Calculated hot score |
-| query_count | INTEGER | Number of queries |
-| last_query_at | TIMESTAMP | Last access time |
-| created_at | TIMESTAMP | Creation time |
+
+
+| Column        | Type      | Description              |
+| ------------- | --------- | ------------------------ |
+| id            | TEXT      | Primary key (UUID)       |
+| title         | TEXT      | Document title           |
+| content       | TEXT      | Full markdown content    |
+| format        | TEXT      | 'markdown' or 'md'       |
+| tags          | TEXT[]    | Document tags (hot docs) |
+| status        | TEXT      | 'hot', 'cold', 'warming' |
+| hot_score     | REAL      | Calculated hot score     |
+| query_count   | INTEGER   | Number of queries        |
+| last_query_at | TIMESTAMP | Last access time         |
+| created_at    | TIMESTAMP | Creation time            |
+
 
 ### Summaries Table
-| Column | Type | Description |
-|--------|------|-------------|
-| id | TEXT | Primary key |
-| document_id | FK | Reference to documents |
-| tier | TEXT | 'document', 'chapter', 'source' |
-| path | TEXT | 'doc_id' or 'doc_id/chapter_title' |
-| content | TEXT | Summary or source content |
+
+
+| Column      | Type | Description                        |
+| ----------- | ---- | ---------------------------------- |
+| id          | TEXT | Primary key                        |
+| document_id | FK   | Reference to documents             |
+| tier        | TEXT | 'document', 'chapter', 'source'    |
+| path        | TEXT | 'doc_id' or 'doc_id/chapter_title' |
+| content     | TEXT | Summary or source content          |
+
 
 ### Global Tags & Tag Clusters
+
 - `global_tags` - Level 2 tags with document counts
 - `tag_clusters` - Level 1 groups (created by LLM clustering)
 
@@ -355,19 +385,23 @@ func TestFeature(t *testing.T) {
 ## Hot/Cold Document Tiering
 
 ### Document Status
-- **`hot`** - Full LLM analysis, tagged, indexed with summaries (requires quota)
-- **`cold`** - Minimal processing, stored in memory index with BM25 + vector search
-- **`warming`** - Being promoted from cold to hot (async process)
+
+- `**hot**` - Full LLM analysis, tagged, indexed with summaries (requires quota)
+- `**cold**` - Minimal processing, stored in memory index with BM25 + vector search
+- `**warming**` - Being promoted from cold to hot (async process)
 
 ### Hot Document Criteria
+
 A document becomes hot when:
+
 1. Quota available (default 100/hour)
 2. AND one of:
-   - `force_hot=true` in request
-   - Has pre-built summary/chapters
-   - Content length > 5000 characters
+  - `force_hot=true` in request
+  - Has pre-built summary/chapters
+  - Content length > 5000 characters
 
 ### Cold Document Flow
+
 ```
 Ingest (cold)
     ↓
@@ -388,13 +422,16 @@ PromoteJob (every 5 min) → Full LLM analysis → hot
 
 ## Job Layer (Background Tasks)
 
-| Job | File | Interval | Purpose |
-|-----|------|----------|---------|
-| **TagGroupJob** | `jobs.go` | 30 minutes | LLM-based tag clustering into L1 groups |
-| **PromoteJob** | `promote_job.go` | 5 minutes | Promotes cold docs (query_count > 3) to hot |
-| **HotScoreJob** | `hotscore_job.go` | 1 hour | Updates hot scores: `query_count / (1 + hours_since_last_query)` |
+
+| Job             | File              | Interval   | Purpose                                                          |
+| --------------- | ----------------- | ---------- | ---------------------------------------------------------------- |
+| **TagGroupJob** | `jobs.go`         | 30 minutes | LLM-based tag clustering into L1 groups                          |
+| **PromoteJob**  | `promote_job.go`  | 5 minutes  | Promotes cold docs (query_count > 3) to hot                      |
+| **HotScoreJob** | `hotscore_job.go` | 1 hour     | Updates hot scores: `query_count / (1 + hours_since_last_query)` |
+
 
 **Scheduler** (`scheduler.go`):
+
 - Ticks at shortest job interval
 - Tracks last execution per job
 - 5-minute timeout per job
@@ -403,42 +440,55 @@ PromoteJob (every 5 min) → Full LLM analysis → hot
 
 ## API Endpoints
 
+### Core API flows (algorithms)
+
+Endpoints that are more than simple CRUD — ingest tiering, progressive query, tag clustering, hot/cold retrieval, hybrid cold search — are documented in **[docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md)** (call chain from REST handlers into services and storage).
+
 ### REST API
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/documents` | Ingest document |
-| GET | `/api/v1/documents` | List documents |
-| GET | `/api/v1/documents/:id` | Get document |
-| GET | `/api/v1/documents/:id/summaries` | Get document summaries |
-| GET | `/api/v1/documents/:id/chapters` | List chapter summaries for a document |
-| POST | `/api/v1/query/progressive` | Progressive query (recommended) |
-| GET | `/api/v1/tags` | List tags (optional `group_ids=comma&max_results=100`) |
-| GET | `/api/v1/tags/groups` | List tag groups (L1) |
-| GET | `/api/v1/hot/doc_summaries` | Hot/warming docs matching `tags`; document-level summary only (`tags`, `max_results`) |
-| GET | `/api/v1/hot/doc_chapters` | Chapter summaries for `doc_ids` (comma-separated, `max_results` caps doc count) |
-| GET | `/api/v1/hot/doc_source` | Original text for `chapter_paths` (comma-separated, `max_results`) |
-| GET | `/api/v1/cold/doc_source` | Cold snippets via memory index (`q` comma-separated terms, `max_results`) |
-| POST | `/api/v1/tags/group` | Trigger tag grouping |
-| GET | `/api/v1/quota` | Check quota status |
-| GET | `/health` | Health check |
+
+
+| Method | Endpoint                          | Description                                                                           |
+| ------ | --------------------------------- | ------------------------------------------------------------------------------------- |
+| POST   | `/api/v1/documents`               | Ingest document                                                                       |
+| GET    | `/api/v1/documents`               | List documents                                                                        |
+| GET    | `/api/v1/documents/:id`           | Get document                                                                          |
+| GET    | `/api/v1/documents/:id/summaries` | Get document summaries                                                                |
+| GET    | `/api/v1/documents/:id/chapters`  | List chapter summaries for a document                                                 |
+| POST   | `/api/v1/query/progressive`       | Progressive query (recommended)                                                       |
+| GET    | `/api/v1/tags`                    | List tags (optional `group_ids=comma&max_results=100`)                                |
+| GET    | `/api/v1/tags/groups`             | List tag groups (L1)                                                                  |
+| GET    | `/api/v1/hot/doc_summaries`       | Hot/warming docs matching `tags`; document-level summary only (`tags`, `max_results`) |
+| GET    | `/api/v1/hot/doc_chapters`        | Chapter summaries for `doc_ids` (comma-separated, `max_results` caps doc count)       |
+| GET    | `/api/v1/hot/doc_source`          | Original text for `chapter_paths` (comma-separated, `max_results`)                    |
+| GET    | `/api/v1/cold/doc_source`         | Cold snippets via memory index (`q` comma-separated terms, `max_results`)             |
+| POST   | `/api/v1/tags/group`              | Trigger tag grouping                                                                  |
+| GET    | `/api/v1/quota`                   | Check quota status                                                                    |
+| GET    | `/api/v1/metrics`                 | Prometheus metrics                                                                    |
+| GET    | `/health`                         | Health check                                                                          |
+
 
 ### MCP Endpoints
-| Path | Description |
-|------|-------------|
-| `/mcp/sse` | MCP SSE stream (session + endpoint event) |
+
+
+| Path           | Description                                         |
+| -------------- | --------------------------------------------------- |
+| `/mcp/sse`     | MCP SSE stream (session + endpoint event)           |
 | `/mcp/message` | MCP JSON-RPC message POST (`sessionId` query param) |
+
 
 ---
 
 ## Development Conventions
 
 ### Code Style
+
 - **Go**: Standard Go formatting (`go fmt`)
 - **Imports**: Grouped - standard lib, third-party, internal
 - **Comments**: English only, complete sentences
 - **Error Handling**: Explicit error returns, wrapped with context
 
 ### Interface Pattern
+
 ```go
 // In interface.go
 type IMyService interface {
@@ -455,6 +505,7 @@ var _ service.IMyService = (*MySvc)(nil)
 ```
 
 ### Adding New Features
+
 1. **Define interface** in layer's `interface.go`
 2. **Implement** in subpackage (e.g., `service/svcimpl/`)
 3. **Wire** in `di/container.go`
@@ -464,7 +515,7 @@ var _ service.IMyService = (*MySvc)(nil)
 
 ## Security Considerations
 
-- Optional REST API key: set `security.api_key`; clients send `X-API-Key` or `Authorization: Bearer <key>`. MCP `/mcp/*` routes are not protected by this middleware.
+- Optional REST API key: set `security.api_key`; clients send `X-API-Key` or `Authorization: Bearer <key>`. MCP `/mcp/`* routes are not protected by this middleware.
 - JWT authentication for REST is not implemented (`security.jwt_secret` is reserved).
 - CORS configuration for web UI
 - No sensitive data in logs (use zap logging)
@@ -476,6 +527,7 @@ var _ service.IMyService = (*MySvc)(nil)
 ## Deployment
 
 ### Docker (Recommended)
+
 ```bash
 cd deployments/docker
 docker-compose up -d
@@ -484,11 +536,14 @@ docker-compose up -d
 Default setup uses SQLite with volume-mounted data directory.
 
 ### Environment Variables
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `OPENAI_API_KEY` | Yes* | OpenAI API key |
-| `ANTHROPIC_API_KEY` | Yes* | Anthropic API key (alternative) |
-| `JWT_SECRET` | No | JWT signing secret |
+
+
+| Variable            | Required | Description                     |
+| ------------------- | -------- | ------------------------------- |
+| `OPENAI_API_KEY`    | Yes*     | OpenAI API key                  |
+| `ANTHROPIC_API_KEY` | Yes*     | Anthropic API key (alternative) |
+| `JWT_SECRET`        | No       | JWT signing secret              |
+
 
 *At least one LLM provider key required
 
@@ -496,24 +551,27 @@ Default setup uses SQLite with volume-mounted data directory.
 
 ## Important Paths
 
-| Path | Purpose |
-|------|---------|
-| `cmd/main.go` | Main entrypoint for server binary |
-| `internal/api` | REST + MCP API handlers |
-| `internal/service/interface.go` | Service layer interfaces (I-prefix) |
-| `internal/service/svcimpl` | Service implementations |
-| `internal/storage/interface.go` | Storage interfaces (I-prefix) |
-| `internal/storage/db` | Repository implementations |
-| `internal/storage/memory/index.go` | BM25 + Vector index with snippet extraction |
-| `internal/di/container.go` | Dependency injection / composition root |
-| `internal/client/llm/factory.go` | LLM provider factory (dynamic selection) |
-| `internal/client/llm/openai.go` | OpenAI provider implementation |
-| `internal/client/llm/anthropic.go` | Anthropic Claude provider implementation |
-| `internal/client/llm/ollama.go` | Local Ollama provider implementation |
-| `internal/job` | Background scheduled tasks |
-| `cmd/web/` | Vue 3 CDN frontend (embedded in binary) |
-| `db/migrations/` | Database migration files |
-| `pkg/types` | Public types used across all layers |
+
+| Path                               | Purpose                                                         |
+| ---------------------------------- | --------------------------------------------------------------- |
+| `cmd/main.go`                      | Main entrypoint for server binary                               |
+| `internal/api`                     | REST + MCP API handlers                                         |
+| `internal/service/interface.go`    | Service layer interfaces (I-prefix)                             |
+| `internal/service/svcimpl`         | Service implementations                                         |
+| `internal/storage/interface.go`    | Storage interfaces (I-prefix)                                   |
+| `internal/storage/db`              | Repository implementations                                      |
+| `internal/storage/memory/index.go` | BM25 + Vector index with snippet extraction                     |
+| `internal/di/container.go`         | Dependency injection / composition root                         |
+| `internal/client/llm/factory.go`   | LLM provider factory (dynamic selection)                        |
+| `internal/client/llm/openai.go`    | OpenAI provider implementation                                  |
+| `internal/client/llm/anthropic.go` | Anthropic Claude provider implementation                        |
+| `internal/client/llm/ollama.go`    | Local Ollama provider implementation                            |
+| `internal/job`                     | Background scheduled tasks                                      |
+| `cmd/web/`                         | Vue 3 CDN frontend (embedded in binary)                         |
+| `db/migrations/`                   | Database migration files                                        |
+| `pkg/types`                        | Public types used across all layers                             |
+| `docs/CORE_API_FLOWS.md`           | Core REST API algorithms and call flows (non-trivial endpoints) |
+
 
 ---
 
@@ -522,18 +580,23 @@ Default setup uses SQLite with volume-mounted data directory.
 ### Common Issues
 
 **Build fails with SQLite error:**
+
 - Ensure CGO is enabled: `CGO_ENABLED=1`
 - On macOS: `brew install sqlite3`
 
 **Frontend not loading:**
+
 - Frontend is embedded in binary via Go embed, no build step needed
 - Check `cmd/web/` contains `index.html` and `app.js`
 - Clear browser cache and hard refresh (Cmd+Shift+R or Ctrl+F5)
 
 **MCP connection issues:**
+
 - Verify `mcp.enabled: true` in config
 - Check `/mcp/sse` endpoint is accessible
 
 **Cold document search not working:**
+
 - Check memory index loaded on startup (see startup logs)
 - Verify documents have `status: cold` in database
+
