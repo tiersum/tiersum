@@ -14,7 +14,7 @@ server:
       - "http://localhost:8080"
 
 llm:
-  # 使用 Moonshot (Kimi) - OpenAI 兼容 API
+  # Moonshot (Kimi) — OpenAI-compatible API
   provider: openai
 
   openai:

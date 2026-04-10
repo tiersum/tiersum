@@ -3,7 +3,6 @@ package api
 
 import (
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -107,93 +106,28 @@ func (h *Handler) CreateDocument(c *gin.Context) {
 		return
 	}
 
-	doc, err := h.DocService.Ingest(c.Request.Context(), req)
-	if err != nil {
-		h.Logger.Error("failed to ingest document", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create document"})
-		return
-	}
-
-	c.JSON(http.StatusCreated, doc)
+	status, body := h.ExecuteIngestDocument(c.Request.Context(), req)
+	c.JSON(status, body)
 }
 
 // ListDocuments lists all documents
 func (h *Handler) ListDocuments(c *gin.Context) {
-	docs, err := h.DocService.List(c.Request.Context())
-	if err != nil {
-		h.Logger.Error("failed to list documents", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list documents"})
-		return
-	}
-	// Ensure we return an empty array instead of null
-	if docs == nil {
-		docs = []types.Document{}
-	}
-	c.JSON(http.StatusOK, gin.H{
-		"documents": docs,
-	})
+	status, body := h.ExecuteListDocuments(c.Request.Context())
+	c.JSON(status, body)
 }
 
 // GetDocument retrieves a document by ID
 func (h *Handler) GetDocument(c *gin.Context) {
 	id := c.Param("id")
-
-	doc, err := h.DocService.Get(c.Request.Context(), id)
-	if err != nil {
-		h.Logger.Error("failed to get document", zap.String("id", id), zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get document"})
-		return
-	}
-
-	if doc == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
-		return
-	}
-
-	c.JSON(http.StatusOK, doc)
+	status, body := h.ExecuteGetDocument(c.Request.Context(), id)
+	c.JSON(status, body)
 }
 
 // GetDocumentChapters retrieves chapters of a document
 func (h *Handler) GetDocumentChapters(c *gin.Context) {
 	docID := c.Param("id")
-	if docID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "document id is required"})
-		return
-	}
-
-	// This would need to be implemented in the query service
-	doc, err := h.DocService.Get(c.Request.Context(), docID)
-	if err != nil {
-		h.Logger.Error("failed to get document", zap.String("id", docID), zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get document"})
-		return
-	}
-	if doc == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
-		return
-	}
-
-	chapters, err := h.SummaryRepo.QueryByTierAndPrefix(c.Request.Context(), types.TierChapter, docID+"/")
-	if err != nil {
-		h.Logger.Error("failed to list chapters", zap.String("id", docID), zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list chapters"})
-		return
-	}
-
-	out := make([]gin.H, 0, len(chapters))
-	for _, s := range chapters {
-		if s.IsSource {
-			continue
-		}
-		title := strings.TrimPrefix(s.Path, docID+"/")
-		out = append(out, gin.H{
-			"path":    s.Path,
-			"title":   title,
-			"summary": s.Content,
-		})
-	}
-
-	c.JSON(http.StatusOK, gin.H{"document_id": docID, "chapters": out})
+	status, body := h.ExecuteGetDocumentChapters(c.Request.Context(), docID)
+	c.JSON(status, body)
 }
 
 // ProgressiveQuery performs the new two-level tag-based progressive query
@@ -204,84 +138,31 @@ func (h *Handler) ProgressiveQuery(c *gin.Context) {
 		return
 	}
 
-	if req.MaxResults == 0 {
-		req.MaxResults = 100
-	}
-
-	response, err := h.QueryService.ProgressiveQuery(c.Request.Context(), req)
-	if err != nil {
-		h.Logger.Error("failed to perform progressive query", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, response)
+	status, body := h.ExecuteProgressiveQuery(c.Request.Context(), req)
+	c.JSON(status, body)
 }
 
 // ListTagGroups lists all tag groups (Level 1 categories)
 func (h *Handler) ListTagGroups(c *gin.Context) {
-	if h.TagGroupService == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "tag grouping service not available"})
-		return
-	}
-
-	groups, err := h.TagGroupService.GetL1Groups(c.Request.Context())
-	if err != nil {
-		h.Logger.Error("failed to list tag groups", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	// Ensure we return an empty array instead of null
-	if groups == nil {
-		groups = []types.TagGroup{}
-	}
-	c.JSON(http.StatusOK, gin.H{"groups": groups})
+	status, body := h.ExecuteListTagGroups(c.Request.Context())
+	c.JSON(status, body)
 }
 
 // TriggerTagGroup manually triggers tag grouping
 func (h *Handler) TriggerTagGroup(c *gin.Context) {
-	if h.TagGroupService == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "tag grouping service not available"})
-		return
-	}
-
-	if err := h.TagGroupService.GroupTags(c.Request.Context()); err != nil {
-		h.Logger.Error("failed to group tags", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"message": "tag grouping triggered"})
+	status, body := h.ExecuteTriggerTagGroup(c.Request.Context())
+	c.JSON(status, body)
 }
 
 // GetDocumentSummaries retrieves all summaries for a document
 func (h *Handler) GetDocumentSummaries(c *gin.Context) {
 	id := c.Param("id")
-
-	summaries, err := h.SummaryRepo.GetByDocument(c.Request.Context(), id)
-	if err != nil {
-		h.Logger.Error("failed to get document summaries", zap.String("id", id), zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{"summaries": summaries})
+	status, body := h.ExecuteGetDocumentSummaries(c.Request.Context(), id)
+	c.JSON(status, body)
 }
 
 // GetQuota returns the current quota status
 func (h *Handler) GetQuota(c *gin.Context) {
-	if h.Quota == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"used":     0,
-			"total":    100,
-			"reset_at": nil,
-		})
-		return
-	}
-	used, total, resetAt := h.Quota.GetQuota()
-	c.JSON(http.StatusOK, gin.H{
-		"used":     used,
-		"total":    total,
-		"reset_at": resetAt,
-	})
+	status, body := h.ExecuteGetQuota()
+	c.JSON(status, body)
 }

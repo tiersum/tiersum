@@ -247,7 +247,7 @@ Any provider with OpenAI-compatible API can use `provider: openai` with custom `
 |----------|----------|---------------|
 | DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
 | Groq | `https://api.groq.com/openai/v1` | `llama-3.1-8b-instant` |
-| 智谱 AI (Zhipu) | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-flash` |
+| Zhipu AI (GLM) | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-flash` |
 | Moonshot (Kimi) | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` |
 | OpenRouter | `https://openrouter.ai/api/v1` | `anthropic/claude-3.5-haiku` |
 | SiliconFlow | `https://api.siliconflow.cn/v1` | `deepseek-ai/DeepSeek-V2.5` |

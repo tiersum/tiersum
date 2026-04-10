@@ -1,53 +1,53 @@
-# TierSum Frontend
+# TierSum CDN frontend
 
-纯 CDN 前端，无需 Node.js。
+Pure CDN frontend; no Node.js required.
 
-## 技术栈
+## Stack
 
-- **Vue 3** - 通过 CDN (unpkg.com)
-- **Vue Router 4** - 通过 CDN (unpkg.com)  
-- **Tailwind CSS** - 通过 CDN (cdn.tailwindcss.com)
-- **DaisyUI** - 通过 CDN (cdn.jsdelivr.net)
-- **Marked.js** - 通过 CDN (cdn.jsdelivr.net) 用于 Markdown 渲染
+- **Vue 3** — via CDN (unpkg.com)
+- **Vue Router 4** — via CDN (unpkg.com)
+- **Tailwind CSS** — via CDN (cdn.tailwindcss.com)
+- **DaisyUI** — via CDN (cdn.jsdelivr.net)
+- **Marked.js** — via CDN (cdn.jsdelivr.net) for Markdown rendering
 
-## 文件结构
+## Layout
 
 ```
-web/
-├── index.html    # 主 HTML 入口，加载所有 CDN 资源
-├── app.js        # Vue 应用主文件，包含所有组件和路由
-└── api.js        # API 客户端 (可选，已合并到 app.js)
+cmd/web/
+├── index.html    # HTML shell; loads all CDN assets
+├── app.js        # Vue app: components and routes
+└── (api client merged into app.js)
 ```
 
-## 部署
+## Deployment
 
-前端文件通过 Go 的 `embed` 功能嵌入到二进制中：
+Assets are embedded into the Go binary:
 
-1. 文件位于 `cmd/web/*`
-2. 使用 `//go:embed web/*` 嵌入
-3. 运行时通过 `StaticFileServer()` 提供静态文件服务
+1. Files live under `cmd/web/`.
+2. `//go:embed web/*` in `cmd/static.go` (same `main` package as `cmd/main.go`).
+3. `StaticFileServer()` serves them at runtime.
 
-## 构建
+## Build
 
 ```bash
-# 只需构建 Go 二进制文件
+# Build the Go binary only
 make build
 
-# 前端文件会自动嵌入，无需额外步骤
+# Frontend is embedded automatically; no separate frontend build step
 ```
 
-## 特性
+## Features
 
-- **Search**: 渐进式搜索，AI 回答 + 参考结果双栏布局
-- **Documents**: 文档列表、搜索、创建、删除
-- **Tags**: L1 分组 + L2 标签浏览
-- **Dark Theme**: Slate 暗色主题
-- **Responsive**: 响应式设计，支持移动端
+- **Search**: Progressive query, AI answer + references side-by-side
+- **Documents**: List, search, create, delete
+- **Tags**: L1 groups + L2 tag browsing
+- **Dark theme**: Slate-style palette
+- **Responsive**: Mobile-friendly layout
 
-## 路由
+## Routes
 
-- `/` - 搜索页面
-- `/docs` - 文档列表
-- `/tags` - 标签浏览
+- `/` — Search
+- `/docs` — Documents
+- `/tags` — Tags
 
-使用 Vue Router 的 hash 模式 (`/#/`, `/#/docs`, `/#/tags`)。
+Vue Router uses hash mode: `/#/`, `/#/docs`, `/#/tags`.

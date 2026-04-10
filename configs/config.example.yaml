@@ -48,14 +48,14 @@ llm:
   #     base_url: https://api.groq.com/openai/v1
   #     model: llama-3.1-8b-instant
   #
-  # 智谱 AI (Zhipu AI / GLM):
+  # Zhipu AI (GLM):
   #   provider: openai
   #   openai:
   #     api_key: ${ZHIPU_API_KEY}
   #     base_url: https://open.bigmodel.cn/api/paas/v4
   #     model: glm-4-flash
   #
-  # Moonshot (月之暗面 / Kimi):
+  # Moonshot (Kimi):
   #   provider: openai
   #   openai:
   #     api_key: ${MOONSHOT_API_KEY}

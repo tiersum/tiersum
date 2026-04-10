@@ -101,7 +101,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, logge
 
 	// 8. API Layer
 	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, uow.Tags, uow.Summaries, uow.Documents, memIndex, quotaManager, logger)
-	mcpServer := api.NewMCPServer(docService, queryService, tagGroupSvc, logger)
+	mcpServer := api.NewMCPServer(restHandler, logger)
 
 	// 9. Job Layer
 	jobScheduler := job.NewScheduler(logger)

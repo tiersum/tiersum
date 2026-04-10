@@ -7,40 +7,33 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// MCPServer handles MCP protocol
+// MCPServer handles MCP protocol. Tool names and payloads mirror REST /api/v1 (see RegisterRoutes).
 type MCPServer struct {
-	docService      service.IDocumentService
-	queryService    service.IQueryService
-	tagGroupService service.ITagGroupService
-	logger          *zap.Logger
-	mcp             *mcpserver.MCPServer
-	sse             *mcpserver.SSEServer
+	api    *Handler
+	logger *zap.Logger
+	mcp    *mcpserver.MCPServer
+	sse    *mcpserver.SSEServer
 }
 
-// NewMCPServer creates a new MCP server
-func NewMCPServer(
-	docService service.IDocumentService,
-	queryService service.IQueryService,
-	tagGroupService service.ITagGroupService,
-	logger *zap.Logger,
-) *MCPServer {
+// NewMCPServer creates a new MCP server wired to the same Handler as REST.
+func NewMCPServer(restAPI *Handler, logger *zap.Logger) *MCPServer {
 	s := &MCPServer{
-		docService:      docService,
-		queryService:    queryService,
-		tagGroupService: tagGroupService,
-		logger:          logger,
+		api:    restAPI,
+		logger: logger,
 	}
 
 	s.mcp = mcpserver.NewMCPServer(
@@ -70,89 +63,91 @@ func NewMCPServer(
 	return s
 }
 
-// registerTools registers all MCP tools
 func (s *MCPServer) registerTools() {
-	queryTool := mcp.NewTool("tiersum_query",
-		mcp.WithDescription("Query knowledge base for relevant content"),
-		mcp.WithString("question",
-			mcp.Required(),
-			mcp.Description("The question to query"),
-		),
-		mcp.WithString("depth",
-			mcp.Description("Query depth: document, chapter, or source"),
-			mcp.Enum("document", "chapter", "source"),
-		),
-	)
-	s.mcp.AddTool(queryTool, s.handleQuery)
+	const descPrefix = "Same semantics as "
 
-	progressiveQueryTool := mcp.NewTool("tiersum_progressive_query",
-		mcp.WithDescription("Perform progressive query using two-level tag hierarchy (recommended)"),
-		mcp.WithString("question",
-			mcp.Required(),
-			mcp.Description("The question to query"),
-		),
-		mcp.WithNumber("max_results",
-			mcp.Description("Maximum documents to query (default: 100)"),
-		),
-	)
-	s.mcp.AddTool(progressiveQueryTool, s.handleProgressiveQuery)
+	s.mcp.AddTool(mcp.NewTool("api_v1_documents_post",
+		mcp.WithDescription(descPrefix+"POST /api/v1/documents — ingest document (JSON body)."),
+		mcp.WithString("title", mcp.Required(), mcp.Description("Document title")),
+		mcp.WithString("content", mcp.Required(), mcp.Description("Document body")),
+		mcp.WithString("format", mcp.Required(), mcp.Description("markdown or md"), mcp.Enum("markdown", "md")),
+		mcp.WithString("tags", mcp.Description("Optional: JSON array string e.g. [\"a\",\"b\"]")),
+		mcp.WithString("summary", mcp.Description("Optional pre-built document summary")),
+		mcp.WithString("chapters", mcp.Description("Optional JSON array of ChapterInfo")),
+		mcp.WithBoolean("force_hot", mcp.Description("Force hot processing")),
+		mcp.WithString("embedding", mcp.Description("Optional JSON array of numbers (float32 embedding)")),
+	), s.handleAPIv1DocumentsPost)
 
-	getDocTool := mcp.NewTool("tiersum_get_document",
-		mcp.WithDescription("Retrieve a document by ID"),
-		mcp.WithString("document_id",
-			mcp.Required(),
-			mcp.Description("The document ID to retrieve"),
-		),
-	)
-	s.mcp.AddTool(getDocTool, s.handleGetDocument)
+	s.mcp.AddTool(mcp.NewTool("api_v1_documents_list",
+		mcp.WithDescription(descPrefix+"GET /api/v1/documents"),
+	), s.handleAPIv1DocumentsList)
 
-	listGroupsTool := mcp.NewTool("tiersum_list_tag_groups",
-		mcp.WithDescription("List all tag groups (Level 1 categories)"),
-	)
-	s.mcp.AddTool(listGroupsTool, s.handleListTagGroups)
+	s.mcp.AddTool(mcp.NewTool("api_v1_documents_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/documents/:id"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("Document id")),
+	), s.handleAPIv1DocumentsGet)
 
-	getTagsByGroupTool := mcp.NewTool("tiersum_get_tags_by_group",
-		mcp.WithDescription("Get all tags (Level 2) belonging to a specific group"),
-		mcp.WithString("group_id",
-			mcp.Required(),
-			mcp.Description("The group ID"),
-		),
-	)
-	s.mcp.AddTool(getTagsByGroupTool, s.handleGetTagsByGroup)
+	s.mcp.AddTool(mcp.NewTool("api_v1_documents_chapters_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/documents/:id/chapters"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("Document id")),
+	), s.handleAPIv1DocumentsChaptersGet)
 
-	triggerGroupingTool := mcp.NewTool("tiersum_trigger_tag_grouping",
-		mcp.WithDescription("Manually trigger tag grouping (normally runs automatically every 30 minutes)"),
-	)
-	s.mcp.AddTool(triggerGroupingTool, s.handleTriggerTagGroup)
+	s.mcp.AddTool(mcp.NewTool("api_v1_documents_summaries_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/documents/:id/summaries"),
+		mcp.WithString("id", mcp.Required(), mcp.Description("Document id")),
+	), s.handleAPIv1DocumentsSummariesGet)
 
-	ingestDocTool := mcp.NewTool("tiersum_ingest_document",
-		mcp.WithDescription("Ingest a document into the knowledge base. Supports pre-built summaries from external agents."),
-		mcp.WithString("title",
-			mcp.Required(),
-			mcp.Description("Document title"),
-		),
-		mcp.WithString("content",
-			mcp.Required(),
-			mcp.Description("Document content"),
-		),
-		mcp.WithString("format",
-			mcp.Description("Document format: markdown or md (default: markdown)"),
-			mcp.Enum("markdown", "md"),
-		),
-		mcp.WithString("tags",
-			mcp.Description("Optional tags as JSON array string, e.g. [\"tag1\",\"tag2\"], or provided as a JSON array by the client"),
-		),
-		mcp.WithString("summary",
-			mcp.Description("Optional pre-built document summary (from external agent)"),
-		),
-		mcp.WithString("chapters",
-			mcp.Description("Optional JSON array of chapters: [{\"title\":\"...\",\"summary\":\"...\",\"content\":\"...\"}]"),
-		),
-		mcp.WithBoolean("force_hot",
-			mcp.Description("Force hot processing regardless of quota"),
-		),
-	)
-	s.mcp.AddTool(ingestDocTool, s.handleIngestDocument)
+	s.mcp.AddTool(mcp.NewTool("api_v1_query_progressive_post",
+		mcp.WithDescription(descPrefix+"POST /api/v1/query/progressive"),
+		mcp.WithString("question", mcp.Required(), mcp.Description("User question")),
+		mcp.WithNumber("max_results", mcp.Description("1–100; omit or 0 for default 100")),
+	), s.handleAPIv1QueryProgressivePost)
+
+	s.mcp.AddTool(mcp.NewTool("api_v1_tags_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/tags — optional group_ids (comma-separated) and max_results"),
+		mcp.WithString("group_ids", mcp.Description("Comma-separated group ids; omit for all tags")),
+		mcp.WithNumber("max_results", mcp.Description("Cap; with group_ids defaults to 100, max 10000")),
+	), s.handleAPIv1TagsGet)
+
+	s.mcp.AddTool(mcp.NewTool("api_v1_tags_groups_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/tags/groups"),
+	), s.handleAPIv1TagsGroupsGet)
+
+	s.mcp.AddTool(mcp.NewTool("api_v1_tags_group_post",
+		mcp.WithDescription(descPrefix+"POST /api/v1/tags/group — trigger tag grouping"),
+	), s.handleAPIv1TagsGroupPost)
+
+	s.mcp.AddTool(mcp.NewTool("api_v1_hot_doc_summaries_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/hot/doc_summaries — tags comma-separated, max_results"),
+		mcp.WithString("tags", mcp.Required(), mcp.Description("Comma-separated tags (same as query param `tags`)")),
+		mcp.WithNumber("max_results", mcp.Description("Default 1000, max 10000")),
+	), s.handleAPIv1HotDocSummariesGet)
+
+	s.mcp.AddTool(mcp.NewTool("api_v1_hot_doc_chapters_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/hot/doc_chapters — doc_ids comma-separated"),
+		mcp.WithString("doc_ids", mcp.Required(), mcp.Description("Comma-separated document ids")),
+		mcp.WithNumber("max_results", mcp.Description("Max number of doc ids; default 100, max 500")),
+	), s.handleAPIv1HotDocChaptersGet)
+
+	s.mcp.AddTool(mcp.NewTool("api_v1_hot_doc_source_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/hot/doc_source — chapter_paths comma-separated"),
+		mcp.WithString("chapter_paths", mcp.Required(), mcp.Description("Comma-separated chapter paths")),
+		mcp.WithNumber("max_results", mcp.Description("Default 100, max 2000")),
+	), s.handleAPIv1HotDocSourceGet)
+
+	s.mcp.AddTool(mcp.NewTool("api_v1_cold_doc_source_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/cold/doc_source — q comma-separated keywords"),
+		mcp.WithString("q", mcp.Required(), mcp.Description("Comma-separated keywords (same as query param `q`)")),
+		mcp.WithNumber("max_results", mcp.Description("Default 100, max 500")),
+	), s.handleAPIv1ColdDocSourceGet)
+
+	s.mcp.AddTool(mcp.NewTool("api_v1_quota_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/quota"),
+	), s.handleAPIv1QuotaGet)
+
+	s.mcp.AddTool(mcp.NewTool("api_v1_metrics_get",
+		mcp.WithDescription("Same as GET /api/v1/metrics — Prometheus text exposition format in the tool response body."),
+	), s.handleAPIv1MetricsGet)
 }
 
 // GetMCPServer returns the underlying MCP server for SSE handling
@@ -218,209 +213,204 @@ func argFloat(args map[string]any, key string) (float64, bool) {
 	}
 }
 
-// handleQuery handles the tiersum_query tool
-func (s *MCPServer) handleQuery(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := toolArgs(request)
-	question := argString(args, "question")
-	if question == "" {
-		return nil, fmt.Errorf("question is required")
+// argStringList accepts a comma-separated string, JSON array string, or JSON array in arguments (same values as REST query lists).
+func argStringList(args map[string]any, key string) []string {
+	raw, ok := args[key]
+	if !ok || raw == nil {
+		return nil
 	}
-
-	depthStr := argString(args, "depth")
-	if depthStr == "" {
-		depthStr = "chapter"
+	switch v := raw.(type) {
+	case string:
+		return parseCommaSeparated(v)
+	case []any:
+		out := make([]string, 0, len(v))
+		for _, x := range v {
+			if s, ok := x.(string); ok {
+				s = strings.TrimSpace(s)
+				if s != "" {
+					out = append(out, s)
+				}
+			}
+		}
+		return out
+	default:
+		return nil
 	}
+}
 
-	depth := types.SummaryTier(depthStr)
+func optionalMaxResultsQueryString(args map[string]any, key string) string {
+	if f, ok := argFloat(args, key); ok && int(f) > 0 {
+		return strconv.Itoa(int(f))
+	}
+	return ""
+}
 
-	s.logger.Info("MCP query", zap.String("question", question), zap.String("depth", string(depth)))
-
-	results, err := s.queryService.Query(ctx, question, depth)
+func mcpJSONResult(status int, body any) (*mcp.CallToolResult, error) {
+	b, err := json.Marshal(body)
 	if err != nil {
-		s.logger.Error("query failed", zap.Error(err))
-		return nil, fmt.Errorf("query failed: %w", err)
+		return nil, err
 	}
-
-	resultText := formatQueryResults(question, depth, results)
-	return mcp.NewToolResultText(resultText), nil
+	isErr := status >= http.StatusBadRequest
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{
+			mcp.TextContent{Type: "text", Text: string(b)},
+		},
+		IsError: isErr,
+	}, nil
 }
 
-// handleProgressiveQuery handles the tiersum_progressive_query tool
-func (s *MCPServer) handleProgressiveQuery(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+func (s *MCPServer) handleAPIv1DocumentsPost(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := toolArgs(request)
-	question := argString(args, "question")
-	if question == "" {
-		return nil, fmt.Errorf("question is required")
+	title := strings.TrimSpace(argString(args, "title"))
+	content := strings.TrimSpace(argString(args, "content"))
+	format := strings.TrimSpace(argString(args, "format"))
+	if title == "" || content == "" || format == "" {
+		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "title, content, and format are required (format: markdown or md)"})
 	}
-
-	maxResults := 100
-	if f, ok := argFloat(args, "max_results"); ok {
-		maxResults = int(f)
+	if format != "markdown" && format != "md" {
+		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "format must be markdown or md"})
 	}
-
-	s.logger.Info("MCP progressive query", zap.String("question", question))
-
-	req := types.ProgressiveQueryRequest{
-		Question:   question,
-		MaxResults: maxResults,
-	}
-
-	resp, err := s.queryService.ProgressiveQuery(ctx, req)
-	if err != nil {
-		s.logger.Error("progressive query failed", zap.Error(err))
-		return nil, fmt.Errorf("query failed: %w", err)
-	}
-
-	resultText := formatProgressiveQueryResults(resp)
-	return mcp.NewToolResultText(resultText), nil
-}
-
-// handleGetDocument handles the tiersum_get_document tool
-func (s *MCPServer) handleGetDocument(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := toolArgs(request)
-	docID := argString(args, "document_id")
-	if docID == "" {
-		return nil, fmt.Errorf("document_id is required")
-	}
-
-	s.logger.Info("MCP get document", zap.String("document_id", docID))
-
-	doc, err := s.docService.Get(ctx, docID)
-	if err != nil {
-		s.logger.Error("failed to get document", zap.String("id", docID), zap.Error(err))
-		return nil, fmt.Errorf("failed to get document: %w", err)
-	}
-
-	if doc == nil {
-		return mcp.NewToolResultText(fmt.Sprintf("Document not found: %s", docID)), nil
-	}
-
-	resultText := formatDocument(doc)
-	return mcp.NewToolResultText(resultText), nil
-}
-
-// handleListTagGroups handles the tiersum_list_tag_groups tool
-func (s *MCPServer) handleListTagGroups(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	_ = toolArgs(request)
-	s.logger.Info("MCP list tag groups")
-
-	if s.tagGroupService == nil {
-		return nil, fmt.Errorf("tag grouping service not available")
-	}
-
-	groups, err := s.tagGroupService.GetL1Groups(ctx)
-	if err != nil {
-		s.logger.Error("failed to list groups", zap.Error(err))
-		return nil, fmt.Errorf("failed to list groups: %w", err)
-	}
-
-	resultText := formatTagGroups(groups)
-	return mcp.NewToolResultText(resultText), nil
-}
-
-// handleGetTagsByGroup handles the tiersum_get_tags_by_group tool
-func (s *MCPServer) handleGetTagsByGroup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := toolArgs(request)
-	groupID := argString(args, "group_id")
-	if groupID == "" {
-		return nil, fmt.Errorf("group_id is required")
-	}
-
-	s.logger.Info("MCP get tags by group", zap.String("group_id", groupID))
-
-	if s.tagGroupService == nil {
-		return nil, fmt.Errorf("tag grouping service not available")
-	}
-
-	tags, err := s.tagGroupService.GetL2TagsByGroup(ctx, groupID)
-	if err != nil {
-		s.logger.Error("failed to get tags", zap.Error(err))
-		return nil, fmt.Errorf("failed to get tags: %w", err)
-	}
-
-	resultText := formatTagsByGroup(groupID, tags)
-	return mcp.NewToolResultText(resultText), nil
-}
-
-// handleTriggerTagGroup handles the tiersum_trigger_tag_grouping tool
-func (s *MCPServer) handleTriggerTagGroup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	_ = toolArgs(request)
-	s.logger.Info("MCP trigger tag grouping")
-
-	if s.tagGroupService == nil {
-		return nil, fmt.Errorf("tag grouping service not available")
-	}
-
-	if err := s.tagGroupService.GroupTags(ctx); err != nil {
-		s.logger.Error("failed to group tags", zap.Error(err))
-		return nil, fmt.Errorf("failed to group tags: %w", err)
-	}
-
-	return mcp.NewToolResultText("Tag grouping completed successfully"), nil
-}
-
-// handleIngestDocument handles the tiersum_ingest_document tool
-func (s *MCPServer) handleIngestDocument(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	args := toolArgs(request)
-	title := argString(args, "title")
-	if title == "" {
-		return nil, fmt.Errorf("title is required")
-	}
-
-	content := argString(args, "content")
-	if content == "" {
-		return nil, fmt.Errorf("content is required")
-	}
-
-	format := "markdown"
-	if f := argString(args, "format"); f != "" {
-		format = f
-	}
-
 	req := types.CreateDocumentRequest{
 		Title:    title,
 		Content:  content,
 		Format:   format,
-		Tags:     []string{},
-		Chapters: []types.ChapterInfo{},
+		Tags:     parseTagsArg(args["tags"]),
+		Chapters: parseChaptersArg(args["chapters"]),
 	}
-
-	req.Tags = append(req.Tags, parseTagsArg(args["tags"])...)
-
 	if summary := argString(args, "summary"); summary != "" {
 		req.Summary = summary
 	}
-
-	if ch := parseChaptersArg(args["chapters"]); len(ch) > 0 {
-		req.Chapters = ch
-	}
-
 	if forceHot, ok := args["force_hot"].(bool); ok {
 		req.ForceHot = forceHot
 	}
-
-	s.logger.Info("MCP ingest document",
-		zap.String("title", title),
-		zap.Int("tags", len(req.Tags)),
-		zap.Int("chapters", len(req.Chapters)),
-		zap.Bool("has_summary", req.Summary != ""),
-		zap.Bool("force_hot", req.ForceHot))
-
-	resp, err := s.docService.Ingest(ctx, req)
-	if err != nil {
-		s.logger.Error("failed to ingest document", zap.Error(err))
-		return nil, fmt.Errorf("failed to ingest document: %w", err)
+	if emb := parseEmbeddingArg(args["embedding"]); len(emb) > 0 {
+		req.Embedding = emb
 	}
+	status, body := s.api.ExecuteIngestDocument(ctx, req)
+	return mcpJSONResult(status, body)
+}
 
-	resultText := fmt.Sprintf(
-		"Document ingested successfully:\nID: %s\nTitle: %s\nStatus: %s\nTags: %v",
-		resp.ID,
-		resp.Title,
-		resp.Status,
-		resp.Tags,
-	)
+func (s *MCPServer) handleAPIv1DocumentsList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	_ = toolArgs(request)
+	status, body := s.api.ExecuteListDocuments(ctx)
+	return mcpJSONResult(status, body)
+}
 
-	return mcp.NewToolResultText(resultText), nil
+func (s *MCPServer) handleAPIv1DocumentsGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	id := strings.TrimSpace(argString(toolArgs(request), "id"))
+	if id == "" {
+		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "id is required"})
+	}
+	status, body := s.api.ExecuteGetDocument(ctx, id)
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1DocumentsChaptersGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	id := strings.TrimSpace(argString(toolArgs(request), "id"))
+	if id == "" {
+		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "id is required"})
+	}
+	status, body := s.api.ExecuteGetDocumentChapters(ctx, id)
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1DocumentsSummariesGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	id := strings.TrimSpace(argString(toolArgs(request), "id"))
+	if id == "" {
+		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "id is required"})
+	}
+	status, body := s.api.ExecuteGetDocumentSummaries(ctx, id)
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1QueryProgressivePost(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := toolArgs(request)
+	q := strings.TrimSpace(argString(args, "question"))
+	if q == "" {
+		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "Key: 'ProgressiveQueryRequest.Question' Error:Field validation for 'Question' failed on the 'required' tag"})
+	}
+	mr := 0
+	if f, ok := argFloat(args, "max_results"); ok {
+		mr = int(f)
+	}
+	if mr == 0 {
+		mr = 100
+	}
+	if mr < 1 || mr > 100 {
+		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "Key: 'ProgressiveQueryRequest.MaxResults' Error:Field validation for 'MaxResults' failed on the 'max' tag"})
+	}
+	req := types.ProgressiveQueryRequest{Question: q, MaxResults: mr}
+	status, body := s.api.ExecuteProgressiveQuery(ctx, req)
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1TagsGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := toolArgs(request)
+	groupIDs := argStringList(args, "group_ids")
+	maxRaw := optionalMaxResultsQueryString(args, "max_results")
+	status, body := s.api.ExecuteListTags(ctx, groupIDs, maxRaw)
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1TagsGroupsGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	_ = toolArgs(request)
+	status, body := s.api.ExecuteListTagGroups(ctx)
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1TagsGroupPost(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	_ = toolArgs(request)
+	status, body := s.api.ExecuteTriggerTagGroup(ctx)
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1HotDocSummariesGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := toolArgs(request)
+	tags := argStringList(args, "tags")
+	maxRaw := optionalMaxResultsQueryString(args, "max_results")
+	status, body := s.api.ExecuteHotDocSummaries(ctx, tags, maxRaw)
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1HotDocChaptersGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := toolArgs(request)
+	docIDs := argStringList(args, "doc_ids")
+	maxRaw := optionalMaxResultsQueryString(args, "max_results")
+	status, body := s.api.ExecuteHotDocChapters(ctx, docIDs, maxRaw)
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1HotDocSourceGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := toolArgs(request)
+	paths := argStringList(args, "chapter_paths")
+	maxRaw := optionalMaxResultsQueryString(args, "max_results")
+	status, body := s.api.ExecuteHotDocSource(ctx, paths, maxRaw)
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1ColdDocSourceGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := toolArgs(request)
+	terms := argStringList(args, "q")
+	maxRaw := optionalMaxResultsQueryString(args, "max_results")
+	status, body := s.api.ExecuteColdDocSource(ctx, terms, maxRaw)
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1QuotaGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	_ = toolArgs(request)
+	status, body := s.api.ExecuteGetQuota()
+	return mcpJSONResult(status, body)
+}
+
+func (s *MCPServer) handleAPIv1MetricsGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	_ = toolArgs(request)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	promhttp.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		return mcp.NewToolResultError(fmt.Sprintf("metrics endpoint returned HTTP %d", rec.Code)), nil
+	}
+	return mcp.NewToolResultText(rec.Body.String()), nil
 }
 
 func parseTagsArg(raw any) []string {
@@ -477,84 +467,37 @@ func parseChaptersArg(raw any) []types.ChapterInfo {
 	}
 }
 
-// format functions
-func formatQueryResults(question string, depth types.SummaryTier, results []types.QueryResult) string {
-	if len(results) == 0 {
-		return fmt.Sprintf("Query: %s\nDepth: %s\n\nNo results found.", question, depth)
+func parseEmbeddingArg(raw any) []float32 {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		var nums []float64
+		if err := json.Unmarshal([]byte(v), &nums); err != nil {
+			return nil
+		}
+		out := make([]float32, len(nums))
+		for i, x := range nums {
+			out[i] = float32(x)
+		}
+		return out
+	case []any:
+		out := make([]float32, 0, len(v))
+		for _, x := range v {
+			switch n := x.(type) {
+			case float64:
+				out = append(out, float32(n))
+			case float32:
+				out = append(out, n)
+			case int:
+				out = append(out, float32(n))
+			}
+		}
+		return out
+	default:
+		return nil
 	}
-
-	text := fmt.Sprintf("Query: %s\nDepth: %s\n\nResults:\n", question, depth)
-	for i, r := range results {
-		text += fmt.Sprintf("\n%d. %s\n   %s\n", i+1, r.DocumentTitle, r.Content)
-	}
-	return text
-}
-
-func formatProgressiveQueryResults(resp *types.ProgressiveQueryResponse) string {
-	text := fmt.Sprintf("Query: %s\n\nProgressive Query Results:\n", resp.Question)
-
-	if strings.TrimSpace(resp.Answer) != "" {
-		text += "\n=== Answer (Markdown) ===\n"
-		text += resp.Answer + "\n"
-	}
-
-	text += "\n=== Query Steps ===\n"
-	for _, step := range resp.Steps {
-		text += fmt.Sprintf("- %s: %v (took %dms)\n", step.Step, step.Output, step.Duration)
-	}
-
-	text += fmt.Sprintf("\n=== Results (%d items) ===\n", len(resp.Results))
-	for i, item := range resp.Results {
-		text += fmt.Sprintf("\n%d. %s (relevance: %.2f)\n", i+1, item.Title, item.Relevance)
-		text += fmt.Sprintf("   Path: %s\n", item.Path)
-		content := truncateString(item.Content, 300)
-		text += fmt.Sprintf("   %s\n", content)
-	}
-
-	return text
-}
-
-func formatDocument(doc *types.Document) string {
-	return fmt.Sprintf(
-		"Document: %s\nID: %s\nFormat: %s\nTags: %v\nCreated: %s\n\nContent Preview:\n%s",
-		doc.Title,
-		doc.ID,
-		doc.Format,
-		doc.Tags,
-		doc.CreatedAt.Format("2006-01-02 15:04:05"),
-		truncateString(doc.Content, 500),
-	)
-}
-
-func formatTagGroups(groups []types.TagGroup) string {
-	if len(groups) == 0 {
-		return "No tag groups found. Tags may not have been grouped yet."
-	}
-
-	text := fmt.Sprintf("Tag Groups (%d):\n\n", len(groups))
-	for i, g := range groups {
-		text += fmt.Sprintf("%d. %s\n", i+1, g.Name)
-		text += fmt.Sprintf("   Description: %s\n", g.Description)
-		text += fmt.Sprintf("   Tags (%d): %v\n\n", len(g.Tags), g.Tags)
-	}
-	return text
-}
-
-func formatTagsByGroup(groupID string, tags []types.Tag) string {
-	if len(tags) == 0 {
-		return fmt.Sprintf("No tags found in group %s", groupID)
-	}
-
-	text := fmt.Sprintf("Tags in Group (%d):\n\n", len(tags))
-	for i, t := range tags {
-		text += fmt.Sprintf("%d. %s (used in %d documents)\n", i+1, t.Name, t.DocumentCount)
-	}
-	return text
-}
-
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

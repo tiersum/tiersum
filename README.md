@@ -6,7 +6,7 @@
 [![MCP Protocol](https://img.shields.io/badge/MCP-1.0-6E49CB)](https://modelcontextprotocol.io)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
-[English](README.md) | [中文](README_zh.md)
+Project documentation is maintained in **English** only. See [README_zh.md](README_zh.md) for a short redirect note.
 
 ---
 
