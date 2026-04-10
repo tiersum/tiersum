@@ -6,6 +6,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/config"
 	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
@@ -46,12 +47,14 @@ func (j *PromoteJob) Interval() time.Duration {
 }
 
 // Execute performs the promotion job
-// Finds cold documents with query_count > 3 and promotes them to hot status
+// Finds cold documents with query_count >= cold_promotion_threshold and promotes them to hot.
 func (j *PromoteJob) Execute(ctx context.Context) error {
 	start := time.Now()
 	j.logger.Info("running document promotion job")
 
-	// Find cold documents that need promotion (query_count > 3)
+	threshold := config.ColdPromotionThreshold()
+
+	// Find cold documents that need promotion
 	docs, err := j.docRepo.ListByStatus(ctx, types.DocStatusCold, 100)
 	if err != nil {
 		j.logger.Error("failed to list cold documents", zap.Error(err))
@@ -64,8 +67,7 @@ func (j *PromoteJob) Execute(ctx context.Context) error {
 
 	var promotedCount int
 	for _, doc := range docs {
-		// Check if document qualifies for promotion
-		if doc.QueryCount > 3 {
+		if doc.QueryCount >= threshold {
 			if err := j.promoteDocument(ctx, &doc); err != nil {
 				j.logger.Error("failed to promote document",
 					zap.String("doc_id", doc.ID),
@@ -86,6 +88,25 @@ func (j *PromoteJob) Execute(ctx context.Context) error {
 
 	metrics.RecordJobExecution(j.Name(), true, time.Since(start).Seconds())
 	return nil
+}
+
+// PromoteByDocumentID promotes a single cold document if its query count meets the threshold.
+func (j *PromoteJob) PromoteByDocumentID(ctx context.Context, docID string) error {
+	doc, err := j.docRepo.GetByID(ctx, docID)
+	if err != nil {
+		return err
+	}
+	if doc == nil {
+		return nil
+	}
+	if doc.Status != types.DocStatusCold {
+		return nil
+	}
+	threshold := config.ColdPromotionThreshold()
+	if doc.QueryCount < threshold {
+		return nil
+	}
+	return j.promoteDocument(ctx, doc)
 }
 
 // promoteDocument promotes a single document from cold to hot status

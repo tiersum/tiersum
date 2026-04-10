@@ -7,53 +7,12 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
-	"github.com/tiersum/tiersum/internal/storage"
 )
-
-// IndexerJob periodically processes pending document indexing
-type IndexerJob struct {
-	docRepo     storage.IDocumentRepository
-	summaryRepo storage.ISummaryRepository
-	indexer     service.IIndexer
-	logger      *zap.Logger
-}
-
-// NewIndexerJob creates a new indexer job
-func NewIndexerJob(
-	docRepo storage.IDocumentRepository,
-	summaryRepo storage.ISummaryRepository,
-	indexer service.IIndexer,
-	logger *zap.Logger,
-) *IndexerJob {
-	return &IndexerJob{
-		docRepo:     docRepo,
-		summaryRepo: summaryRepo,
-		indexer:     indexer,
-		logger:      logger,
-	}
-}
-
-// Name returns the job name
-func (j *IndexerJob) Name() string {
-	return "document_indexer"
-}
-
-// Interval returns the execution interval
-func (j *IndexerJob) Interval() time.Duration {
-	return 1 * time.Minute
-}
-
-// Execute performs the indexing job
-func (j *IndexerJob) Execute(ctx context.Context) error {
-	j.logger.Info("running document indexer job")
-	// TODO: Implement actual indexing logic for pending documents
-	return nil
-}
 
 // TagGroupJob periodically performs tag grouping
 type TagGroupJob struct {
 	groupingSvc service.ITagGroupService
-	logger        *zap.Logger
+	logger      *zap.Logger
 }
 
 // NewTagGroupJob creates a new tag grouping job

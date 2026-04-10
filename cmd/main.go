@@ -3,25 +3,34 @@ package main
 import (
 	"context"
 	"database/sql"
+	"embed"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/api"
 	"github.com/tiersum/tiersum/internal/di"
+	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/storage/db"
 	"github.com/tiersum/tiersum/internal/storage/memory"
 	"github.com/tiersum/tiersum/pkg/types"
 )
+
+//go:embed web/*
+var webFS embed.FS
 
 var (
 	Version    = "dev"
@@ -64,7 +73,6 @@ func expandEnvVars() {
 }
 
 // ServerDeps holds all server dependencies
-// ServerDeps 持有所有服务器依赖
 type ServerDeps struct {
 	Logger   *zap.Logger
 	SQLDB    *sql.DB
@@ -73,7 +81,6 @@ type ServerDeps struct {
 }
 
 // setupServerDeps initializes all server dependencies
-// setupServerDeps 初始化所有服务器依赖
 func setupServerDeps() (*ServerDeps, error) {
 	logger, _ := zap.NewProduction()
 
@@ -117,7 +124,6 @@ func setupServerDeps() (*ServerDeps, error) {
 }
 
 // setupRouter configures the Gin router with all routes
-// setupRouter 配置 Gin 路由，注册所有路由
 func setupRouter(deps *ServerDeps) *gin.Engine {
 	// Set up Gin router
 	if viper.GetString("logging.level") == "production" {
@@ -143,7 +149,6 @@ func setupRouter(deps *ServerDeps) *gin.Engine {
 }
 
 // registerHealthRoute registers the health check endpoint
-// registerHealthRoute 注册健康检查端点
 func registerHealthRoute(r *gin.Engine, deps *ServerDeps) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -155,22 +160,21 @@ func registerHealthRoute(r *gin.Engine, deps *ServerDeps) {
 }
 
 // registerAPIRoutes registers all API v1 routes
-// registerAPIRoutes 注册所有 API v1 路由
 func registerAPIRoutes(r *gin.Engine, deps *ServerDeps) {
 	apiV1 := r.Group("/api/v1")
+	apiV1.Use(api.APIKeyAuth(viper.GetString("security.api_key")))
 	deps.DI.RESTHandler.RegisterRoutes(apiV1)
 }
 
 // registerMCPRoutes registers MCP protocol routes
-// registerMCPRoutes 注册 MCP 协议路由
 func registerMCPRoutes(r *gin.Engine, deps *ServerDeps) {
 	if viper.GetBool("mcp.enabled") {
 		r.GET("/mcp/sse", deps.DI.MCPServer.SSEHandler())
+		r.POST("/mcp/message", deps.DI.MCPServer.MessageHandler())
 	}
 }
 
-// registerStaticRoutes registers static file serving routes
-// registerStaticRoutes 注册静态文件服务路由 (使用 embed 嵌入的文件)
+// registerStaticRoutes registers static file serving routes (embedded web assets)
 func registerStaticRoutes(r *gin.Engine, deps *ServerDeps) {
 	deps.Logger.Info("Registering static file routes with embedded files")
 
@@ -179,8 +183,69 @@ func registerStaticRoutes(r *gin.Engine, deps *ServerDeps) {
 	r.NoRoute(StaticFileServer())
 }
 
+// StaticFileServer returns a gin handler for serving embedded static files.
+func StaticFileServer() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+
+		if strings.HasPrefix(path, "/api/") ||
+			strings.HasPrefix(path, "/health") ||
+			strings.HasPrefix(path, "/mcp/") {
+			c.Next()
+			return
+		}
+
+		if path == "/" {
+			path = "/index.html"
+		}
+
+		filePath := "web" + path
+		data, err := webFS.ReadFile(filePath)
+		if err != nil {
+			data, err = webFS.ReadFile("web/index.html")
+			if err != nil {
+				c.Next()
+				return
+			}
+			filePath = "web/index.html"
+		}
+
+		contentType := staticContentType(filePath)
+		c.Header("Content-Type", contentType)
+		c.Data(http.StatusOK, contentType, data)
+		c.Abort()
+	}
+}
+
+func staticContentType(path string) string {
+	switch {
+	case strings.HasSuffix(path, ".html"):
+		return "text/html; charset=utf-8"
+	case strings.HasSuffix(path, ".js"):
+		return "application/javascript; charset=utf-8"
+	case strings.HasSuffix(path, ".css"):
+		return "text/css; charset=utf-8"
+	case strings.HasSuffix(path, ".json"):
+		return "application/json; charset=utf-8"
+	case strings.HasSuffix(path, ".png"):
+		return "image/png"
+	case strings.HasSuffix(path, ".jpg") || strings.HasSuffix(path, ".jpeg"):
+		return "image/jpeg"
+	case strings.HasSuffix(path, ".gif"):
+		return "image/gif"
+	case strings.HasSuffix(path, ".svg"):
+		return "image/svg+xml"
+	default:
+		return "application/octet-stream"
+	}
+}
+
+// WebFS returns the embedded filesystem for the web UI assets.
+func WebFS() fs.FS {
+	return webFS
+}
+
 // startServer starts the HTTP server with graceful shutdown
-// startServer 启动 HTTP 服务器，支持优雅关闭
 func startServer(router *gin.Engine, deps *ServerDeps) error {
 	port := viper.GetInt("server.port")
 	if port == 0 {
@@ -233,6 +298,10 @@ func runServer(cmd *cobra.Command, args []string) {
 	deps.DI.JobScheduler.Start()
 	defer deps.DI.JobScheduler.Stop()
 
+	promoteCtx, promoteCancel := context.WithCancel(context.Background())
+	defer promoteCancel()
+	job.StartPromoteQueueConsumer(promoteCtx, deps.DI.PromoteJob, deps.Logger)
+
 	// Setup and start server
 	router := setupRouter(deps)
 	if err := startServer(router, deps); err != nil {
@@ -241,18 +310,31 @@ func runServer(cmd *cobra.Command, args []string) {
 }
 
 func initDB() (*sql.DB, error) {
-	driver := viper.GetString("storage.database.driver")
-	if driver == "" {
-		driver = "sqlite3"
-	}
+	driver := normalizeDBDriver(viper.GetString("storage.database.driver"))
 
 	switch driver {
-	case "sqlite3", "sqlite":
+	case "sqlite3":
 		dsn := viper.GetString("storage.database.dsn")
 		if dsn == "" {
 			dsn = "./data/tiersum.db"
 		}
 		return sql.Open("sqlite3", dsn+"?_journal_mode=WAL")
+	case "postgres":
+		dsn := viper.GetString("storage.database.dsn")
+		if dsn == "" {
+			return nil, fmt.Errorf("storage.database.dsn is required for postgres driver")
+		}
+		db, err := sql.Open("postgres", dsn)
+		if err != nil {
+			return nil, err
+		}
+		if mc := viper.GetInt("storage.database.max_connections"); mc > 0 {
+			db.SetMaxOpenConns(mc)
+		}
+		if mic := viper.GetInt("storage.database.min_connections"); mic > 0 {
+			db.SetMaxIdleConns(mic)
+		}
+		return db, nil
 	default:
 		return nil, fmt.Errorf("unsupported driver: %s", driver)
 	}
@@ -307,11 +389,18 @@ func loadColdDocuments(sqlDB *sql.DB, driver string, memIndex *memory.Index, log
 }
 
 func getDriver() string {
-	driver := viper.GetString("storage.database.driver")
-	if driver == "" {
+	return normalizeDBDriver(viper.GetString("storage.database.driver"))
+}
+
+func normalizeDBDriver(d string) string {
+	switch strings.ToLower(strings.TrimSpace(d)) {
+	case "", "sqlite", "sqlite3":
 		return "sqlite3"
+	case "postgres", "postgresql":
+		return "postgres"
+	default:
+		return strings.ToLower(strings.TrimSpace(d))
 	}
-	return driver
 }
 
 // noopCache is a no-op cache implementation for use during startup

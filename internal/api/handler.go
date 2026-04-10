@@ -3,6 +3,8 @@ package api
 
 import (
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -13,6 +15,11 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
+// QuotaSnapshot exposes current hot-ingest quota for HTTP handlers.
+type QuotaSnapshot interface {
+	GetQuota() (used int, total int, resetAt time.Time)
+}
+
 // Handler holds API dependencies
 type Handler struct {
 	DocService      service.IDocumentService
@@ -20,6 +27,7 @@ type Handler struct {
 	TagGroupService service.ITagGroupService
 	TagRepo         storage.ITagRepository
 	SummaryRepo     storage.ISummaryRepository
+	Quota           QuotaSnapshot
 	Logger          *zap.Logger
 }
 
@@ -30,6 +38,7 @@ func NewHandler(
 	tagGroupService service.ITagGroupService,
 	tagRepo storage.ITagRepository,
 	summaryRepo storage.ISummaryRepository,
+	quota QuotaSnapshot,
 	logger *zap.Logger,
 ) *Handler {
 	return &Handler{
@@ -38,6 +47,7 @@ func NewHandler(
 		TagGroupService: tagGroupService,
 		TagRepo:         tagRepo,
 		SummaryRepo:     summaryRepo,
+		Quota:           quota,
 		Logger:          logger,
 	}
 }
@@ -135,8 +145,38 @@ func (h *Handler) GetDocumentChapters(c *gin.Context) {
 	}
 
 	// This would need to be implemented in the query service
-	// For now, return not implemented
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "not implemented"})
+	doc, err := h.DocService.Get(c.Request.Context(), docID)
+	if err != nil {
+		h.Logger.Error("failed to get document", zap.String("id", docID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to get document"})
+		return
+	}
+	if doc == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "document not found"})
+		return
+	}
+
+	chapters, err := h.SummaryRepo.QueryByTierAndPrefix(c.Request.Context(), types.TierChapter, docID+"/")
+	if err != nil {
+		h.Logger.Error("failed to list chapters", zap.String("id", docID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list chapters"})
+		return
+	}
+
+	out := make([]gin.H, 0, len(chapters))
+	for _, s := range chapters {
+		if s.IsSource {
+			continue
+		}
+		title := strings.TrimPrefix(s.Path, docID+"/")
+		out = append(out, gin.H{
+			"path":    s.Path,
+			"title":   title,
+			"summary": s.Content,
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"document_id": docID, "chapters": out})
 }
 
 // Query performs a query (legacy interface)
@@ -255,11 +295,18 @@ func (h *Handler) GetDocumentSummaries(c *gin.Context) {
 
 // GetQuota returns the current quota status
 func (h *Handler) GetQuota(c *gin.Context) {
-	// This would need to be injected from the quota manager
-	// For now, return placeholder
+	if h.Quota == nil {
+		c.JSON(http.StatusOK, gin.H{
+			"used":     0,
+			"total":    100,
+			"reset_at": nil,
+		})
+		return
+	}
+	used, total, resetAt := h.Quota.GetQuota()
 	c.JSON(http.StatusOK, gin.H{
-		"used":     0,
-		"total":    100,
-		"reset_at": nil,
+		"used":     used,
+		"total":    total,
+		"reset_at": resetAt,
 	})
 }

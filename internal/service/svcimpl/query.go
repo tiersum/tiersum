@@ -9,6 +9,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/config"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
@@ -21,9 +22,6 @@ import (
 // If L2 tag count < threshold: directly filter all L2 tags with LLM (skip L1)
 // If L2 tag count >= threshold: use L1 -> L2 two-level filtering
 const L2TagThreshold = 200
-
-// ColdDocQueryThreshold is the query count threshold for cold document promotion
-const ColdDocQueryThreshold = 3
 
 // QuerySvc implements service.IQueryService
 type QuerySvc struct {
@@ -325,8 +323,8 @@ func (s *QuerySvc) trackDocumentAccess(ctx context.Context, docs []types.Documen
 				return
 			}
 
-			// Check if cold document should be promoted
-			if status == types.DocStatusCold && queryCount+1 >= ColdDocQueryThreshold {
+			threshold := config.ColdPromotionThreshold()
+			if status == types.DocStatusCold && queryCount+1 >= threshold {
 				select {
 				case job.PromoteQueue <- docID:
 					s.logger.Info("queued cold document for promotion",

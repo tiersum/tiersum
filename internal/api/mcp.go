@@ -4,11 +4,15 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
@@ -22,6 +26,7 @@ type MCPServer struct {
 	tagGroupService service.ITagGroupService
 	logger          *zap.Logger
 	mcp             *mcpserver.MCPServer
+	sse             *mcpserver.SSEServer
 }
 
 // NewMCPServer creates a new MCP server
@@ -38,22 +43,35 @@ func NewMCPServer(
 		logger:          logger,
 	}
 
-	// Create MCP server
 	s.mcp = mcpserver.NewMCPServer(
 		"tiersum",
 		"2.0.0",
 		mcpserver.WithResourceCapabilities(true, true),
 	)
 
-	// Register tools
 	s.registerTools()
+
+	baseURL := strings.TrimSpace(viper.GetString("mcp.base_url"))
+	opts := []mcpserver.SSEOption{
+		mcpserver.WithStaticBasePath("/mcp"),
+		mcpserver.WithSSEEndpoint("/sse"),
+		mcpserver.WithMessageEndpoint("/message"),
+	}
+	if baseURL != "" {
+		opts = append(opts,
+			mcpserver.WithBaseURL(strings.TrimSuffix(baseURL, "/")),
+			mcpserver.WithUseFullURLForMessageEndpoint(true),
+		)
+	} else {
+		opts = append(opts, mcpserver.WithUseFullURLForMessageEndpoint(false))
+	}
+	s.sse = mcpserver.NewSSEServer(s.mcp, opts...)
 
 	return s
 }
 
 // registerTools registers all MCP tools
 func (s *MCPServer) registerTools() {
-	// Query tool - simple query
 	queryTool := mcp.NewTool("tiersum_query",
 		mcp.WithDescription("Query knowledge base for relevant content"),
 		mcp.WithString("question",
@@ -67,7 +85,6 @@ func (s *MCPServer) registerTools() {
 	)
 	s.mcp.AddTool(queryTool, s.handleQuery)
 
-	// Progressive Query tool - new two-level tag-based query
 	progressiveQueryTool := mcp.NewTool("tiersum_progressive_query",
 		mcp.WithDescription("Perform progressive query using two-level tag hierarchy (recommended)"),
 		mcp.WithString("question",
@@ -80,7 +97,6 @@ func (s *MCPServer) registerTools() {
 	)
 	s.mcp.AddTool(progressiveQueryTool, s.handleProgressiveQuery)
 
-	// GetDocument tool
 	getDocTool := mcp.NewTool("tiersum_get_document",
 		mcp.WithDescription("Retrieve a document by ID"),
 		mcp.WithString("document_id",
@@ -90,13 +106,11 @@ func (s *MCPServer) registerTools() {
 	)
 	s.mcp.AddTool(getDocTool, s.handleGetDocument)
 
-	// ListTagGroups tool
 	listGroupsTool := mcp.NewTool("tiersum_list_tag_groups",
 		mcp.WithDescription("List all tag groups (Level 1 categories)"),
 	)
 	s.mcp.AddTool(listGroupsTool, s.handleListTagGroups)
 
-	// GetTagsByGroup tool
 	getTagsByGroupTool := mcp.NewTool("tiersum_get_tags_by_group",
 		mcp.WithDescription("Get all tags (Level 2) belonging to a specific group"),
 		mcp.WithString("group_id",
@@ -106,13 +120,11 @@ func (s *MCPServer) registerTools() {
 	)
 	s.mcp.AddTool(getTagsByGroupTool, s.handleGetTagsByGroup)
 
-	// TriggerTagGroup tool
 	triggerGroupingTool := mcp.NewTool("tiersum_trigger_tag_grouping",
 		mcp.WithDescription("Manually trigger tag grouping (normally runs automatically every 30 minutes)"),
 	)
 	s.mcp.AddTool(triggerGroupingTool, s.handleTriggerTagGroup)
 
-	// IngestDocument tool - supports external agent pre-built summaries
 	ingestDocTool := mcp.NewTool("tiersum_ingest_document",
 		mcp.WithDescription("Ingest a document into the knowledge base. Supports pre-built summaries from external agents."),
 		mcp.WithString("title",
@@ -128,10 +140,13 @@ func (s *MCPServer) registerTools() {
 			mcp.Enum("markdown", "md"),
 		),
 		mcp.WithString("tags",
-			mcp.Description("Optional pre-built tags (JSON array string, e.g.: [\"tag1\", \"tag2\"])"),
+			mcp.Description("Optional tags as JSON array string, e.g. [\"tag1\",\"tag2\"], or provided as a JSON array by the client"),
 		),
 		mcp.WithString("summary",
 			mcp.Description("Optional pre-built document summary (from external agent)"),
+		),
+		mcp.WithString("chapters",
+			mcp.Description("Optional JSON array of chapters: [{\"title\":\"...\",\"summary\":\"...\",\"content\":\"...\"}]"),
 		),
 		mcp.WithBoolean("force_hot",
 			mcp.Description("Force hot processing regardless of quota"),
@@ -145,23 +160,73 @@ func (s *MCPServer) GetMCPServer() *mcpserver.MCPServer {
 	return s.mcp
 }
 
-// SSEHandler returns the SSE handler for MCP
+// SSEHTTP returns the SSE stream handler for GET /mcp/sse
+func (s *MCPServer) SSEHTTP() http.Handler {
+	return s.sse.SSEHandler()
+}
+
+// MCPMessageHTTP returns the JSON-RPC message handler for POST /mcp/message
+func (s *MCPServer) MCPMessageHTTP() http.Handler {
+	return s.sse.MessageHandler()
+}
+
+// SSEHandler returns a Gin handler for the MCP SSE endpoint
 func (s *MCPServer) SSEHandler() gin.HandlerFunc {
+	h := s.SSEHTTP()
 	return func(c *gin.Context) {
-		s.logger.Info("MCP SSE connection established")
-		// TODO: Use mcpserver.NewSSEServer(s.mcp, baseURL) for full implementation
-		c.String(200, "MCP SSE endpoint - not fully implemented")
+		h.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+// MessageHandler returns a Gin handler for the MCP message endpoint
+func (s *MCPServer) MessageHandler() gin.HandlerFunc {
+	h := s.MCPMessageHTTP()
+	return func(c *gin.Context) {
+		h.ServeHTTP(c.Writer, c.Request)
+	}
+}
+
+func toolArgs(request mcp.CallToolRequest) map[string]any {
+	args := request.GetArguments()
+	if args == nil {
+		return map[string]any{}
+	}
+	return args
+}
+
+func argString(args map[string]any, key string) string {
+	v, ok := args[key].(string)
+	if !ok {
+		return ""
+	}
+	return v
+}
+
+func argFloat(args map[string]any, key string) (float64, bool) {
+	switch v := args[key].(type) {
+	case float64:
+		return v, true
+	case float32:
+		return float64(v), true
+	case int:
+		return float64(v), true
+	case json.Number:
+		f, err := v.Float64()
+		return f, err == nil
+	default:
+		return 0, false
 	}
 }
 
 // handleQuery handles the tiersum_query tool
 func (s *MCPServer) handleQuery(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	question, ok := request.Params.Arguments["question"].(string)
-	if !ok || question == "" {
+	args := toolArgs(request)
+	question := argString(args, "question")
+	if question == "" {
 		return nil, fmt.Errorf("question is required")
 	}
 
-	depthStr, _ := request.Params.Arguments["depth"].(string)
+	depthStr := argString(args, "depth")
 	if depthStr == "" {
 		depthStr = "chapter"
 	}
@@ -182,14 +247,15 @@ func (s *MCPServer) handleQuery(ctx context.Context, request mcp.CallToolRequest
 
 // handleProgressiveQuery handles the tiersum_progressive_query tool
 func (s *MCPServer) handleProgressiveQuery(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	question, ok := request.Params.Arguments["question"].(string)
-	if !ok || question == "" {
+	args := toolArgs(request)
+	question := argString(args, "question")
+	if question == "" {
 		return nil, fmt.Errorf("question is required")
 	}
 
 	maxResults := 100
-	if mr, ok := request.Params.Arguments["max_results"].(float64); ok {
-		maxResults = int(mr)
+	if f, ok := argFloat(args, "max_results"); ok {
+		maxResults = int(f)
 	}
 
 	s.logger.Info("MCP progressive query", zap.String("question", question))
@@ -211,8 +277,9 @@ func (s *MCPServer) handleProgressiveQuery(ctx context.Context, request mcp.Call
 
 // handleGetDocument handles the tiersum_get_document tool
 func (s *MCPServer) handleGetDocument(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	docID, ok := request.Params.Arguments["document_id"].(string)
-	if !ok || docID == "" {
+	args := toolArgs(request)
+	docID := argString(args, "document_id")
+	if docID == "" {
 		return nil, fmt.Errorf("document_id is required")
 	}
 
@@ -234,6 +301,7 @@ func (s *MCPServer) handleGetDocument(ctx context.Context, request mcp.CallToolR
 
 // handleListTagGroups handles the tiersum_list_tag_groups tool
 func (s *MCPServer) handleListTagGroups(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	_ = toolArgs(request)
 	s.logger.Info("MCP list tag groups")
 
 	if s.tagGroupService == nil {
@@ -252,8 +320,9 @@ func (s *MCPServer) handleListTagGroups(ctx context.Context, request mcp.CallToo
 
 // handleGetTagsByGroup handles the tiersum_get_tags_by_group tool
 func (s *MCPServer) handleGetTagsByGroup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	groupID, ok := request.Params.Arguments["group_id"].(string)
-	if !ok || groupID == "" {
+	args := toolArgs(request)
+	groupID := argString(args, "group_id")
+	if groupID == "" {
 		return nil, fmt.Errorf("group_id is required")
 	}
 
@@ -275,6 +344,7 @@ func (s *MCPServer) handleGetTagsByGroup(ctx context.Context, request mcp.CallTo
 
 // handleTriggerTagGroup handles the tiersum_trigger_tag_grouping tool
 func (s *MCPServer) handleTriggerTagGroup(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	_ = toolArgs(request)
 	s.logger.Info("MCP trigger tag grouping")
 
 	if s.tagGroupService == nil {
@@ -291,22 +361,22 @@ func (s *MCPServer) handleTriggerTagGroup(ctx context.Context, request mcp.CallT
 
 // handleIngestDocument handles the tiersum_ingest_document tool
 func (s *MCPServer) handleIngestDocument(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	title, ok := request.Params.Arguments["title"].(string)
-	if !ok || title == "" {
+	args := toolArgs(request)
+	title := argString(args, "title")
+	if title == "" {
 		return nil, fmt.Errorf("title is required")
 	}
 
-	content, ok := request.Params.Arguments["content"].(string)
-	if !ok || content == "" {
+	content := argString(args, "content")
+	if content == "" {
 		return nil, fmt.Errorf("content is required")
 	}
 
 	format := "markdown"
-	if f, ok := request.Params.Arguments["format"].(string); ok && f != "" {
+	if f := argString(args, "format"); f != "" {
 		format = f
 	}
 
-	// Build request
 	req := types.CreateDocumentRequest{
 		Title:    title,
 		Content:  content,
@@ -315,28 +385,24 @@ func (s *MCPServer) handleIngestDocument(ctx context.Context, request mcp.CallTo
 		Chapters: []types.ChapterInfo{},
 	}
 
-	// Parse optional tags
-	if tagsArr, ok := request.Params.Arguments["tags"].([]interface{}); ok {
-		for _, t := range tagsArr {
-			if tag, ok := t.(string); ok {
-				req.Tags = append(req.Tags, tag)
-			}
-		}
-	}
+	req.Tags = append(req.Tags, parseTagsArg(args["tags"])...)
 
-	// Parse optional summary
-	if summary, ok := request.Params.Arguments["summary"].(string); ok && summary != "" {
+	if summary := argString(args, "summary"); summary != "" {
 		req.Summary = summary
 	}
 
-	// Parse force_hot
-	if forceHot, ok := request.Params.Arguments["force_hot"].(bool); ok {
+	if ch := parseChaptersArg(args["chapters"]); len(ch) > 0 {
+		req.Chapters = ch
+	}
+
+	if forceHot, ok := args["force_hot"].(bool); ok {
 		req.ForceHot = forceHot
 	}
 
 	s.logger.Info("MCP ingest document",
 		zap.String("title", title),
 		zap.Int("tags", len(req.Tags)),
+		zap.Int("chapters", len(req.Chapters)),
 		zap.Bool("has_summary", req.Summary != ""),
 		zap.Bool("force_hot", req.ForceHot))
 
@@ -357,6 +423,60 @@ func (s *MCPServer) handleIngestDocument(ctx context.Context, request mcp.CallTo
 	return mcp.NewToolResultText(resultText), nil
 }
 
+func parseTagsArg(raw any) []string {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case []any:
+		var out []string
+		for _, t := range v {
+			if s, ok := t.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		var tags []string
+		if err := json.Unmarshal([]byte(v), &tags); err != nil {
+			return nil
+		}
+		return tags
+	default:
+		return nil
+	}
+}
+
+func parseChaptersArg(raw any) []types.ChapterInfo {
+	switch v := raw.(type) {
+	case nil:
+		return nil
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil
+		}
+		var ch []types.ChapterInfo
+		if err := json.Unmarshal([]byte(v), &ch); err != nil {
+			return nil
+		}
+		return ch
+	case []any:
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil
+		}
+		var ch []types.ChapterInfo
+		if err := json.Unmarshal(b, &ch); err != nil {
+			return nil
+		}
+		return ch
+	default:
+		return nil
+	}
+}
+
 // format functions
 func formatQueryResults(question string, depth types.SummaryTier, results []types.QueryResult) string {
 	if len(results) == 0 {
@@ -373,13 +493,11 @@ func formatQueryResults(question string, depth types.SummaryTier, results []type
 func formatProgressiveQueryResults(resp *types.ProgressiveQueryResponse) string {
 	text := fmt.Sprintf("Query: %s\n\nProgressive Query Results:\n", resp.Question)
 
-	// Show steps
 	text += "\n=== Query Steps ===\n"
 	for _, step := range resp.Steps {
 		text += fmt.Sprintf("- %s: %v (took %dms)\n", step.Step, step.Output, step.Duration)
 	}
 
-	// Show results
 	text += fmt.Sprintf("\n=== Results (%d items) ===\n", len(resp.Results))
 	for i, item := range resp.Results {
 		text += fmt.Sprintf("\n%d. %s (relevance: %.2f)\n", i+1, item.Title, item.Relevance)

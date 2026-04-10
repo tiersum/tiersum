@@ -51,7 +51,7 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 | **Dual API** | REST API + MCP Tools for seamless agent integration |
 | **Modern Web UI** | Vue 3 CDN frontend with Tailwind + DaisyUI dark theme |
 | **Markdown-Native** | Optimized for `.md`; extensible skills for PDF/HTML/Docs |
-| **Incremental Updates** | Smart diffing — re-summarize only changed sections |
+| **Incremental Updates** | Smart diffing — re-summarize only changed sections (planned) |
 
 ---
 
@@ -139,7 +139,6 @@ cd deployments/docker && docker-compose up -d
 # configs/config.yaml
 server:
   port: 8080
-  web_dir: "./web/dist"  # Serve frontend static files
 
 llm:
   provider: openai

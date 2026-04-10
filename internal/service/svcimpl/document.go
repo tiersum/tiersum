@@ -7,6 +7,7 @@ import (
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/config"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/internal/storage/memory"
@@ -62,8 +63,7 @@ func (s *DocumentSvc) shouldBeHot(content string, forceHot bool, hasPrebuiltSumm
 		return false
 	}
 
-	// Simple heuristic: documents longer than 5000 characters are considered "hot"
-	return len(content) > 5000
+	return len(content) > config.HotContentThreshold()
 }
 
 // Ingest implements IDocumentService.Ingest

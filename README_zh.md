@@ -51,7 +51,7 @@
 | **双 API 架构** | REST API + MCP 工具，无缝集成智能体 |
 | **现代 Web UI** | Next.js 14 前端，Slate 暗色主题 |
 | **原生 Markdown** | 针对 `.md` 优化；可扩展技能支持 PDF/HTML/文档转换 |
-| **增量更新** | 智能差异比对 —— 仅重新摘要变更部分 |
+| **增量更新** | 智能差异比对 —— 仅重新摘要变更部分（规划中） |
 
 ---
 
@@ -143,7 +143,6 @@ cd deployments/docker && docker-compose up -d
 # configs/config.yaml
 server:
   port: 8080
-  web_dir: "./web/dist"  # 前端静态文件
 
 llm:
   provider: openai

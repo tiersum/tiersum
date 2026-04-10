@@ -35,6 +35,7 @@ type Dependencies struct {
 
 	// Job Layer
 	JobScheduler *job.Scheduler
+	PromoteJob   *job.PromoteJob
 
 	// Memory Index for cold documents
 	MemIndex *memory.Index
@@ -98,16 +99,16 @@ func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, logge
 	)
 
 	// 8. API Layer
-	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, uow.Tags, uow.Summaries, logger)
+	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, uow.Tags, uow.Summaries, quotaManager, logger)
 	mcpServer := api.NewMCPServer(docService, queryService, tagGroupSvc, logger)
 
 	// 9. Job Layer
 	jobScheduler := job.NewScheduler(logger)
 	// Register tag grouping job (runs every 30 minutes)
 	jobScheduler.Register(job.NewTagGroupJob(tagGroupSvc, logger))
-	jobScheduler.Register(job.NewIndexerJob(uow.Documents, uow.Summaries, indexer, logger))
+	promoteJob := job.NewPromoteJob(uow.Documents, indexer, summarizer, logger)
 	// Register hot/cold document promotion job (runs every 5 minutes)
-	jobScheduler.Register(job.NewPromoteJob(uow.Documents, indexer, summarizer, logger))
+	jobScheduler.Register(promoteJob)
 	// Register hot score update job (runs every hour)
 	jobScheduler.Register(job.NewHotScoreJob(uow.Documents, logger))
 
@@ -118,6 +119,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, logge
 		RESTHandler:     restHandler,
 		MCPServer:       mcpServer,
 		JobScheduler:    jobScheduler,
+		PromoteJob:      promoteJob,
 		MemIndex:        memIndex,
 		Logger:          logger,
 	}, nil

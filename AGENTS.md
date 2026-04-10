@@ -117,7 +117,7 @@ internal/
       openai.go              # OpenAIProvider implements ILLMProvider
   job/                       # Job Layer (background tasks)
     scheduler.go             # Job scheduler
-    jobs.go                  # IndexerJob, TagGroupJob
+    jobs.go                  # TagGroupJob
     promote_job.go           # Cold-to-hot promotion job
     hotscore_job.go          # Hot score recalculation job
   di/                        # Dependency Injection (composition root)
@@ -390,7 +390,6 @@ PromoteJob (every 5 min) → Full LLM analysis → hot
 
 | Job | File | Interval | Purpose |
 |-----|------|----------|---------|
-| **IndexerJob** | `jobs.go` | 1 minute | Processes pending document indexing |
 | **TagGroupJob** | `jobs.go` | 30 minutes | LLM-based tag clustering into L1 groups |
 | **PromoteJob** | `promote_job.go` | 5 minutes | Promotes cold docs (query_count > 3) to hot |
 | **HotScoreJob** | `hotscore_job.go` | 1 hour | Updates hot scores: `query_count / (1 + hours_since_last_query)` |
@@ -422,7 +421,8 @@ PromoteJob (every 5 min) → Full LLM analysis → hot
 ### MCP Endpoints
 | Path | Description |
 |------|-------------|
-| `/mcp/sse` | MCP Server-Sent Events endpoint |
+| `/mcp/sse` | MCP SSE stream (session + endpoint event) |
+| `/mcp/message` | MCP JSON-RPC message POST (`sessionId` query param) |
 
 ---
 
@@ -460,8 +460,8 @@ var _ service.IMyService = (*MySvc)(nil)
 
 ## Security Considerations
 
-- API key authentication supported (optional, via config)
-- JWT token authentication supported
+- Optional REST API key: set `security.api_key`; clients send `X-API-Key` or `Authorization: Bearer <key>`. MCP `/mcp/*` routes are not protected by this middleware.
+- JWT authentication for REST is not implemented (`security.jwt_secret` is reserved).
 - CORS configuration for web UI
 - No sensitive data in logs (use zap logging)
 - Database credentials via environment variables

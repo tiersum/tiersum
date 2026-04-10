@@ -178,6 +178,7 @@ func setupTestHandler() (*Handler, *gin.Engine) {
 		TagGroupService: &mockTagGroupService{},
 		TagRepo:         &mockTagRepo{},
 		SummaryRepo:     &mockSummaryRepo{},
+		Quota:           nil,
 		Logger:          zap.NewNop(),
 	}
 

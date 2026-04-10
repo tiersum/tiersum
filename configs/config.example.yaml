@@ -161,6 +161,9 @@ mcp:
   transport: sse
   # SSE endpoint path
   path: /mcp/sse
+  # Public base URL for MCP clients that require absolute message endpoint URLs (no trailing slash).
+  # Example: http://localhost:8080 — leave empty to use relative /mcp/message paths (same-origin).
+  base_url: ""
   # Allowed tools (empty = all)
   allowed_tools: []
 
@@ -213,8 +216,8 @@ security:
 
 # Feature flags
 features:
-  # Enable incremental updates (only re-summarize changed sections)
-  incremental_updates: true
+  # Reserved for future use: partial re-summarization on document updates (not implemented yet)
+  incremental_updates: false
   # Enable automatic document conversion skills
   auto_convert: false
   # Enable web UI (future feature)
