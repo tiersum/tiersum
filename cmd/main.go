@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -67,12 +66,10 @@ func expandEnvVars() {
 // ServerDeps holds all server dependencies
 // ServerDeps 持有所有服务器依赖
 type ServerDeps struct {
-	Logger       *zap.Logger
-	SQLDB        *sql.DB
-	MemIndex     *memory.Index
-	DI           *di.Dependencies
-	WebDir       string
-	WebDirExists bool
+	Logger   *zap.Logger
+	SQLDB    *sql.DB
+	MemIndex *memory.Index
+	DI       *di.Dependencies
 }
 
 // setupServerDeps initializes all server dependencies
@@ -111,42 +108,11 @@ func setupServerDeps() (*ServerDeps, error) {
 		logger.Fatal("Failed to wire dependencies", zap.Error(err))
 	}
 
-	// Static files configuration
-	webDir := viper.GetString("server.web_dir")
-	if webDir == "" {
-		webDir = "./web/dist"
-	}
-	
-	// Try to resolve relative paths against multiple possible locations
-	if _, err := os.Stat(webDir); err != nil {
-		// If relative path doesn't work, try to find web/dist in common locations
-		possiblePaths := []string{
-			"./web/dist",
-			"../web/dist",
-			"../../web/dist",
-		}
-		for _, path := range possiblePaths {
-			if _, err := os.Stat(path); err == nil {
-				webDir = path
-				break
-			}
-		}
-	}
-	webDirExists := false
-	if _, err := os.Stat(webDir); err == nil {
-		webDirExists = true
-		logger.Info("Serving static files", zap.String("dir", webDir))
-	} else {
-		logger.Warn("Web directory not found, API-only mode", zap.String("dir", webDir))
-	}
-
 	return &ServerDeps{
-		Logger:       logger,
-		SQLDB:        sqlDB,
-		MemIndex:     memIndex,
-		DI:           deps,
-		WebDir:       webDir,
-		WebDirExists: webDirExists,
+		Logger:   logger,
+		SQLDB:    sqlDB,
+		MemIndex: memIndex,
+		DI:       deps,
 	}, nil
 }
 
@@ -204,86 +170,13 @@ func registerMCPRoutes(r *gin.Engine, deps *ServerDeps) {
 }
 
 // registerStaticRoutes registers static file serving routes
-// registerStaticRoutes 注册静态文件服务路由
+// registerStaticRoutes 注册静态文件服务路由 (使用 embed 嵌入的文件)
 func registerStaticRoutes(r *gin.Engine, deps *ServerDeps) {
-	if !deps.WebDirExists {
-		deps.Logger.Warn("Web directory not found, static routes disabled", zap.String("web_dir", deps.WebDir))
-		return
-	}
-	deps.Logger.Info("Registering static file routes", zap.String("web_dir", deps.WebDir))
+	deps.Logger.Info("Registering static file routes with embedded files")
 
-	// SPA fallback: serve static files or index.html
+	// Use embedded static files via NoRoute handler
 	// Must be registered after all API routes
-	r.NoRoute(func(c *gin.Context) {
-		requestPath := c.Request.URL.Path
-		deps.Logger.Debug("NoRoute handler triggered", zap.String("path", requestPath))
-
-		// Don't serve static files for API routes - let API 404s be 404s
-		if strings.HasPrefix(requestPath, "/api/") || strings.HasPrefix(requestPath, "/health") || strings.HasPrefix(requestPath, "/mcp/") {
-			c.Status(http.StatusNotFound)
-			return
-		}
-
-		// Clean the path (remove leading slash)
-		cleanPath := strings.TrimPrefix(requestPath, "/")
-		if cleanPath == "" {
-			deps.Logger.Debug("Serving index.html for root path")
-			c.Header("Content-Type", "text/html; charset=utf-8")
-			c.File(deps.WebDir + "/index.html")
-			return
-		}
-
-		fullPath := deps.WebDir + "/" + cleanPath
-
-		// 1. If it's a file, serve it directly
-		if info, err := os.Stat(fullPath); err == nil && !info.IsDir() {
-			deps.Logger.Debug("Serving file", zap.String("path", fullPath))
-			c.File(fullPath)
-			return
-		}
-
-		// 2. Try .html file (e.g., /tags -> tags.html)
-		htmlPath := fullPath + ".html"
-		if _, err := os.Stat(htmlPath); err == nil {
-			deps.Logger.Debug("Serving HTML file", zap.String("path", htmlPath))
-			c.Header("Content-Type", "text/html; charset=utf-8")
-			c.File(htmlPath)
-			return
-		}
-
-		// 3. If it's a directory with index.html, serve that
-		if info, err := os.Stat(fullPath); err == nil && info.IsDir() {
-			indexPath := fullPath + "/index.html"
-			if _, err := os.Stat(indexPath); err == nil {
-				deps.Logger.Debug("Serving index.html from directory", zap.String("path", indexPath))
-				c.Header("Content-Type", "text/html; charset=utf-8")
-				c.File(indexPath)
-				return
-			}
-		}
-
-		// 4. Handle dynamic routes like /docs/[id] - serve the parent index.html for client-side routing
-		// For Next.js static export with dynamic routes, we need to serve the index.html 
-		// from the nearest parent directory that has one
-		pathParts := strings.Split(cleanPath, "/")
-		for i := len(pathParts); i > 0; i-- {
-			parentPath := strings.Join(pathParts[:i], "/")
-			parentIndex := deps.WebDir + "/" + parentPath + "/index.html"
-			if _, err := os.Stat(parentIndex); err == nil {
-				deps.Logger.Debug("Serving parent index.html for dynamic route", 
-					zap.String("path", requestPath), 
-					zap.String("parent_index", parentIndex))
-				c.Header("Content-Type", "text/html; charset=utf-8")
-				c.File(parentIndex)
-				return
-			}
-		}
-
-		// 5. Fall back to root index.html for client-side routing
-		deps.Logger.Debug("Falling back to index.html for SPA route", zap.String("original_path", requestPath))
-		c.Header("Content-Type", "text/html; charset=utf-8")
-		c.File(deps.WebDir + "/index.html")
-	})
+	r.NoRoute(StaticFileServer())
 }
 
 // startServer starts the HTTP server with graceful shutdown
