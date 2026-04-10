@@ -24,7 +24,7 @@ This document traces **non-trivial** REST endpoints: anything beyond simple list
 - Build `types.Document` with `status = hot`.  
 - **Branches:**  
   - Prebuilt summary + tags: merge into `DocumentAnalysisResult`, call `**IndexerSvc.Index`** only.  
-  - Prebuilt tags only: `**SummarizerSvc.AnalyzeDocument**`, merge tags, then `**Index**`.  
+  - Prebuilt tags only: `**SummarizerSvc.AnalyzeDocument`**, merge tags, then `**Index`**.  
   - Neither: full `**AnalyzeDocument**`, then `**Index**`.
 - `**Index**` (`internal/service/svcimpl/indexer.go`): delete old summaries; write document-tier summary; for each chapter write chapter summary + `path/source` row for raw chapter text.  
 - For each tag: `**TagRepo.Create**` + `**IncrementDocumentCount**` (global L2 tags).
@@ -32,7 +32,8 @@ This document traces **non-trivial** REST endpoints: anything beyond simple list
 ### 1.3 Cold path
 
 - `status = cold`, empty tags.  
-- `**memory.GenerateSimpleEmbedding(content)**` → `**MemIndex.AddDocument**` (Bleve + HNSW).  
+- `**embedding.FallbackEmbed**` (`internal/embedding`): embedder from `memory_index.embedding.provider` — `**auto**` (try MiniLM at startup, else simple), `**minilm**` (MiniLM only), or `**simple**`. MiniLM uses all-MiniLM-L6-v2 (weights in dependency / larger binary) plus ONNX Runtime shared library. Per-call failure or wrong dimension still falls back to `**GenerateSimpleEmbedding**`.  
+- `**MemIndex.AddDocument**` (Bleve + HNSW).  
 - Persist document via `**DocRepo.Create**`.
 
 ### 1.4 Response
@@ -62,15 +63,15 @@ Results are **merged** (`mergeHotAndColdResults`): hot entries win by document i
 
 1. `**filterL2Tags(question)`** — adaptive:
   - If global tag count **< `L2TagThreshold` (200)**: LLM `**FilterL2TagsByQuery`** on all L2 tags (`filterL2TagsDirect`).  
-  - Else: LLM `**FilterL1GroupsByQuery**` → pick groups with relevance **≥ 0.5**, up to **3** → load L2 tags in those groups → `**FilterL2TagsByQuery`** on that subset (`filterL2TagsTwoLevel`).  
+  - Else: LLM `**FilterL1GroupsByQuery`** → pick groups with relevance **≥ 0.5**, up to **3** → load L2 tags in those groups → `**FilterL2TagsByQuery`** on that subset (`filterL2TagsTwoLevel`).  
   - Relevant tag names: filter results with relevance **≥ 0.5**. Fallbacks if LLM or repos fail.
 2. `**queryAndFilterDocuments`**
-  - If no tag names: `**DocRepo.ListAll(limit)**` as fallback.  
-  - Else: `**DocRepo.ListByTags**` (OR over tags).  
+  - If no tag names: `**DocRepo.ListAll(limit)`** as fallback.  
+  - Else: `**DocRepo.ListByTags`** (OR over tags).  
   - Split **hot** vs **cold** in the candidate set:  
     - Hot: `**Summarizer.FilterDocuments`**; keep docs with relevance **≥ 0.5**.  
     - Cold: `**filterColdDocuments`** — `ExtractKeywords` from query, substring match on title/content/tags.
-3. `**trackDocumentAccess**` (async per doc): increment query count; if cold and count reaches `**ColdPromotionThreshold**`, enqueue `**job.PromoteQueue**`.
+3. `**trackDocumentAccess`** (async per doc): increment query count; if cold and count reaches `**ColdPromotionThreshold`**, enqueue `**job.PromoteQueue**`.
 4. `**queryAndFilterChapters**`
   - Hot: load chapter-tier summaries per doc from `**SummaryRepo.QueryByTierAndPrefix**`.  
   - Cold: `**createColdDocumentChapter**` — keyword hit → ~200 chars context snippet; else first 500 chars.  
@@ -80,7 +81,7 @@ Results are **merged** (`mergeHotAndColdResults`): hot entries win by document i
 ### 2.3 Cold path (`queryColdPath`)
 
 - If no memory index → empty step.  
-- `**GenerateSimpleEmbedding(question)**` + `**MemIndex.HybridSearch(question, embedding, max_results/2)**` (see §5).  
+- `**embedding.FallbackEmbed`** on the question (same provider as §1.3) + `**MemIndex.HybridSearch(question, embedding, max_results/2)**` (see §5).  
 - Map each hit to a `**QueryItem**` (`path` like `docId/snippet`, `status=cold`).
 
 ### 2.4 Answer field (`generateProgressiveAnswer`)
@@ -94,8 +95,8 @@ Results are **merged** (`mergeHotAndColdResults`): hot entries win by document i
 **Handler:** `ExecuteTriggerTagGroup` → `TagGroupSvc.GroupTags` (`internal/service/svcimpl/tag_grouping.go`).
 
 1. `**TagRepo.List`** all global tags.
-2. `**performGrouping**`: LLM returns JSON clusters → `[]TagGroup` (name, description, member tag names).
-3. `**GroupRepo.DeleteAll**` then create each group.
+2. `**performGrouping`**: LLM returns JSON clusters → `[]TagGroup` (name, description, member tag names).
+3. `**GroupRepo.DeleteAll`** then create each group.
 4. For each tag name in a group: `**GetByName**`, set `GroupID`, `**TagRepo.Create**` (implementation note: relies on create path for assignment).
 5. Updates in-memory refresh bookkeeping for `**ShouldRefresh**`.
 
@@ -111,8 +112,8 @@ Scheduled `**TagGroupJob**` runs the same service on an interval.
 
 | Endpoint                 | Algorithm                                                                                                                                                                                             |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `**/hot/doc_summaries`** | Require `tags`. `**ListMetaByTagsAndStatuses**` for `hot` + `warming`, cap `max_results`. Load document-tier summaries by doc IDs; join into `{ document_id, title, format, status, tags, summary }`. |
-| `**/hot/doc_chapters**`  | Require `doc_ids` (trimmed to `max_results` doc cap). For each id: `**QueryByTierAndPrefix**` chapter tier, skip `IsSource`, return path/title/summary.                                               |
+| `**/hot/doc_summaries`** | Require `tags`. `**ListMetaByTagsAndStatuses`** for `hot` + `warming`, cap `max_results`. Load document-tier summaries by doc IDs; join into `{ document_id, title, format, status, tags, summary }`. |
+| `**/hot/doc_chapters`**  | Require `doc_ids` (trimmed to `max_results` doc cap). For each id: `**QueryByTierAndPrefix**` chapter tier, skip `IsSource`, return path/title/summary.                                               |
 | `**/hot/doc_source**`    | Require `chapter_paths`. `**ListSourcesByPaths**`, cap count; normalize `chapter_path` (strip `/source` suffix in JSON).                                                                              |
 
 
@@ -122,8 +123,8 @@ Scheduled `**TagGroupJob**` runs the same service on an interval.
 
 **Handler:** `ExecuteColdDocSource` → `**MemIndex.HybridSearch`** (`internal/storage/memory/index.go`).
 
-1. Parse `**q**` as comma-separated terms → single query string.
-2. `**GenerateSimpleEmbedding**` on that string.
+1. Parse `**q`** as comma-separated terms → single query string.
+2. `**embedding.FallbackEmbed`** on that string (§1.3).
 3. `**HybridSearch**`:
   - **BM25** via Bleve (`SearchWithBleve`) with **keyword-based snippets** in results.  
   - **Vector** via HNSW (`SearchWithVector`) when embedding length matches `VectorDimension`.  
@@ -136,8 +137,8 @@ Scheduled `**TagGroupJob**` runs the same service on an interval.
 
 **Handler:** `ExecuteListTags`.
 
-- If `**group_ids`** non-empty: `**TagRepo.ListByGroupIDs**` with `max_results` (defaults/clamps per handler).  
-- Else: `**TagRepo.List**`, optional client-side cap from `max_results`.
+- If `**group_ids`** non-empty: `**TagRepo.ListByGroupIDs`** with `max_results` (defaults/clamps per handler).  
+- Else: `**TagRepo.List`**, optional client-side cap from `max_results`.
 
 No LLM; included because behavior differs from a single-table dump when `group_ids` is set.
 
@@ -146,15 +147,16 @@ No LLM; included because behavior differs from a single-table dump when `group_i
 ## Related code map
 
 
-| Concern                   | Primary files                                                              |
-| ------------------------- | -------------------------------------------------------------------------- |
-| HTTP + shared REST bodies | `internal/api/handler.go`, `internal/api/handler_execute.go`               |
-| Ingest + tiering          | `internal/service/svcimpl/document.go`, `internal/config/tiering.go`       |
-| Progressive query         | `internal/service/svcimpl/query.go`, `progressive_answer.go`               |
-| Summaries persistence     | `internal/service/svcimpl/indexer.go`, `internal/storage/db/repository.go` |
-| Tag grouping              | `internal/service/svcimpl/tag_grouping.go`                                 |
-| Memory index              | `internal/storage/memory/index.go`                                         |
-| Promotion side effect     | `internal/job/promote_job.go`, `job.PromoteQueue` from `query.go`          |
+| Concern                   | Primary files                                                                          |
+| ------------------------- | -------------------------------------------------------------------------------------- |
+| HTTP + shared REST bodies | `internal/api/handler.go`, `internal/api/handler_execute.go`                           |
+| Ingest + tiering          | `internal/service/svcimpl/document.go`, `internal/config/tiering.go`                   |
+| Progressive query         | `internal/service/svcimpl/query.go`, `progressive_answer.go`                           |
+| Summaries persistence     | `internal/service/svcimpl/indexer.go`, `internal/storage/db/repository.go`             |
+| Tag grouping              | `internal/service/svcimpl/tag_grouping.go`                                             |
+| Memory index              | `internal/storage/memory/index.go`                                                     |
+| Cold embeddings           | `internal/embedding` (`simple` / `minilm`), wired in `cmd/main.go`, services, handlers |
+| Promotion side effect     | `internal/job/promote_job.go`, `job.PromoteQueue` from `query.go`                      |
 
 
 ---
