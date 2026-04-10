@@ -493,6 +493,11 @@ func formatQueryResults(question string, depth types.SummaryTier, results []type
 func formatProgressiveQueryResults(resp *types.ProgressiveQueryResponse) string {
 	text := fmt.Sprintf("Query: %s\n\nProgressive Query Results:\n", resp.Question)
 
+	if strings.TrimSpace(resp.Answer) != "" {
+		text += "\n=== Answer (Markdown) ===\n"
+		text += resp.Answer + "\n"
+	}
+
 	text += "\n=== Query Steps ===\n"
 	for _, step := range resp.Steps {
 		text += fmt.Sprintf("- %s: %v (took %dms)\n", step.Step, step.Output, step.Duration)

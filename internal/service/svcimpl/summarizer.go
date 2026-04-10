@@ -91,8 +91,11 @@ Please analyze this document and return a JSON object with the following structu
 Guidelines:
 - Summary should capture the main points of the entire document
 - Tags should be relevant keywords (lowercase, no spaces use-hyphens)
-- Each chapter should have a clear title, concise summary, and full content
-- If the document has no clear chapters, create a single chapter with the full content
+- For EVERY chapter object you MUST include all three fields "title", "summary", and "content".
+- "summary" is REQUIRED and must be NON-EMPTY: write 2-4 sentences capturing that chapter only (not the whole document). Never use an empty string for "summary".
+- "content" must contain the full markdown body of that chapter (same scope as the chapter section in the source).
+- Chapter "title" must match the section heading when one exists.
+- If the document has no clear chapters, create a single chapter with the full content and a non-empty summary.
 
 Return ONLY the JSON object, no other text.`,
 		title,
@@ -116,6 +119,8 @@ Return ONLY the JSON object, no other text.`,
 		s.logger.Warn("failed to parse LLM response, using fallback", zap.Error(err))
 		return s.fallbackAnalysis(title, content, chapters), nil
 	}
+
+	s.ensureChapterSummaries(result)
 
 	// Validate and limit tags
 	if len(result.Tags) > s.config.MaxTagsPerDocument {
@@ -371,6 +376,30 @@ func (s *SummarizerSvc) parseAnalysisResponse(response string) (*types.DocumentA
 	}, nil
 }
 
+// ensureChapterSummaries fills empty chapter summaries from chapter content so indexer never
+// stores blank chapter-tier rows when the model omits "summary" or fallbackAnalysis left it empty.
+func (s *SummarizerSvc) ensureChapterSummaries(result *types.DocumentAnalysisResult) *types.DocumentAnalysisResult {
+	if result == nil {
+		return result
+	}
+	maxLen := s.config.ChapterSummaryMax
+	if maxLen < 80 {
+		maxLen = 200
+	}
+	for i := range result.Chapters {
+		ch := &result.Chapters[i]
+		if strings.TrimSpace(ch.Summary) != "" {
+			continue
+		}
+		body := strings.TrimSpace(ch.Content)
+		if body == "" {
+			continue
+		}
+		ch.Summary = truncateString(body, maxLen)
+	}
+	return result
+}
+
 // parseFilterResults parses LLM JSON response to filter results
 func (s *SummarizerSvc) parseFilterResults(response string) []types.LLMFilterResult {
 	jsonStart := strings.Index(response, "[")
@@ -408,11 +437,11 @@ func (s *SummarizerSvc) fallbackAnalysis(title string, content string, chapters 
 		}
 	}
 
-	return &types.DocumentAnalysisResult{
+	return s.ensureChapterSummaries(&types.DocumentAnalysisResult{
 		Summary:  summary,
 		Tags:     tags,
 		Chapters: chapters,
-	}
+	})
 }
 
 // fallbackFilterDocuments returns all documents with equal relevance

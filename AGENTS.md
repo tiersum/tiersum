@@ -410,10 +410,14 @@ PromoteJob (every 5 min) → Full LLM analysis → hot
 | GET | `/api/v1/documents` | List documents |
 | GET | `/api/v1/documents/:id` | Get document |
 | GET | `/api/v1/documents/:id/summaries` | Get document summaries |
-| GET | `/api/v1/query` | Legacy hierarchical query |
+| GET | `/api/v1/documents/:id/chapters` | List chapter summaries for a document |
 | POST | `/api/v1/query/progressive` | Progressive query (recommended) |
-| GET | `/api/v1/tags` | List all tags |
+| GET | `/api/v1/tags` | List tags (optional `group_ids=comma&max_results=100`) |
 | GET | `/api/v1/tags/groups` | List tag groups (L1) |
+| GET | `/api/v1/hot/doc_summaries` | Hot/warming docs matching `tags`; document-level summary only (`tags`, `max_results`) |
+| GET | `/api/v1/hot/doc_chapters` | Chapter summaries for `doc_ids` (comma-separated, `max_results` caps doc count) |
+| GET | `/api/v1/hot/doc_source` | Original text for `chapter_paths` (comma-separated, `max_results`) |
+| GET | `/api/v1/cold/doc_source` | Cold snippets via memory index (`q` comma-separated terms, `max_results`) |
 | POST | `/api/v1/tags/group` | Trigger tag grouping |
 | GET | `/api/v1/quota` | Check quota status |
 | GET | `/health` | Health check |

@@ -128,6 +128,10 @@ func (m *mockTagRepo) ListByGroup(ctx context.Context, groupID string) ([]types.
 	return nil, nil
 }
 
+func (m *mockTagRepo) ListByGroupIDs(ctx context.Context, groupIDs []string, limit int) ([]types.Tag, error) {
+	return nil, nil
+}
+
 func (m *mockTagRepo) IncrementDocumentCount(ctx context.Context, tagName string) error {
 	return nil
 }
@@ -164,6 +168,14 @@ func (m *mockSummaryRepo) QueryByTierAndPrefix(ctx context.Context, tier types.S
 	return m.summaries, nil
 }
 
+func (m *mockSummaryRepo) ListDocumentTierByDocumentIDs(ctx context.Context, documentIDs []string) ([]types.Summary, error) {
+	return nil, nil
+}
+
+func (m *mockSummaryRepo) ListSourcesByPaths(ctx context.Context, chapterPaths []string) ([]types.Summary, error) {
+	return nil, nil
+}
+
 func (m *mockSummaryRepo) DeleteByDocument(ctx context.Context, docID string) error {
 	return nil
 }
@@ -178,6 +190,8 @@ func setupTestHandler() (*Handler, *gin.Engine) {
 		TagGroupService: &mockTagGroupService{},
 		TagRepo:         &mockTagRepo{},
 		SummaryRepo:     &mockSummaryRepo{},
+		DocRepo:         nil,
+		MemIndex:        nil,
 		Quota:           nil,
 		Logger:          zap.NewNop(),
 	}

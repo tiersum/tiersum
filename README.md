@@ -208,9 +208,12 @@ curl -X POST http://localhost:8080/api/v1/query/progressive \
     "max_results": 100
   }'
 
-# Legacy hierarchical query
-curl "http://localhost:8080/api/v1/query?question=How does kube-scheduler work?&depth=chapter"
-# depth: document | chapter | source
+# Batch retrieval (hot / cold)
+curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_results=100"
+curl "http://localhost:8080/api/v1/hot/doc_chapters?doc_ids=uuid1,uuid2&max_results=100"
+curl "http://localhost:8080/api/v1/hot/doc_source?chapter_paths=docId/chapter-title&max_results=100"
+curl "http://localhost:8080/api/v1/cold/doc_source?q=scheduler,pods&max_results=100"
+curl "http://localhost:8080/api/v1/tags?group_ids=group1,group2&max_results=100"
 
 # List tag groups (Level 1)
 curl "http://localhost:8080/api/v1/tags/groups"

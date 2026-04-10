@@ -27,6 +27,8 @@ type Handler struct {
 	TagGroupService service.ITagGroupService
 	TagRepo         storage.ITagRepository
 	SummaryRepo     storage.ISummaryRepository
+	DocRepo         storage.IDocumentRepository
+	MemIndex        storage.IInMemoryIndex
 	Quota           QuotaSnapshot
 	Logger          *zap.Logger
 }
@@ -38,6 +40,8 @@ func NewHandler(
 	tagGroupService service.ITagGroupService,
 	tagRepo storage.ITagRepository,
 	summaryRepo storage.ISummaryRepository,
+	docRepo storage.IDocumentRepository,
+	memIndex storage.IInMemoryIndex,
 	quota QuotaSnapshot,
 	logger *zap.Logger,
 ) *Handler {
@@ -47,6 +51,8 @@ func NewHandler(
 		TagGroupService: tagGroupService,
 		TagRepo:         tagRepo,
 		SummaryRepo:     summaryRepo,
+		DocRepo:         docRepo,
+		MemIndex:        memIndex,
 		Quota:           quota,
 		Logger:          logger,
 	}
@@ -64,13 +70,24 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	}
 
 	// Query endpoints
-	router.GET("/query", h.Query)
 	router.POST("/query/progressive", h.ProgressiveQuery)
 
 	// Tag endpoints
 	router.GET("/tags", h.ListTags)
 	router.GET("/tags/groups", h.ListTagGroups)
 	router.POST("/tags/group", h.TriggerTagGroup)
+
+	// Hot / cold retrieval (summaries and sources; cold uses memory index, not tags)
+	hot := router.Group("/hot")
+	{
+		hot.GET("/doc_summaries", h.HotDocSummaries)
+		hot.GET("/doc_chapters", h.HotDocChapters)
+		hot.GET("/doc_source", h.HotDocSource)
+	}
+	cold := router.Group("/cold")
+	{
+		cold.GET("/doc_source", h.ColdDocSource)
+	}
 
 	// Document summaries endpoint
 	router.GET("/documents/:id/summaries", h.GetDocumentSummaries)
@@ -179,32 +196,6 @@ func (h *Handler) GetDocumentChapters(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"document_id": docID, "chapters": out})
 }
 
-// Query performs a query (legacy interface)
-func (h *Handler) Query(c *gin.Context) {
-	var req types.QueryRequest
-	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	if req.Depth == "" {
-		req.Depth = types.TierChapter
-	}
-
-	results, err := h.QueryService.Query(c.Request.Context(), req.Question, req.Depth)
-	if err != nil {
-		h.Logger.Error("failed to query", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query"})
-		return
-	}
-
-	c.JSON(http.StatusOK, types.QueryResponse{
-		Question: req.Question,
-		Depth:    req.Depth,
-		Results:  results,
-	})
-}
-
 // ProgressiveQuery performs the new two-level tag-based progressive query
 func (h *Handler) ProgressiveQuery(c *gin.Context) {
 	var req types.ProgressiveQueryRequest
@@ -213,7 +204,6 @@ func (h *Handler) ProgressiveQuery(c *gin.Context) {
 		return
 	}
 
-	// Set defaults
 	if req.MaxResults == 0 {
 		req.MaxResults = 100
 	}
@@ -262,21 +252,6 @@ func (h *Handler) TriggerTagGroup(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "tag grouping triggered"})
-}
-
-// ListTags lists all tags (Level 2)
-func (h *Handler) ListTags(c *gin.Context) {
-	tags, err := h.TagRepo.List(c.Request.Context())
-	if err != nil {
-		h.Logger.Error("failed to list tags", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	// Ensure we return an empty array instead of null
-	if tags == nil {
-		tags = []types.Tag{}
-	}
-	c.JSON(http.StatusOK, gin.H{"tags": tags})
 }
 
 // GetDocumentSummaries retrieves all summaries for a document

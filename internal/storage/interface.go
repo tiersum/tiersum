@@ -15,6 +15,9 @@ type IDocumentRepository interface {
 	GetRecent(ctx context.Context, limit int) ([]*types.Document, error)
 	// ListByTags retrieves documents that match ANY of the given tags (OR logic)
 	ListByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error)
+	// ListMetaByTagsAndStatuses returns documents matching any tag (OR) and any of the given statuses,
+	// without loading body content (content field is empty).
+	ListMetaByTagsAndStatuses(ctx context.Context, tags []string, statuses []types.DocumentStatus, limit int) ([]types.Document, error)
 	// ListByStatus retrieves documents by status (hot/cold/warming)
 	ListByStatus(ctx context.Context, status types.DocumentStatus, limit int) ([]types.Document, error)
 	// IncrementQueryCount increments the query count and updates last_query_at
@@ -36,6 +39,10 @@ type ISummaryRepository interface {
 	// QueryByTierAndPrefix queries summaries by tier and path prefix
 	// Used for hierarchical queries: e.g., tier=chapter, prefix="doc_001" returns all chapters of doc_001
 	QueryByTierAndPrefix(ctx context.Context, tier types.SummaryTier, pathPrefix string) ([]types.Summary, error)
+	// ListDocumentTierByDocumentIDs returns document-tier summaries for the given document IDs.
+	ListDocumentTierByDocumentIDs(ctx context.Context, documentIDs []string) ([]types.Summary, error)
+	// ListSourcesByPaths returns source (original) rows for chapter paths. Each path may be "doc/chapter" or "doc/chapter/source".
+	ListSourcesByPaths(ctx context.Context, chapterPaths []string) ([]types.Summary, error)
 	// DeleteByDocument removes all summaries for a document (useful for re-indexing)
 	DeleteByDocument(ctx context.Context, docID string) error
 }
@@ -50,6 +57,8 @@ type ITagRepository interface {
 	List(ctx context.Context) ([]types.Tag, error)
 	// ListByGroup retrieves tags belonging to a specific group
 	ListByGroup(ctx context.Context, groupID string) ([]types.Tag, error)
+	// ListByGroupIDs returns tags whose group_id (cluster_id) is in groupIDs, ordered by group then name, capped at limit.
+	ListByGroupIDs(ctx context.Context, groupIDs []string, limit int) ([]types.Tag, error)
 	// IncrementDocumentCount increments the document count for a tag
 	IncrementDocumentCount(ctx context.Context, tagName string) error
 	// DeleteAll removes all global tags (used before re-grouping)

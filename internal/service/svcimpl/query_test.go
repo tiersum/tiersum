@@ -29,6 +29,7 @@ func TestQuerySvc_Query_LegacyInterface(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -63,6 +64,7 @@ func TestQuerySvc_ProgressiveQuery_EmptyTags(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -94,6 +96,7 @@ func TestQuerySvc_ProgressiveQuery_WithHotDocs(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -149,6 +152,7 @@ func TestQuerySvc_filterL2Tags_DirectFilter(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -183,6 +187,7 @@ func TestQuerySvc_filterL2Tags_TwoLevelFilter(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -227,6 +232,7 @@ func TestQuerySvc_queryAndFilterDocuments(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -271,6 +277,7 @@ func TestQuerySvc_filterColdDocuments(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -310,6 +317,7 @@ func TestQuerySvc_matchesColdDocument(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -369,6 +377,7 @@ func TestQuerySvc_queryAndFilterChapters(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -410,6 +419,7 @@ func TestQuerySvc_createColdDocumentChapter(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -462,6 +472,7 @@ func TestQuerySvc_mergeHotAndColdResults(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -501,6 +512,7 @@ func TestQuerySvc_queryColdPath(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -524,6 +536,8 @@ func TestQuerySvc_queryColdPath(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotNil(t, results)
 	assert.Equal(t, "cold_docs", step.Step)
+	require.Len(t, results, 1)
+	assert.Equal(t, types.DocStatusCold, results[0].Status)
 }
 
 func TestQuerySvc_queryColdPath_NilIndex(t *testing.T) {
@@ -572,6 +586,7 @@ func TestQuerySvc_filterL1Groups(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -606,6 +621,7 @@ func TestQuerySvc_getL2TagsFromGroups(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -635,6 +651,7 @@ func TestQuerySvc_extractTagNames(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -663,6 +680,7 @@ func TestQuerySvc_extractRelevantTags(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -692,6 +710,7 @@ func TestQuerySvc_buildResults(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -705,11 +724,13 @@ func TestQuerySvc_buildResults(t *testing.T) {
 		},
 	}
 
-	results := svc.buildResults(chapters)
+	statusMap := map[string]types.DocumentStatus{"doc1": types.DocStatusHot}
+	results := svc.buildResults(chapters, statusMap)
 	assert.Len(t, results, 1)
 	assert.Equal(t, "doc1", results[0].ID)
 	assert.Equal(t, "intro", results[0].Title)
 	assert.Equal(t, types.TierChapter, results[0].Tier)
+	assert.Equal(t, types.DocStatusHot, results[0].Status)
 }
 
 func TestExtractTitleFromPath(t *testing.T) {
@@ -766,6 +787,7 @@ func TestQuerySvc_filterHotDocuments_Error(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -796,6 +818,7 @@ func TestQuerySvc_filterL2TagsDirect_Error(t *testing.T) {
 		groupRepo,
 		summarizer,
 		memIndex,
+		nil,
 		testLogger(),
 	)
 
@@ -810,4 +833,69 @@ func TestQuerySvc_filterL2TagsDirect_Error(t *testing.T) {
 	result, err := svc.filterL2TagsDirect(ctx, "query", tags)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"golang"}, result)
+}
+
+func TestBuildProgressiveAnswerPrompt_Numbering(t *testing.T) {
+	items := []types.QueryItem{
+		{ID: "d1", Title: "T1", Path: "d1/c1", Tier: types.TierChapter, Relevance: 0.9, Content: "alpha"},
+	}
+	p := buildProgressiveAnswerPrompt("What is X?", items)
+	assert.Contains(t, p, "### Reference [^1^]")
+	assert.Contains(t, p, "What is X?")
+	assert.Contains(t, p, "alpha")
+}
+
+func TestQuerySvc_ProgressiveQuery_AnswerFromLLM(t *testing.T) {
+	ctx := context.Background()
+	docRepo := NewMockDocumentRepository()
+	summaryRepo := NewMockSummaryRepository()
+	tagRepo := NewMockTagRepository()
+	groupRepo := NewMockTagGroupRepository()
+	summarizer := NewMockSummarizer()
+	memIndex := NewMockInMemoryIndex()
+	llm := NewMockLLMProvider()
+	llm.SetResponse("Synthetic answer with [^1^].")
+
+	tagRepo.Create(ctx, &types.Tag{ID: "tag1", Name: "golang", GroupID: "group1"})
+	docRepo.Create(ctx, &types.Document{
+		ID:     "doc1",
+		Title:  "Go Programming",
+		Tags:   []string{"golang"},
+		Status: types.DocStatusHot,
+	})
+	summaryRepo.Create(ctx, &types.Summary{
+		ID:         "sum1",
+		DocumentID: "doc1",
+		Tier:       types.TierChapter,
+		Path:       "doc1/chapter1",
+		Content:    "Go is a programming language",
+	})
+
+	summarizer.SetTagFilterResults([]types.TagFilterResult{
+		{Tag: "golang", Relevance: 0.9},
+	})
+	summarizer.SetFilterResults([]types.LLMFilterResult{
+		{ID: "doc1", Relevance: 0.95},
+		{ID: "doc1/chapter1", Relevance: 0.9},
+	})
+
+	svc := NewQuerySvc(
+		docRepo,
+		summaryRepo,
+		tagRepo,
+		groupRepo,
+		summarizer,
+		memIndex,
+		llm,
+		testLogger(),
+	)
+
+	req := types.ProgressiveQueryRequest{
+		Question:   "go programming",
+		MaxResults: 10,
+	}
+
+	resp, err := svc.ProgressiveQuery(ctx, req)
+	require.NoError(t, err)
+	assert.Equal(t, "Synthetic answer with [^1^].", resp.Answer)
 }

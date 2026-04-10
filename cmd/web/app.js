@@ -124,6 +124,8 @@ const apiClient = {
     // Documents
     getDocuments: () => apiClient.request('/api/v1/documents').then(r => r.documents || []),
     getDocument: (id) => apiClient.request(`/api/v1/documents/${id}`),
+    getDocumentSummaries: (id) => apiClient.request(`/api/v1/documents/${id}/summaries`).then(r => r.summaries || []),
+    getDocumentChapters: (id) => apiClient.request(`/api/v1/documents/${id}/chapters`).then(r => r.chapters || []),
     createDocument: (data) => apiClient.request('/api/v1/documents', { method: 'POST', body: JSON.stringify(data) }),
     deleteDocument: (id) => apiClient.request(`/api/v1/documents/${id}`, { method: 'DELETE' }),
     
@@ -217,11 +219,14 @@ const SearchPage = {
                 const response = await apiClient.progressiveQuery(this.query);
                 this.results = (response.results || []).map(r => ({
                     ...r,
-                    docStatus: 'hot'
+                    docStatus: (r.status && String(r.status).trim()) || 'hot'
                 }));
-                
-                // Simulate AI answer generation
-                await this.generateAiAnswer();
+                const serverAnswer = (response.answer || '').trim();
+                if (serverAnswer) {
+                    this.aiAnswer = serverAnswer;
+                } else {
+                    await this.generateAiAnswerFallback();
+                }
             } catch (error) {
                 console.error('Search failed:', error);
             } finally {
@@ -230,27 +235,18 @@ const SearchPage = {
             }
         },
         
-        async generateAiAnswer() {
-            // Simulate AI processing delay
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            
+        async generateAiAnswerFallback() {
+            await new Promise(resolve => setTimeout(resolve, 300));
+            if (this.results.length === 0) {
+                this.aiAnswer = 'No reference excerpts were found. Try different keywords or ingest more documents.';
+                return;
+            }
             const topResults = this.results.slice(0, 3);
-            this.aiAnswer = `Based on ${this.results.length} reference materials found, here's the answer to your question:
+            this.aiAnswer = `No server-generated answer was returned (LLM may be unavailable). Showing a quick preview from the top references:
 
-**About "${this.query}":**
+${topResults.map((r, i) => `- **${r.title}** (relevance ${(r.relevance * 100).toFixed(0)}%)`).join('\n')}
 
-Key findings from the search results:
-
-${topResults.map((r, i) => `- ${r.title} (relevance: ${(r.relevance * 100).toFixed(0)}%) [${i + 1}]`).join('\n')}
-
-${topResults[0]?.content?.substring(0, 200) || 'No content available'}...
-
-> Note: This is an AI-generated summary based on the reference materials. For detailed information, please check the reference cards on the right.
-
-**References:**
-- [1] Highest relevance document chapter
-- [2] Secondary reference content  
-- [3] Supplementary reference material`;
+${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.length > 280 ? '…' : ''}`;
         },
         
         handleKeyDown(e) {
@@ -279,6 +275,22 @@ ${topResults[0]?.content?.substring(0, 200) || 'No content available'}...
         extractChapterPath(path) {
             const parts = path?.split('/') || [];
             return parts.length > 1 ? parts.slice(1).join('/') : '';
+        },
+
+        refTierLabel(docStatus) {
+            const s = (docStatus || '').toLowerCase();
+            if (s === 'hot') return 'Hot';
+            if (s === 'cold') return 'Cold';
+            if (s === 'warming') return 'Warming';
+            return s ? s : 'Unknown';
+        },
+
+        refTierBadgeClass(docStatus) {
+            const s = (docStatus || '').toLowerCase();
+            if (s === 'hot') return 'badge-warning';
+            if (s === 'cold') return 'badge-info';
+            if (s === 'warming') return 'badge-secondary';
+            return 'badge-ghost';
         }
     },
     template: `
@@ -396,8 +408,8 @@ ${topResults[0]?.content?.substring(0, 200) || 'No content available'}...
                                             <div class="card-body p-4">
                                                 <div class="flex justify-between items-start mb-2">
                                                     <div class="flex items-center gap-2">
-                                                        <span :class="['badge badge-sm', result.docStatus === 'hot' ? 'badge-warning' : 'badge-info']">
-                                                            {{ result.docStatus === 'hot' ? 'Hot' : 'Cold' }}
+                                                        <span :class="['badge badge-sm', refTierBadgeClass(result.docStatus)]">
+                                                            {{ refTierLabel(result.docStatus) }}
                                                         </span>
                                                         <span class="text-xs text-slate-500">#{{ index + 1 }}</span>
                                                     </div>
@@ -410,7 +422,7 @@ ${topResults[0]?.content?.substring(0, 200) || 'No content available'}...
                                                 <p class="text-sm text-slate-400 line-clamp-4">{{ result.content?.substring(0, 300) }}{{ result.content?.length > 300 ? '...' : '' }}</p>
                                                 <div class="flex justify-between items-center mt-3 pt-2 border-t border-slate-700/50">
                                                     <span class="text-xs text-slate-600 truncate max-w-[150px]">{{ result.path }}</span>
-                                                    <button class="text-sm text-slate-400 hover:text-slate-200 flex items-center gap-1">
+                                                    <button type="button" @click.stop="$router.push('/docs/' + result.id)" class="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">
                                                         View <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                                                     </button>
                                                 </div>
@@ -427,22 +439,163 @@ ${topResults[0]?.content?.substring(0, 200) || 'No content available'}...
     `
 };
 
+// New document: full-page editor + live Markdown preview (no modal)
+const DocumentCreatePage = {
+    data() {
+        return {
+            newDoc: {
+                title: '',
+                content: '',
+                format: 'markdown',
+                tags: [],
+                force_hot: false
+            },
+            tagInput: '',
+            submitting: false
+        }
+    },
+    methods: {
+        addTag() {
+            if (this.tagInput.trim() && !this.newDoc.tags.includes(this.tagInput.trim())) {
+                this.newDoc.tags.push(this.tagInput.trim());
+                this.tagInput = '';
+            }
+        },
+        removeTag(index) {
+            this.newDoc.tags.splice(index, 1);
+        },
+        renderPreview(text) {
+            const t = (text || '').trim();
+            if (!t) {
+                return '<p class="text-slate-500 italic">Preview appears here as you type Markdown.</p>';
+            }
+            try {
+                return marked.parse(t);
+            } catch {
+                return '<p class="text-red-400">Invalid Markdown.</p>';
+            }
+        },
+        async submitDocument() {
+            if (!this.newDoc.title.trim() || !this.newDoc.content.trim()) return;
+            this.submitting = true;
+            try {
+                const payload = {
+                    title: this.newDoc.title.trim(),
+                    content: this.newDoc.content,
+                    format: this.newDoc.format || 'markdown',
+                    tags: this.newDoc.tags
+                };
+                if (this.newDoc.force_hot) {
+                    payload.force_hot = true;
+                }
+                const created = await apiClient.createDocument(payload);
+                const id = created?.id || created?.ID;
+                if (id) {
+                    this.$router.push(`/docs/${id}`);
+                } else {
+                    this.$router.push('/docs');
+                }
+            } catch (error) {
+                console.error('Failed to create document:', error);
+                alert('Failed to create document: ' + error.message);
+            } finally {
+                this.submitting = false;
+            }
+        },
+        goBack() {
+            this.$router.push('/docs');
+        }
+    },
+    template: `
+        <div class="min-h-screen bg-slate-950">
+            <main class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-16">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+                    <div class="flex items-center gap-3">
+                        <button type="button" @click="goBack" class="btn btn-ghost btn-sm gap-2 text-slate-400">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                            </svg>
+                            Back to list
+                        </button>
+                        <h1 class="text-2xl sm:text-3xl font-bold text-slate-100">New document</h1>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2">
+                        <label class="label cursor-pointer gap-2 py-0">
+                            <input type="checkbox" v-model="newDoc.force_hot" class="checkbox checkbox-sm checkbox-primary" />
+                            <span class="label-text text-slate-400 text-sm">Force hot (use quota, full LLM)</span>
+                        </label>
+                        <button type="button"
+                            @click="submitDocument"
+                            :disabled="submitting || !newDoc.title.trim() || !newDoc.content.trim()"
+                            class="btn btn-primary">
+                            <span v-if="submitting" class="loading loading-spinner loading-sm mr-2"></span>
+                            Create &amp; open
+                        </button>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 min-h-[calc(100vh-12rem)]">
+                    <!-- Editor column -->
+                    <div class="flex flex-col gap-4 min-h-0">
+                        <div class="card bg-slate-900/50 border border-slate-800 flex-1 flex flex-col min-h-[520px] xl:min-h-[calc(100vh-14rem)]">
+                            <div class="card-body flex flex-col flex-1 min-h-0 gap-4">
+                                <div>
+                                    <label class="label"><span class="label-text text-slate-300">Title</span></label>
+                                    <input v-model="newDoc.title" type="text" placeholder="Document title"
+                                        class="input input-bordered w-full bg-slate-800/80 border-slate-700 text-slate-100" />
+                                </div>
+                                <div>
+                                    <label class="label"><span class="label-text text-slate-300">Tags</span></label>
+                                    <div class="flex gap-2 mb-2">
+                                        <input v-model="tagInput" @keydown.enter.prevent="addTag" type="text"
+                                            placeholder="Tag name, Enter to add"
+                                            class="input input-bordered flex-1 bg-slate-800/80 border-slate-700 text-slate-100" />
+                                        <button type="button" @click="addTag" class="btn btn-outline border-slate-600">Add</button>
+                                    </div>
+                                    <div class="flex flex-wrap gap-2">
+                                        <span v-for="(tag, index) in newDoc.tags" :key="index" class="badge badge-primary gap-1">
+                                            {{ tag }}
+                                            <button type="button" @click="removeTag(index)" class="hover:text-white" aria-label="Remove tag">×</button>
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="flex flex-col flex-1 min-h-0">
+                                    <label class="label py-0"><span class="label-text text-slate-300">Content (Markdown)</span></label>
+                                    <textarea v-model="newDoc.content"
+                                        placeholder="# Heading — write Markdown here…"
+                                        class="textarea textarea-bordered flex-1 min-h-[320px] w-full bg-slate-800/80 border-slate-700 text-slate-100 font-mono text-sm leading-relaxed resize-y"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Preview column -->
+                    <div class="flex flex-col min-h-0 xl:sticky xl:top-20 xl:self-start xl:max-h-[calc(100vh-6rem)]">
+                        <div class="card bg-slate-900/50 border border-slate-800 h-full min-h-[320px] xl:max-h-[calc(100vh-14rem)] flex flex-col">
+                            <div class="px-4 py-3 border-b border-slate-800 flex items-center justify-between shrink-0">
+                                <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wide">Preview</h2>
+                                <span class="text-xs text-slate-600">Live</span>
+                            </div>
+                            <div class="card-body overflow-y-auto flex-1 min-h-0 pt-4">
+                                <article class="prose prose-invert prose-sm sm:prose-base max-w-none prose-headings:text-slate-100 prose-p:text-slate-300 prose-a:text-blue-400 prose-code:text-emerald-300">
+                                    <div v-html="renderPreview(newDoc.content)"></div>
+                                </article>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </main>
+        </div>
+    `
+};
+
 // Documents Page
 const DocumentsPage = {
     data() {
         return {
             documents: [],
             loading: true,
-            searchQuery: '',
-            showCreateModal: false,
-            newDoc: {
-                title: '',
-                content: '',
-                format: 'markdown',
-                tags: []
-            },
-            tagInput: '',
-            submitting: false
+            searchQuery: ''
         }
     },
     computed: {
@@ -476,31 +629,6 @@ const DocumentsPage = {
                 day: 'numeric'
             });
         },
-        addTag() {
-            if (this.tagInput.trim() && !this.newDoc.tags.includes(this.tagInput.trim())) {
-                this.newDoc.tags.push(this.tagInput.trim());
-                this.tagInput = '';
-            }
-        },
-        removeTag(index) {
-            this.newDoc.tags.splice(index, 1);
-        },
-        async submitDocument() {
-            if (!this.newDoc.title.trim() || !this.newDoc.content.trim()) return;
-            
-            this.submitting = true;
-            try {
-                await apiClient.createDocument(this.newDoc);
-                this.showCreateModal = false;
-                this.newDoc = { title: '', content: '', format: 'markdown', tags: [] };
-                await this.loadDocuments();
-            } catch (error) {
-                console.error('Failed to create document:', error);
-                alert('Failed to create document: ' + error.message);
-            } finally {
-                this.submitting = false;
-            }
-        },
         async deleteDocument(id) {
             if (!confirm('Are you sure you want to delete this document?')) return;
             
@@ -511,6 +639,9 @@ const DocumentsPage = {
                 console.error('Failed to delete document:', error);
                 alert('Failed to delete document: ' + error.message);
             }
+        },
+        goToDoc(id) {
+            this.$router.push(`/docs/${id}`);
         }
     },
     template: `
@@ -519,14 +650,14 @@ const DocumentsPage = {
                 <div class="flex items-center justify-between mb-8">
                     <div>
                         <h1 class="text-3xl font-bold text-slate-100 mb-2">Documents</h1>
-                        <p class="text-slate-400">Browse and manage your knowledge base documents</p>
+                        <p class="text-slate-400">Browse and manage your knowledge base documents. Click a row to open details.</p>
                     </div>
-                    <button @click="showCreateModal = true" class="btn btn-primary">
+                    <router-link to="/docs/new" class="btn btn-primary">
                         <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                         </svg>
                         Add Document
-                    </button>
+                    </router-link>
                 </div>
 
                 <!-- Search -->
@@ -560,10 +691,12 @@ const DocumentsPage = {
                         </svg>
                         <h3 class="text-xl font-medium text-slate-300 mb-2">No documents found</h3>
                         <p class="text-slate-500 mb-6">Get started by adding your first document</p>
-                        <button @click="showCreateModal = true" class="btn btn-primary">Add Document</button>
+                        <router-link to="/docs/new" class="btn btn-primary">Add Document</router-link>
                     </div>
                     
-                    <div v-else v-for="doc in filteredDocs" :key="doc.id" class="card bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-colors">
+                    <div v-else v-for="doc in filteredDocs" :key="doc.id"
+                         class="card bg-slate-900/50 border-slate-800 hover:border-slate-700 transition-colors cursor-pointer"
+                         @click="goToDoc(doc.id)">
                         <div class="card-body p-6">
                             <div class="flex items-start justify-between">
                                 <div class="flex-1">
@@ -593,61 +726,247 @@ const DocumentsPage = {
                                         </div>
                                     </div>
                                 </div>
-                                <div class="text-right ml-4">
+                                <div class="text-right ml-4 flex flex-col items-end gap-2" @click.stop>
                                     <div class="text-2xl font-bold text-slate-200">{{ (doc.hot_score || 0).toFixed(2) }}</div>
                                     <div class="text-xs text-slate-500">hot score</div>
+                                    <button type="button" class="btn btn-sm btn-outline btn-primary" @click="goToDoc(doc.id)">
+                                        View details
+                                    </button>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
+            </main>
+        </div>
+    `
+};
 
-                <!-- Create Document Modal -->
-                <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm" @click.self="showCreateModal = false">
-                    <div class="card bg-slate-900 border-slate-800 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-                        <div class="card-body">
-                            <div class="flex justify-between items-center mb-6">
-                                <h2 class="text-2xl font-bold text-slate-100">Add New Document</h2>
-                                <button @click="showCreateModal = false" class="btn btn-ghost btn-sm btn-circle">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                                    </svg>
-                                </button>
+// Document detail: summary mode (hot, with chapter nav) vs source mode (full markdown)
+const DocumentDetailPage = {
+    props: {
+        id: { type: String, required: true }
+    },
+    data() {
+        return {
+            doc: null,
+            summaries: [],
+            chapters: [],
+            loading: true,
+            loadError: null,
+            viewMode: 'summary',
+            selectedNav: 'overview'
+        };
+    },
+    computed: {
+        isCold() {
+            return this.doc?.status === 'cold';
+        },
+        docSummaryRecord() {
+            return this.summaries.find(s => s.tier === 'document');
+        },
+        docSummaryText() {
+            return (this.docSummaryRecord?.content || '').trim();
+        },
+        showSummaryTab() {
+            if (!this.doc || this.isCold) return false;
+            return this.docSummaryText.length > 0 || (this.chapters && this.chapters.length > 0);
+        },
+        activeChapter() {
+            if (this.selectedNav === 'overview') return null;
+            return this.chapters.find(c => c.path === this.selectedNav) || null;
+        },
+        summaryBodyMarkdown() {
+            if (this.selectedNav === 'overview') {
+                return this.docSummaryText || '_No document-level summary._';
+            }
+            const ch = this.activeChapter;
+            return (ch?.summary || '').trim() || '_No summary for this section._';
+        }
+    },
+    watch: {
+        id: {
+            immediate: true,
+            handler() {
+                this.load();
+            }
+        }
+    },
+    methods: {
+        async load() {
+            this.loading = true;
+            this.loadError = null;
+            this.doc = null;
+            this.summaries = [];
+            this.chapters = [];
+            try {
+                const docId = this.id;
+                const [doc, summaries, chapters] = await Promise.all([
+                    apiClient.getDocument(docId),
+                    apiClient.getDocumentSummaries(docId).catch(() => []),
+                    apiClient.getDocumentChapters(docId).catch(() => [])
+                ]);
+                this.doc = doc;
+                this.summaries = summaries;
+                this.chapters = chapters;
+                this.applyDefaultView();
+                if (this.showSummaryTab) {
+                    if (this.docSummaryText) {
+                        this.selectedNav = 'overview';
+                    } else if (this.chapters.length) {
+                        this.selectedNav = this.chapters[0].path;
+                    } else {
+                        this.selectedNav = 'overview';
+                    }
+                } else {
+                    this.selectedNav = 'overview';
+                }
+            } catch (e) {
+                this.loadError = e.message || String(e);
+            } finally {
+                this.loading = false;
+            }
+        },
+        applyDefaultView() {
+            if (this.isCold) {
+                this.viewMode = 'source';
+                return;
+            }
+            if (!this.showSummaryTab) {
+                this.viewMode = 'source';
+                return;
+            }
+            this.viewMode = 'summary';
+        },
+        renderMd(text) {
+            if (!text) return '';
+            try {
+                return marked.parse(text);
+            } catch {
+                return '<p class="text-red-400">Failed to render markdown.</p>';
+            }
+        },
+        selectNav(key) {
+            this.selectedNav = key;
+        },
+        setViewMode(mode) {
+            if (mode === 'summary' && (this.isCold || !this.showSummaryTab)) return;
+            this.viewMode = mode;
+        },
+        goBack() {
+            this.$router.push('/docs');
+        }
+    },
+    template: `
+        <div class="min-h-screen bg-slate-950">
+            <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                <button type="button" @click="goBack" class="btn btn-ghost btn-sm text-slate-400 mb-6 gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                    Back to documents
+                </button>
+
+                <div v-if="loading" class="space-y-4">
+                    <div class="h-10 bg-slate-800 rounded animate-pulse w-1/2"></div>
+                    <div class="h-96 bg-slate-900/80 border border-slate-800 rounded-xl animate-pulse"></div>
+                </div>
+
+                <div v-else-if="loadError" class="alert alert-error bg-red-950/50 border-red-900 text-red-200">
+                    <span>Failed to load document: {{ loadError }}</span>
+                </div>
+
+                <div v-else-if="doc">
+                    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+                        <div class="min-w-0">
+                            <h1 class="text-2xl sm:text-3xl font-bold text-slate-100 mb-2 break-words">{{ doc.title }}</h1>
+                            <div class="flex flex-wrap items-center gap-2 text-sm">
+                                <span class="badge badge-outline badge-sm">{{ doc.format }}</span>
+                                <span :class="['badge badge-sm', doc.status === 'hot' ? 'badge-warning' : doc.status === 'cold' ? 'badge-info' : 'badge-ghost']">
+                                    {{ doc.status }}
+                                </span>
+                                <span v-if="doc.tags?.length" class="text-slate-500">{{ doc.tags.join(', ') }}</span>
                             </div>
-                            
-                            <form @submit.prevent="submitDocument" class="space-y-4">
-                                <div>
-                                    <label class="label">Title</label>
-                                    <input v-model="newDoc.title" type="text" placeholder="Document title" class="input input-bordered w-full bg-slate-800 border-slate-700" required />
+                        </div>
+                        <div v-if="isCold" class="shrink-0">
+                            <span class="badge badge-lg badge-info">Cold document — full text</span>
+                        </div>
+                        <div v-else-if="showSummaryTab" class="shrink-0 join">
+                            <button type="button"
+                                class="btn btn-sm join-item"
+                                :class="viewMode === 'summary' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
+                                @click="setViewMode('summary')">
+                                Summary
+                            </button>
+                            <button type="button"
+                                class="btn btn-sm join-item"
+                                :class="viewMode === 'source' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
+                                @click="setViewMode('source')">
+                                Original
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Cold: always full document -->
+                    <div v-if="isCold" class="card bg-slate-900/50 border border-slate-800">
+                        <div class="card-body">
+                            <h2 class="text-lg font-semibold text-slate-200 mb-4">Original</h2>
+                            <div class="prose prose-invert max-w-none prose-headings:text-slate-100 prose-p:text-slate-300 border-t border-slate-800 pt-4">
+                                <div v-html="renderMd(doc.content || '')"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hot: summary layout -->
+                    <div v-else-if="viewMode === 'summary' && showSummaryTab" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        <aside class="lg:col-span-3">
+                            <div class="card bg-slate-900/50 border border-slate-800 lg:sticky lg:top-24">
+                                <div class="card-body p-4">
+                                    <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Chapters</h2>
+                                    <nav class="flex flex-col gap-1">
+                                        <button
+                                            v-if="docSummaryText"
+                                            type="button"
+                                            @click="selectNav('overview')"
+                                            :class="['text-left px-3 py-2 rounded-lg text-sm transition-colors',
+                                                selectedNav === 'overview' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'text-slate-300 hover:bg-slate-800 border border-transparent']">
+                                            Overview
+                                        </button>
+                                        <button
+                                            v-for="ch in chapters"
+                                            :key="ch.path"
+                                            type="button"
+                                            @click="selectNav(ch.path)"
+                                            :class="['text-left px-3 py-2 rounded-lg text-sm transition-colors break-words',
+                                                selectedNav === ch.path ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'text-slate-300 hover:bg-slate-800 border border-transparent']">
+                                            {{ ch.title || ch.path }}
+                                        </button>
+                                    </nav>
+                                    <p v-if="!docSummaryText && chapters.length === 0" class="text-sm text-slate-500 mt-2">No structured summary yet.</p>
                                 </div>
-                                
-                                <div>
-                                    <label class="label">Content</label>
-                                    <textarea v-model="newDoc.content" placeholder="Document content (Markdown supported)" class="textarea textarea-bordered w-full h-48 bg-slate-800 border-slate-700" required></textarea>
-                                </div>
-                                
-                                <div>
-                                    <label class="label">Tags</label>
-                                    <div class="flex gap-2 mb-2">
-                                        <input v-model="tagInput" @keydown.enter.prevent="addTag" type="text" placeholder="Add tag and press Enter" class="input input-bordered flex-1 bg-slate-800 border-slate-700" />
-                                        <button type="button" @click="addTag" class="btn btn-outline">Add</button>
+                            </div>
+                        </aside>
+                        <div class="lg:col-span-9">
+                            <div class="card bg-slate-900/50 border border-slate-800 min-h-[320px]">
+                                <div class="card-body">
+                                    <h2 class="text-lg font-semibold text-slate-200 mb-2">
+                                        {{ selectedNav === 'overview' ? 'Document summary' : (activeChapter?.title || 'Chapter') }}
+                                    </h2>
+                                    <div class="prose prose-invert max-w-none prose-headings:text-slate-100 prose-p:text-slate-300 border-t border-slate-800 pt-4">
+                                        <div v-html="renderMd(summaryBodyMarkdown)"></div>
                                     </div>
-                                    <div class="flex flex-wrap gap-2">
-                                        <span v-for="(tag, index) in newDoc.tags" :key="index" class="badge badge-primary gap-1">
-                                            {{ tag }}
-                                            <button type="button" @click="removeTag(index)" class="hover:text-white">×</button>
-                                        </span>
-                                    </div>
                                 </div>
-                                
-                                <div class="flex justify-end gap-3 pt-4">
-                                    <button type="button" @click="showCreateModal = false" class="btn btn-ghost">Cancel</button>
-                                    <button type="submit" :disabled="submitting || !newDoc.title.trim() || !newDoc.content.trim()" class="btn btn-primary">
-                                        <span v-if="submitting" class="loading loading-spinner loading-sm mr-2"></span>
-                                        Create Document
-                                    </button>
-                                </div>
-                            </form>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Hot: original full text -->
+                    <div v-else class="card bg-slate-900/50 border border-slate-800">
+                        <div class="card-body">
+                            <h2 class="text-lg font-semibold text-slate-200 mb-4">Original</h2>
+                            <div class="prose prose-invert max-w-none prose-headings:text-slate-100 prose-p:text-slate-300 border-t border-slate-800 pt-4">
+                                <div v-html="renderMd(doc.content || '')"></div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -843,6 +1162,8 @@ const { createRouter, createWebHashHistory } = VueRouter;
 const routes = [
     { path: '/', component: SearchPage },
     { path: '/docs', component: DocumentsPage },
+    { path: '/docs/new', component: DocumentCreatePage },
+    { path: '/docs/:id', component: DocumentDetailPage, props: true },
     { path: '/tags', component: TagsPage }
 ];
 

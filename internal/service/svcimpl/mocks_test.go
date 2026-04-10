@@ -88,6 +88,29 @@ func (m *MockDocumentRepository) ListByTags(ctx context.Context, tags []string, 
 	return result, nil
 }
 
+func (m *MockDocumentRepository) ListMetaByTagsAndStatuses(ctx context.Context, tags []string, statuses []types.DocumentStatus, limit int) ([]types.Document, error) {
+	docs, err := m.ListByTags(ctx, tags, limit)
+	if err != nil {
+		return nil, err
+	}
+	allowed := make(map[types.DocumentStatus]struct{}, len(statuses))
+	for _, s := range statuses {
+		allowed[s] = struct{}{}
+	}
+	var out []types.Document
+	for _, d := range docs {
+		if len(allowed) > 0 {
+			if _, ok := allowed[d.Status]; !ok {
+				continue
+			}
+		}
+		copy := d
+		copy.Content = ""
+		out = append(out, copy)
+	}
+	return out, nil
+}
+
 func (m *MockDocumentRepository) ListByStatus(ctx context.Context, status types.DocumentStatus, limit int) ([]types.Document, error) {
 	if m.err != nil {
 		return nil, m.err
@@ -205,6 +228,36 @@ func (m *MockSummaryRepository) GetByPath(ctx context.Context, path string) (*ty
 	return nil, nil
 }
 
+func (m *MockSummaryRepository) ListDocumentTierByDocumentIDs(ctx context.Context, documentIDs []string) ([]types.Summary, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var out []types.Summary
+	want := make(map[string]struct{}, len(documentIDs))
+	for _, id := range documentIDs {
+		want[id] = struct{}{}
+	}
+	for _, s := range m.summaries {
+		if s.Tier != types.TierDocument {
+			continue
+		}
+		if _, ok := want[s.DocumentID]; ok {
+			out = append(out, *s)
+		}
+	}
+	return out, nil
+}
+
+func (m *MockSummaryRepository) ListSourcesByPaths(ctx context.Context, chapterPaths []string) ([]types.Summary, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	_ = chapterPaths
+	return nil, nil
+}
+
 func (m *MockSummaryRepository) QueryByTierAndPrefix(ctx context.Context, tier types.SummaryTier, pathPrefix string) ([]types.Summary, error) {
 	if m.err != nil {
 		return nil, m.err
@@ -295,6 +348,28 @@ func (m *MockTagRepository) ListByGroup(ctx context.Context, groupID string) ([]
 	for _, tag := range m.tags {
 		if tag.GroupID == groupID {
 			result = append(result, *tag)
+		}
+	}
+	return result, nil
+}
+
+func (m *MockTagRepository) ListByGroupIDs(ctx context.Context, groupIDs []string, limit int) ([]types.Tag, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	want := make(map[string]struct{}, len(groupIDs))
+	for _, id := range groupIDs {
+		want[id] = struct{}{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	var result []types.Tag
+	for _, tag := range m.tags {
+		if _, ok := want[tag.GroupID]; ok {
+			result = append(result, *tag)
+			if limit > 0 && len(result) >= limit {
+				break
+			}
 		}
 	}
 	return result, nil

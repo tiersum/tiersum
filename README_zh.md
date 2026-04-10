@@ -212,9 +212,9 @@ curl -X POST http://localhost:8080/api/v1/query/progressive \
     "max_results": 100
   }'
 
-# 传统分层查询
-curl "http://localhost:8080/api/v1/query?question=kube-scheduler 是如何工作的？&depth=chapter"
-# depth: document | chapter | source
+# 批量检索（热/冷文档）
+curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_results=100"
+curl "http://localhost:8080/api/v1/tags?group_ids=group1,group2&max_results=100"
 
 # 列出标签组（L1）
 curl "http://localhost:8080/api/v1/tags/groups"

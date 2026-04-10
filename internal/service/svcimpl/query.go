@@ -9,6 +9,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/client"
 	"github.com/tiersum/tiersum/internal/config"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/metrics"
@@ -31,6 +32,7 @@ type QuerySvc struct {
 	groupRepo   storage.ITagGroupRepository
 	summarizer  service.ISummarizer
 	memIndex    storage.IInMemoryIndex
+	llm         client.ILLMProvider
 	logger      *zap.Logger
 }
 
@@ -42,6 +44,7 @@ func NewQuerySvc(
 	groupRepo storage.ITagGroupRepository,
 	summarizer service.ISummarizer,
 	memIndex storage.IInMemoryIndex,
+	llm client.ILLMProvider,
 	logger *zap.Logger,
 ) *QuerySvc {
 	return &QuerySvc{
@@ -51,6 +54,7 @@ func NewQuerySvc(
 		groupRepo:   groupRepo,
 		summarizer:  summarizer,
 		memIndex:    memIndex,
+		llm:         llm,
 		logger:      logger,
 	}
 }
@@ -149,12 +153,14 @@ func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQu
 	// Merge results from both paths
 	mergedResults := s.mergeHotAndColdResults(hotRes.results, coldRes.results, req.MaxResults)
 	response.Results = mergedResults
+	response.Answer = s.generateProgressiveAnswer(ctx, req.Question, mergedResults)
 
 	s.logger.Info("progressive query completed",
 		zap.String("question", req.Question),
 		zap.Int("hot_results", len(hotRes.results)),
 		zap.Int("cold_results", len(coldRes.results)),
-		zap.Int("total_results", len(mergedResults)))
+		zap.Int("total_results", len(mergedResults)),
+		zap.Bool("has_answer", response.Answer != ""))
 
 	return response, nil
 }
@@ -209,8 +215,11 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 		Duration: time.Since(step3Start).Milliseconds(),
 	})
 
-	// Step 4: Build final results
-	results := s.buildResults(chapters)
+	statusByID := make(map[string]types.DocumentStatus, len(docs))
+	for _, d := range docs {
+		statusByID[d.ID] = d.Status
+	}
+	results := s.buildResults(chapters, statusByID)
 
 	// Record metrics
 	metrics.RecordQueryLatency(metrics.QueryPathHot, time.Since(start).Seconds(), len(results))
@@ -251,6 +260,7 @@ func (s *QuerySvc) queryColdPath(ctx context.Context, req types.ProgressiveQuery
 			Path:      sr.DocumentID + "/snippet",
 			Relevance: sr.Score,
 			IsSource:  false,
+			Status:    types.DocStatusCold,
 		})
 	}
 
@@ -544,8 +554,10 @@ func (s *QuerySvc) queryAndFilterDocuments(ctx context.Context, query string, ta
 	var err error
 	
 	if len(tags) == 0 {
-		// No tags available - query all documents as fallback
-		s.logger.Info("no tags available, querying all documents as fallback")
+		// No L2 tag names after filtering (empty tag table, or LLM returned no tags above threshold).
+		// Scope documents by listing up to limit; hot/cold paths still apply LLM or keyword filtering.
+		s.logger.Debug("progressive query: no tag filter results; listing documents as fallback",
+			zap.Int("limit", limit))
 		docs, err = s.docRepo.ListAll(ctx, limit)
 		if err != nil {
 			return nil, fmt.Errorf("list all documents: %w", err)
@@ -785,9 +797,10 @@ func (s *QuerySvc) createColdDocumentChapter(doc types.Document, query string) *
 }
 
 // buildResults builds final query results from chapters
-func (s *QuerySvc) buildResults(chapters []types.Summary) []types.QueryItem {
+func (s *QuerySvc) buildResults(chapters []types.Summary, docStatusByID map[string]types.DocumentStatus) []types.QueryItem {
 	results := make([]types.QueryItem, len(chapters))
 	for i, ch := range chapters {
+		st := docStatusByID[ch.DocumentID]
 		results[i] = types.QueryItem{
 			ID:        ch.DocumentID,
 			Title:     extractTitleFromPath(ch.Path),
@@ -796,6 +809,7 @@ func (s *QuerySvc) buildResults(chapters []types.Summary) []types.QueryItem {
 			Path:      ch.Path,
 			Relevance: 1.0, // Already filtered by LLM
 			IsSource:  false,
+			Status:    st,
 		}
 	}
 	return results

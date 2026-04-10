@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/lib/pq"
 
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
@@ -175,6 +176,70 @@ func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int)
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query documents by tags: %w", err)
+	}
+	defer rows.Close()
+
+	var documents []types.Document
+	for rows.Next() {
+		var d types.Document
+		var tagsStr string
+		var lastQueryAt sql.NullTime
+		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, err
+		}
+		d.Tags = parseStringArray(tagsStr)
+		if lastQueryAt.Valid {
+			d.LastQueryAt = &lastQueryAt.Time
+		}
+		documents = append(documents, d)
+	}
+	return documents, rows.Err()
+}
+
+// ListMetaByTagsAndStatuses returns matching documents without loading content.
+func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []string, statuses []types.DocumentStatus, limit int) ([]types.Document, error) {
+	if len(tags) == 0 {
+		return []types.Document{}, nil
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	if len(statuses) == 0 {
+		statuses = []types.DocumentStatus{types.DocStatusHot, types.DocStatusWarming}
+	}
+
+	statusList := make([]string, len(statuses))
+	for i, s := range statuses {
+		statusList[i] = string(s)
+	}
+	statusIn := "'" + strings.Join(statusList, "','") + "'"
+
+	var query string
+	var args []interface{}
+
+	if r.driver == "postgres" {
+		query = `SELECT id, title, '', format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+			FROM documents 
+			WHERE tags && $1 AND status = ANY($2::text[]) 
+			LIMIT $3`
+		args = []interface{}{pq.Array(tags), pq.Array(statusList), limit}
+	} else {
+		conditions := make([]string, len(tags))
+		for i, tag := range tags {
+			conditions[i] = "tags LIKE ?"
+			args = append(args, "%"+tag+"%")
+		}
+		tagWhere := strings.Join(conditions, " OR ")
+		query = fmt.Sprintf(`SELECT id, title, '', format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+			FROM documents 
+			WHERE (%s) AND status IN (%s) 
+			LIMIT %d`,
+			tagWhere, statusIn, limit)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list document meta by tags and status: %w", err)
 	}
 	defer rows.Close()
 
@@ -448,6 +513,98 @@ func (r *SummaryRepo) QueryByTierAndPrefix(ctx context.Context, tier types.Summa
 	return summaries, nil
 }
 
+// ListDocumentTierByDocumentIDs implements ISummaryRepository.ListDocumentTierByDocumentIDs
+func (r *SummaryRepo) ListDocumentTierByDocumentIDs(ctx context.Context, documentIDs []string) ([]types.Summary, error) {
+	if len(documentIDs) == 0 {
+		return nil, nil
+	}
+	placeholders, args := buildInPlaceholders(r.driver, documentIDs)
+	var query string
+	if r.driver == "postgres" {
+		query = fmt.Sprintf(`SELECT id, document_id, tier, path, content, is_source, created_at, updated_at FROM summaries 
+			WHERE document_id IN (%s) AND tier = $%d`, placeholders, len(documentIDs)+1)
+		args = append(args, string(types.TierDocument))
+	} else {
+		query = fmt.Sprintf(`SELECT id, document_id, tier, path, content, is_source, created_at, updated_at FROM summaries 
+			WHERE document_id IN (%s) AND tier = ?`, placeholders)
+		args = append(args, string(types.TierDocument))
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list document-tier summaries: %w", err)
+	}
+	defer rows.Close()
+	return scanSummaryRows(rows)
+}
+
+// ListSourcesByPaths implements ISummaryRepository.ListSourcesByPaths
+func (r *SummaryRepo) ListSourcesByPaths(ctx context.Context, chapterPaths []string) ([]types.Summary, error) {
+	paths := normalizeChapterSourcePaths(chapterPaths)
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	placeholders, args := buildInPlaceholders(r.driver, paths)
+	query := fmt.Sprintf(`SELECT id, document_id, tier, path, content, is_source, created_at, updated_at FROM summaries 
+		WHERE path IN (%s) AND is_source = 1`, placeholders)
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list source summaries by paths: %w", err)
+	}
+	defer rows.Close()
+	return scanSummaryRows(rows)
+}
+
+func normalizeChapterSourcePaths(in []string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, p := range in {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		p = strings.TrimSuffix(p, "/source")
+		p = p + "/source"
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out
+}
+
+func buildInPlaceholders(driver string, values []string) (string, []interface{}) {
+	args := make([]interface{}, len(values))
+	if driver == "postgres" {
+		parts := make([]string, len(values))
+		for i, v := range values {
+			args[i] = v
+			parts[i] = fmt.Sprintf("$%d", i+1)
+		}
+		return strings.Join(parts, ","), args
+	}
+	parts := make([]string, len(values))
+	for i, v := range values {
+		args[i] = v
+		parts[i] = "?"
+	}
+	return strings.Join(parts, ","), args
+}
+
+func scanSummaryRows(rows *sql.Rows) ([]types.Summary, error) {
+	var summaries []types.Summary
+	for rows.Next() {
+		var s types.Summary
+		if err := rows.Scan(&s.ID, &s.DocumentID, &s.Tier, &s.Path, &s.Content, &s.IsSource, &s.CreatedAt, &s.UpdatedAt); err != nil {
+			return nil, err
+		}
+		summaries = append(summaries, s)
+	}
+	return summaries, rows.Err()
+}
+
 // DeleteByDocument implements ISummaryRepository.DeleteByDocument
 func (r *SummaryRepo) DeleteByDocument(ctx context.Context, docID string) error {
 	query := `DELETE FROM summaries WHERE document_id = ?`
@@ -563,6 +720,47 @@ func (r *TagRepo) ListByGroup(ctx context.Context, groupID string) ([]types.Tag,
 	rows, err := r.db.QueryContext(ctx, query, groupID)
 	if err != nil {
 		return nil, fmt.Errorf("list global tags by group: %w", err)
+	}
+	defer rows.Close()
+
+	var tags []types.Tag
+	for rows.Next() {
+		var t types.Tag
+		var cid sql.NullString
+		if err := rows.Scan(&t.ID, &t.Name, &cid, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			return nil, err
+		}
+		if cid.Valid {
+			t.GroupID = cid.String
+		}
+		tags = append(tags, t)
+	}
+	return tags, rows.Err()
+}
+
+// ListByGroupIDs implements ITagRepository.ListByGroupIDs
+func (r *TagRepo) ListByGroupIDs(ctx context.Context, groupIDs []string, limit int) ([]types.Tag, error) {
+	if len(groupIDs) == 0 {
+		return []types.Tag{}, nil
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	placeholders, args := buildInPlaceholders(r.driver, groupIDs)
+	var query string
+	if r.driver == "postgres" {
+		query = fmt.Sprintf(`SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags 
+			WHERE cluster_id IN (%s) ORDER BY cluster_id, name LIMIT $%d`, placeholders, len(groupIDs)+1)
+		args = append(args, limit)
+	} else {
+		query = fmt.Sprintf(`SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags 
+			WHERE cluster_id IN (%s) ORDER BY cluster_id, name LIMIT ?`, placeholders)
+		args = append(args, limit)
+	}
+
+	rows, err := r.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list global tags by group ids: %w", err)
 	}
 	defer rows.Close()
 

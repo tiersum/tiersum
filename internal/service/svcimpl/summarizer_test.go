@@ -3,6 +3,7 @@ package svcimpl
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -463,6 +464,8 @@ func TestSummarizerSvc_fallbackAnalysis(t *testing.T) {
 	assert.Len(t, result.Chapters, 1)
 	// Summary should be truncated
 	assert.LessOrEqual(t, len(result.Summary), 210) // 200 + "..."
+	// Chapter summaries must not be empty (filled from content when missing)
+	assert.Equal(t, "Content", strings.TrimSpace(result.Chapters[0].Summary))
 }
 
 func TestSummarizerSvc_fallbackFilterDocuments(t *testing.T) {

@@ -86,6 +86,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, logge
 		uow.TagGroups,
 		summarizer,
 		memIndex,
+		llmProvider,
 		logger,
 	)
 	docService := svcimpl.NewDocumentSvc(
@@ -99,7 +100,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, logge
 	)
 
 	// 8. API Layer
-	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, uow.Tags, uow.Summaries, quotaManager, logger)
+	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, uow.Tags, uow.Summaries, uow.Documents, memIndex, quotaManager, logger)
 	mcpServer := api.NewMCPServer(docService, queryService, tagGroupSvc, logger)
 
 	// 9. Job Layer
