@@ -52,7 +52,11 @@ func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, logge
 	uow := db.NewUnitOfWork(sqlDB, driver, cacheStore)
 
 	// 3. Client Layer - LLM
-	llmProvider := llm.NewOpenAIProvider()
+	factory := llm.NewProviderFactory(logger)
+	llmProvider, err := factory.CreateProvider()
+	if err != nil {
+		return nil, err
+	}
 
 	// 4. Quota Manager - for hot/cold document processing control
 	quotaPerHour := viper.GetInt("quota.per_hour")
@@ -139,4 +143,6 @@ var (
 
 	// Client Layer
 	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)
+	_ client.ILLMProvider = (*llm.AnthropicProvider)(nil)
+	_ client.ILLMProvider = (*llm.OllamaProvider)(nil)
 )

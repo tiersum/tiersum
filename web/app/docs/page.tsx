@@ -67,19 +67,21 @@ export default function DocsPage() {
             <Sparkles className="w-6 h-6 text-blue-500" />
             <span className="text-xl font-semibold text-slate-100">TierSum</span>
           </div>
-          <div className="flex items-center gap-4">
+          <nav className="flex items-center gap-4">
             <Link href="/">
               <Button variant="ghost" className="text-slate-400 hover:text-slate-100">
-                <Search className="w-4 h-4 mr-2" />
                 Search
               </Button>
             </Link>
+            <Button variant="ghost" className="text-slate-100 bg-slate-800">
+              Documents
+            </Button>
             <Link href="/tags">
               <Button variant="ghost" className="text-slate-400 hover:text-slate-100">
                 Tags
               </Button>
             </Link>
-          </div>
+          </nav>
         </div>
       </header>
 

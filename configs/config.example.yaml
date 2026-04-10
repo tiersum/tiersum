@@ -23,7 +23,7 @@ llm:
   # Provider: openai, anthropic, local, azure
   provider: openai
 
-  # OpenAI specific
+  # OpenAI specific (also works with OpenAI-compatible APIs)
   openai:
     api_key: ${OPENAI_API_KEY}
     base_url: https://api.openai.com/v1
@@ -31,6 +31,57 @@ llm:
     # Max tokens for summary generation
     max_tokens: 2000
     temperature: 0.3
+
+  # OpenAI-compatible providers (use 'openai' provider with custom base_url):
+  #
+  # DeepSeek:
+  #   provider: openai
+  #   openai:
+  #     api_key: ${DEEPSEEK_API_KEY}
+  #     base_url: https://api.deepseek.com/v1
+  #     model: deepseek-chat
+  #
+  # Groq:
+  #   provider: openai
+  #   openai:
+  #     api_key: ${GROQ_API_KEY}
+  #     base_url: https://api.groq.com/openai/v1
+  #     model: llama-3.1-8b-instant
+  #
+  # 智谱 AI (Zhipu AI / GLM):
+  #   provider: openai
+  #   openai:
+  #     api_key: ${ZHIPU_API_KEY}
+  #     base_url: https://open.bigmodel.cn/api/paas/v4
+  #     model: glm-4-flash
+  #
+  # Moonshot (月之暗面 / Kimi):
+  #   provider: openai
+  #   openai:
+  #     api_key: ${MOONSHOT_API_KEY}
+  #     base_url: https://api.moonshot.cn/v1
+  #     model: moonshot-v1-8k
+  #
+  # OpenRouter:
+  #   provider: openai
+  #   openai:
+  #     api_key: ${OPENROUTER_API_KEY}
+  #     base_url: https://openrouter.ai/api/v1
+  #     model: anthropic/claude-3.5-haiku
+  #
+  # SiliconFlow:
+  #   provider: openai
+  #   openai:
+  #     api_key: ${SILICONFLOW_API_KEY}
+  #     base_url: https://api.siliconflow.cn/v1
+  #     model: deepseek-ai/DeepSeek-V2.5
+  #
+  # Azure OpenAI:
+  #   provider: openai
+  #   openai:
+  #     api_key: ${AZURE_OPENAI_API_KEY}
+  #     base_url: https://your-resource.openai.azure.com/openai/deployments/your-deployment
+  #     model: gpt-4o-mini  # Deployment name
 
   # Anthropic specific
   anthropic:

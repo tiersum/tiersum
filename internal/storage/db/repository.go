@@ -56,7 +56,7 @@ func (r *DocumentRepo) Create(ctx context.Context, doc *types.Document) error {
 		query = `INSERT INTO documents (id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`
 	}
 
-	_, err := r.db.ExecContext(ctx, query, doc.ID, doc.Title, doc.Content, doc.Format, doc.Tags, doc.Status, doc.HotScore, doc.QueryCount, doc.LastQueryAt, doc.CreatedAt, doc.UpdatedAt)
+	_, err := r.db.ExecContext(ctx, query, doc.ID, doc.Title, doc.Content, doc.Format, formatStringArray(doc.Tags), doc.Status, doc.HotScore, doc.QueryCount, doc.LastQueryAt, doc.CreatedAt, doc.UpdatedAt)
 	return err
 }
 
@@ -740,6 +740,25 @@ func parseStringArray(s string) []string {
 		result[i] = strings.Trim(p, "\"")
 	}
 	return result
+}
+
+// formatStringArray converts a string slice to PostgreSQL array format
+func formatStringArray(arr []string) string {
+	if len(arr) == 0 {
+		return "{}"
+	}
+	// Escape special characters and quote if needed
+	parts := make([]string, len(arr))
+	for i, s := range arr {
+		// Escape backslashes and quotes
+		s = strings.ReplaceAll(s, "\\", "\\\\")
+		s = strings.ReplaceAll(s, "\"", "\\\"")
+		if strings.Contains(s, ",") || strings.Contains(s, "{") || strings.Contains(s, "}") {
+			s = "\"" + s + "\""
+		}
+		parts[i] = s
+	}
+	return "{" + strings.Join(parts, ",") + "}"
 }
 
 // UnitOfWork combines multiple repositories

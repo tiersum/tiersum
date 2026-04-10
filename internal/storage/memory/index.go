@@ -73,12 +73,12 @@ type hnswConfig struct {
 
 // Index provides in-memory BM25 + Vector hybrid search for cold documents
 type Index struct {
-	mu           sync.RWMutex
-	bleveIndex   bleve.Index
-	hnswIndex    *hnsw.Graph[string]
-	documents    map[string]*DocumentIndex
-	logger       *zap.Logger
-	hnswConfig   hnswConfig
+	mu         sync.RWMutex
+	bleveIndex bleve.Index
+	hnswIndex  *hnsw.Graph[string]
+	documents  map[string]*DocumentIndex
+	logger     *zap.Logger
+	hnswConfig hnswConfig
 }
 
 // GojiebaTokenizer implements bleve's Tokenizer interface using gojieba
@@ -97,17 +97,17 @@ func NewGojiebaTokenizer() *GojiebaTokenizer {
 func (t *GojiebaTokenizer) Tokenize(input []byte) analysis.TokenStream {
 	// Use full mode for better search coverage
 	words := t.jieba.CutForSearch(string(input), true)
-	
+
 	result := make(analysis.TokenStream, 0, len(words))
 	position := 1
 	start := 0
-	
+
 	for _, word := range words {
 		if word == " " {
 			start += len(word)
 			continue
 		}
-		
+
 		token := &analysis.Token{
 			Term:     []byte(word),
 			Position: position,
@@ -115,12 +115,12 @@ func (t *GojiebaTokenizer) Tokenize(input []byte) analysis.TokenStream {
 			End:      start + len(word),
 			Type:     analysis.Ideographic,
 		}
-		
+
 		result = append(result, token)
 		position++
 		start += len(word)
 	}
-	
+
 	return result
 }
 
@@ -138,7 +138,7 @@ func NewIndex(logger *zap.Logger) (*Index, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create index mapping: %w", err)
 	}
-	
+
 	// Create in-memory bleve index
 	bleveIdx, err := bleve.NewMemOnly(mapping)
 	if err != nil {
@@ -165,70 +165,83 @@ func NewIndex(logger *zap.Logger) (*Index, error) {
 
 // createIndexMapping creates a custom index mapping with Chinese tokenizer
 func createIndexMapping() (mapping.IndexMapping, error) {
-	// Register gojieba tokenizer in bleve registry
-	// This must be done before creating the index mapping
-	registry.RegisterTokenizer("gojieba", func(config map[string]interface{}, cache *registry.Cache) (analysis.Tokenizer, error) {
-		return NewGojiebaTokenizer(), nil
-	})
-	
-	// Register custom analyzer that uses gojieba tokenizer
-	registry.RegisterAnalyzer("jieba_analyzer", func(config map[string]interface{}, cache *registry.Cache) (analysis.Analyzer, error) {
-		tokenizer, err := cache.TokenizerNamed("gojieba")
-		if err != nil {
-			return nil, err
-		}
-		
-		// Import and use the lowercase filter directly
-		// Note: lowercase filter is registered as "to_lower" in bleve registry
-		lowercaseFilter, err := cache.TokenFilterNamed("to_lower")
-		if err != nil {
-			// If not found, create analyzer without token filter
+	// Register gojieba tokenizer in bleve registry (handle duplicate registration)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Tokenizer already registered, ignore
+			}
+		}()
+		registry.RegisterTokenizer("gojieba", func(config map[string]interface{}, cache *registry.Cache) (analysis.Tokenizer, error) {
+			return NewGojiebaTokenizer(), nil
+		})
+	}()
+
+	// Register custom analyzer that uses gojieba tokenizer (handle duplicate registration)
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Analyzer already registered, ignore
+			}
+		}()
+		registry.RegisterAnalyzer("jieba_analyzer", func(config map[string]interface{}, cache *registry.Cache) (analysis.Analyzer, error) {
+			tokenizer, err := cache.TokenizerNamed("gojieba")
+			if err != nil {
+				return nil, err
+			}
+
+			// Import and use the lowercase filter directly
+			// Note: lowercase filter is registered as "to_lower" in bleve registry
+			lowercaseFilter, err := cache.TokenFilterNamed("to_lower")
+			if err != nil {
+				// If not found, create analyzer without token filter
+				return &analysis.DefaultAnalyzer{
+					Tokenizer: tokenizer,
+				}, nil
+			}
+
 			return &analysis.DefaultAnalyzer{
 				Tokenizer: tokenizer,
+				TokenFilters: []analysis.TokenFilter{
+					// Add lowercase filter for English text
+					lowercaseFilter,
+				},
 			}, nil
-		}
-		
-		return &analysis.DefaultAnalyzer{
-			Tokenizer: tokenizer,
-			TokenFilters: []analysis.TokenFilter{
-				// Add lowercase filter for English text
-				lowercaseFilter,
-			},
-		}, nil
-	})
-	
+		})
+	}()
+
 	// Create a new index mapping
 	indexMapping := bleve.NewIndexMapping()
-	
+
 	// Create document mapping for DocumentIndex
 	docMapping := bleve.NewDocumentMapping()
-	
+
 	// Configure title field with Chinese analyzer
 	titleFieldMapping := bleve.NewTextFieldMapping()
 	titleFieldMapping.Analyzer = "jieba_analyzer"
 	titleFieldMapping.Store = true
 	titleFieldMapping.Index = true
 	docMapping.AddFieldMappingsAt("title", titleFieldMapping)
-	
+
 	// Configure content field with Chinese analyzer
 	contentFieldMapping := bleve.NewTextFieldMapping()
 	contentFieldMapping.Analyzer = "jieba_analyzer"
 	contentFieldMapping.Store = true
 	contentFieldMapping.Index = true
 	docMapping.AddFieldMappingsAt("content", contentFieldMapping)
-	
+
 	// Configure ID field (no analysis needed)
 	idFieldMapping := bleve.NewTextFieldMapping()
 	idFieldMapping.Store = true
 	idFieldMapping.Index = false
 	docMapping.AddFieldMappingsAt("id", idFieldMapping)
-	
+
 	// Add document mapping to index mapping
 	indexMapping.AddDocumentMapping("DocumentIndex", docMapping)
-	
+
 	// Set default analyzer for any other fields
 	indexMapping.DefaultAnalyzer = "jieba_analyzer"
-	
+
 	return indexMapping, nil
 }
 
@@ -277,7 +290,7 @@ func (idx *Index) SearchWithBleve(queryText string, topK int) ([]SearchResult, e
 
 	// Create query
 	q := bleve.NewQueryStringQuery(queryText)
-	
+
 	// Create search request
 	searchRequest := bleve.NewSearchRequest(q)
 	searchRequest.Size = topK
@@ -542,7 +555,7 @@ func (idx *Index) ExtractSnippets(content string, query string) []Snippet {
 				break
 			}
 			actualPos := start + pos
-			
+
 			// Calculate snippet boundaries
 			snippetStart := actualPos - ContextWindowSize
 			if snippetStart < 0 {
@@ -552,17 +565,17 @@ func (idx *Index) ExtractSnippets(content string, query string) []Snippet {
 			if snippetEnd > len(content) {
 				snippetEnd = len(content)
 			}
-			
+
 			snippets = append(snippets, Snippet{
 				Text:     content[snippetStart:snippetEnd],
 				StartPos: snippetStart,
 				EndPos:   snippetEnd,
 				Keyword:  keyword,
 			})
-			
+
 			// Continue to find next position
 			start = actualPos + 1
-			
+
 			// Limit match count per keyword
 			if len(snippets) >= MaxSnippetsPerDoc*2 {
 				break
@@ -615,7 +628,7 @@ func mergeSnippets(snippets []Snippet, originalContent string) []Snippet {
 
 	for i := 1; i < len(snippets); i++ {
 		next := snippets[i]
-		
+
 		// Check if overlapping or adjacent (distance less than MergeDistance)
 		if next.StartPos <= current.EndPos+MergeDistance {
 			// Merge snippets - extend end position
@@ -663,7 +676,7 @@ func (idx *Index) FormatSnippets(snippets []Snippet, originalContent string) str
 	var parts []string
 	for i, snip := range snippets {
 		text := snip.Text
-		
+
 		// Add ellipsis
 		if snip.StartPos > 0 && i == 0 {
 			text = "..." + text
@@ -671,7 +684,7 @@ func (idx *Index) FormatSnippets(snippets []Snippet, originalContent string) str
 		if snip.EndPos < len(originalContent) && i == len(snippets)-1 {
 			text = text + "..."
 		}
-		
+
 		parts = append(parts, text)
 	}
 
@@ -817,7 +830,7 @@ func (idx *Index) RebuildFromDocuments(ctx context.Context, docs []types.Documen
 
 		doc := &docs[i]
 		embedding := getEmbedding(doc)
-		
+
 		if err := idx.AddDocument(doc, embedding); err != nil {
 			idx.logger.Warn("Failed to add document to index",
 				zap.String("doc_id", doc.ID),
@@ -849,7 +862,7 @@ func GenerateSimpleEmbedding(content string) []float32 {
 	// Simple hash-based embedding for fallback
 	// In production, use a proper embedding model like MiniLM
 	embedding := make([]float32, VectorDimension)
-	
+
 	// Simple character n-gram hashing
 	for i := 0; i < len(content)-3 && i < 10000; i++ {
 		// Use 4-gram hash

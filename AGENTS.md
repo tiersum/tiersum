@@ -215,9 +215,70 @@ Key configuration file: `configs/config.yaml` (copy from `config.example.yaml`)
 ### Required Settings
 ```yaml
 llm:
+  provider: openai  # Options: openai, anthropic, local (ollama)
+  openai:
+    api_key: ${OPENAI_API_KEY}  # Required for openai provider
+```
+
+### LLM Provider Configuration
+
+**OpenAI (default):**
+```yaml
+llm:
   provider: openai
   openai:
-    api_key: ${OPENAI_API_KEY}  # Required environment variable
+    api_key: ${OPENAI_API_KEY}
+    base_url: https://api.openai.com/v1
+    model: gpt-4o-mini
+    max_tokens: 2000
+    temperature: 0.3
+```
+
+**Anthropic Claude:**
+```yaml
+llm:
+  provider: anthropic
+  anthropic:
+    api_key: ${ANTHROPIC_API_KEY}
+    base_url: https://api.anthropic.com
+    model: claude-3-haiku-20240307
+    max_tokens: 2000
+    temperature: 0.3
+```
+
+**Local/Ollama:**
+```yaml
+llm:
+  provider: local  # or 'ollama'
+  local:
+    base_url: http://localhost:11434
+    model: llama3.2
+    timeout: 60s
+```
+
+**OpenAI-Compatible Providers:**
+Any provider with OpenAI-compatible API can use `provider: openai` with custom `base_url`:
+
+| Provider | base_url | Example Model |
+|----------|----------|---------------|
+| DeepSeek | `https://api.deepseek.com/v1` | `deepseek-chat` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.1-8b-instant` |
+| 智谱 AI (Zhipu) | `https://open.bigmodel.cn/api/paas/v4` | `glm-4-flash` |
+| Moonshot (Kimi) | `https://api.moonshot.cn/v1` | `moonshot-v1-8k` |
+| OpenRouter | `https://openrouter.ai/api/v1` | `anthropic/claude-3.5-haiku` |
+| SiliconFlow | `https://api.siliconflow.cn/v1` | `deepseek-ai/DeepSeek-V2.5` |
+| Azure OpenAI | `https://{resource}.openai.azure.com/openai/deployments/{deployment}` | deployment name |
+
+Example for DeepSeek:
+```yaml
+llm:
+  provider: openai
+  openai:
+    api_key: ${DEEPSEEK_API_KEY}
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-chat
+    max_tokens: 2000
+    temperature: 0.3
 ```
 
 ### Key Configuration Sections
@@ -457,6 +518,10 @@ Default setup uses SQLite with volume-mounted data directory.
 | `internal/storage/db` | Repository implementations |
 | `internal/storage/memory/index.go` | BM25 + Vector index with snippet extraction |
 | `internal/di/container.go` | Dependency injection / composition root |
+| `internal/client/llm/factory.go` | LLM provider factory (dynamic selection) |
+| `internal/client/llm/openai.go` | OpenAI provider implementation |
+| `internal/client/llm/anthropic.go` | Anthropic Claude provider implementation |
+| `internal/client/llm/ollama.go` | Local Ollama provider implementation |
 | `internal/job` | Background scheduled tasks |
 | `web/` | Next.js frontend |
 | `web/dist/` | Static export for Gin hosting |

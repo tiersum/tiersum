@@ -542,14 +542,22 @@ func (s *QuerySvc) extractRelevantTags(results []types.TagFilterResult) []string
 // For Hot docs: uses LLM filtering
 // For Cold docs: uses simple keyword matching
 func (s *QuerySvc) queryAndFilterDocuments(ctx context.Context, query string, tags []string, limit int) ([]types.Document, error) {
+	var docs []types.Document
+	var err error
+	
 	if len(tags) == 0 {
-		return nil, nil
-	}
-
-	// Query documents by tags (OR logic - documents matching ANY tag)
-	docs, err := s.docRepo.ListByTags(ctx, tags, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list documents by tags: %w", err)
+		// No tags available - query all documents as fallback
+		s.logger.Info("no tags available, querying all documents as fallback")
+		docs, err = s.docRepo.ListAll(ctx, limit)
+		if err != nil {
+			return nil, fmt.Errorf("list all documents: %w", err)
+		}
+	} else {
+		// Query documents by tags (OR logic - documents matching ANY tag)
+		docs, err = s.docRepo.ListByTags(ctx, tags, limit)
+		if err != nil {
+			return nil, fmt.Errorf("list documents by tags: %w", err)
+		}
 	}
 
 	if len(docs) == 0 {

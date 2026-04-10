@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Folder, Tag, Hash, ChevronRight, Sparkles } from "lucide-react";
+import { Folder, Tag, Hash, ChevronRight, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -52,12 +52,21 @@ export default function TagsPage() {
             <Sparkles className="w-6 h-6 text-blue-500" />
             <span className="text-xl font-semibold text-slate-100">TierSum</span>
           </div>
-          <Link href="/">
-            <Button variant="ghost" className="text-slate-400 hover:text-slate-100">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Search
+          <nav className="flex items-center gap-4">
+            <Link href="/">
+              <Button variant="ghost" className="text-slate-400 hover:text-slate-100">
+                Search
+              </Button>
+            </Link>
+            <Link href="/docs">
+              <Button variant="ghost" className="text-slate-400 hover:text-slate-100">
+                Documents
+              </Button>
+            </Link>
+            <Button variant="ghost" className="text-slate-100 bg-slate-800">
+              Tags
             </Button>
-          </Link>
+          </nav>
         </div>
       </header>
 

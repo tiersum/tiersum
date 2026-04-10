@@ -6,6 +6,7 @@ server:
   host: 0.0.0.0
   timeout: 30s
   max_body_size: 10MB
+  web_dir: /Users/luodaijun/GolandProjects/tiersum/web/dist
   cors:
     enabled: true
     allowed_origins:
@@ -13,12 +14,13 @@ server:
       - "http://localhost:8080"
 
 llm:
+  # 使用 Moonshot (Kimi) - OpenAI 兼容 API
   provider: openai
 
   openai:
-    api_key: ${OPENAI_API_KEY}
-    base_url: https://api.openai.com/v1
-    model: gpt-4o-mini
+    api_key: ${MOONSHOT_API_KEY}
+    base_url: https://api.moonshot.cn/v1
+    model: kimi-k2.5
     max_tokens: 2000
     temperature: 0.3
 

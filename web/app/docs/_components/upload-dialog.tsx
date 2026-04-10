@@ -8,7 +8,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -67,16 +66,16 @@ export function UploadDialog({ onUpload }: UploadDialogProps) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger
-        render={
-          <Button className="bg-blue-600 hover:bg-blue-700">
-            <Upload className="w-4 h-4 mr-2" />
-            Add Document
-          </Button>
-        }
-      />
-      <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-2xl">
+    <>
+      <Button 
+        className="bg-blue-600 hover:bg-blue-700"
+        onClick={() => setOpen(true)}
+      >
+        <Upload className="w-4 h-4 mr-2" />
+        Add Document
+      </Button>
+      <Dialog open={open} onOpenChange={setOpen}>
+      <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-5xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <FileText className="w-5 h-5 text-blue-500" />
@@ -117,7 +116,7 @@ export function UploadDialog({ onUpload }: UploadDialogProps) {
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Paste your document content here..."
-              className="bg-slate-800/50 border-slate-700 text-slate-100 min-h-[200px]"
+              className="bg-slate-800/50 border-slate-700 text-slate-100 min-h-[400px]"
             />
           </div>
 
@@ -179,5 +178,6 @@ export function UploadDialog({ onUpload }: UploadDialogProps) {
         </div>
       </DialogContent>
     </Dialog>
+    </>
   );
 }
