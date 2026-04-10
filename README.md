@@ -49,7 +49,7 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 | **BM25 + Vector Hybrid Search** | Keyword + semantic search with keyword-based snippet extraction |
 | **RAG Alternative** | Zero chunk fragmentation; full context preservation |
 | **Dual API** | REST API + MCP Tools for seamless agent integration |
-| **Modern Web UI** | Next.js 14 frontend with Slate dark theme |
+| **Modern Web UI** | Vue 3 CDN frontend with Tailwind + DaisyUI dark theme |
 | **Markdown-Native** | Optimized for `.md`; extensible skills for PDF/HTML/Docs |
 | **Incremental Updates** | Smart diffing — re-summarize only changed sections |
 
@@ -101,7 +101,6 @@ TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 ### Prerequisites
 
 - Go 1.23+ (with CGO enabled for SQLite)
-- Node.js 18+ (for frontend)
 - Database: SQLite (default) or PostgreSQL (optional)
 - LLM API Key: OpenAI or Anthropic
 
@@ -126,11 +125,8 @@ export ANTHROPIC_API_KEY="your-api-key"
 # Run database migrations
 make migrate-up
 
-# Build backend
+# Build backend (includes embedded frontend)
 make build
-
-# Build frontend
-cd web && npm install && npm run build && cd ..
 
 # Or use Docker Compose (includes all services)
 cd deployments/docker && docker-compose up -d
@@ -345,33 +341,34 @@ TierSum uses a **5-Layer Architecture** with Interface+Impl Pattern:
 
 ## Web UI
 
-TierSum includes a modern Next.js 14 frontend with the following features:
+TierSum includes a modern Vue 3 CDN-based frontend with the following features:
 
-### Query Page (`/`)
+### Query Page (`/#/`)
 - Central search box with Progressive Query support
-- Split-panel results: document list (left) + chapter details (right)
+- Split-panel results: AI Answer (left) + Reference results (right)
 - Displays both hot and cold document results
 - Shows relevance scores and source indicators
 
-### Document Page (`/docs/[id]`)
+### Documents Page (`/#/docs`)
+- Document list with search/filter
+- Create new document with modal form
 - Document metadata (title, tags, format, status)
 - Hot score and query count statistics
-- Chapter navigation with tier selection
-- Source content viewer with syntax highlighting
 
-### Tag Browser (`/tags`)
+### Tag Browser (`/#/tags`)
 - Two-level tag navigation
 - Left panel: L1 Tag Groups (categories)
 - Right panel: L2 Tags with document counts
 - Click tags to filter documents
 
 ### Tech Stack
-- **Framework**: Next.js 14 (App Router)
-- **Language**: TypeScript
-- **Styling**: Tailwind CSS 4
-- **Components**: shadcn/ui
+- **Framework**: Vue 3 (via CDN)
+- **Router**: Vue Router 4 (via CDN)
+- **Styling**: Tailwind CSS (via CDN)
+- **Components**: DaisyUI (via CDN)
+- **Markdown**: Marked.js (via CDN)
 - **Theme**: Slate dark theme
-- **Build**: Static export to `web/dist/`
+- **Deployment**: Embedded in Go binary via `//go:embed`
 
 ---
 
@@ -418,7 +415,10 @@ uses a scoring algorithm to rank nodes ...
 ```
 tiersum/
 ├── cmd/
-│   └── main.go                 # API server entrypoint
+│   ├── main.go                 # API server entrypoint
+│   └── web/                    # Vue 3 CDN frontend (embedded in binary)
+│       ├── index.html          # HTML entry with CDN imports
+│       └── app.js              # Vue app with all components
 ├── configs/                    # Configuration files
 │   ├── config.example.yaml
 │   └── config.yaml
@@ -458,11 +458,6 @@ db/
 │   │   └── hotscore_job.go     # Hot score calc
 │   └── di/                     # Dependency injection
 │       └── container.go
-├── web/                        # Next.js 14 frontend
-│   ├── app/                    # App Router pages
-│   ├── components/ui/          # shadcn/ui components
-│   ├── lib/api.ts              # API client
-│   └── dist/                   # Static export
 ├── pkg/
 │   └── types/                  # Public API types
 ├── go.mod
@@ -490,11 +485,6 @@ make dev
 
 # Build for multiple platforms
 make build-all
-
-# Frontend development
-cd web
-npm run dev          # Development server
-npm run build        # Production build
 ```
 
 ---
@@ -509,7 +499,7 @@ npm run build        # Production build
 - [x] LLM auto-tagging for documents
 - [x] REST API + MCP Server
 - [x] SQLite/PostgreSQL + in-memory cache storage
-- [x] Next.js 14 frontend with Slate theme
+- [x] Vue 3 CDN frontend with Tailwind + DaisyUI
 - [ ] OpenClaw skill pack (convert + update)
 - [ ] Real-time collaborative editing
 - [ ] Multi-modal support (images, diagrams)

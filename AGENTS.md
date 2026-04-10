@@ -6,13 +6,13 @@
 TierSum is a **Hierarchical Summary Knowledge Base** — a RAG-free document retrieval system powered by multi-layer abstraction and hot/cold document tiering. It uses a two-tier document storage strategy to balance LLM cost and query performance while preserving knowledge architecture through layered summarization.
 
 **Key Characteristics:**
-- **Language:** Go 1.23+ (backend), TypeScript/React (frontend)
+- **Language:** Go 1.23+ (backend), Vue 3 CDN (frontend)
 - **Architecture:** 5-Layer Architecture with Interface+Impl Pattern
 - **Database:** SQLite (default) or PostgreSQL (optional)
 - **Search:** BM25 (Bleve) + Vector (HNSW) hybrid search for cold documents
 - **LLM Integration:** OpenAI, Anthropic, or local (Ollama)
 - **Protocol Support:** REST API + MCP (Model Context Protocol)
-- **Frontend:** Next.js 14 with Slate dark theme
+- **Frontend:** Vue 3 + Tailwind CSS + DaisyUI (CDN-based, no Node.js required)
 
 ---
 
@@ -40,11 +40,6 @@ make seed                   # Seed sample data
 
 # Docker Compose (full stack)
 cd deployments/docker && docker-compose up -d  # Starts tiersum (SQLite by default)
-
-# Frontend (Next.js)
-cd web && npm install       # Install dependencies
-cd web && npm run dev       # Development server
-cd web && npm run build     # Build static files to web/dist/
 ```
 
 ---
@@ -64,15 +59,15 @@ cd web && npm run build     # Build static files to web/dist/
 | Logging | Uber Zap |
 | Testing | Testify |
 
-### Frontend (Next.js)
+### Frontend (CDN-based)
 | Component | Technology |
 |-----------|------------|
-| Framework | Next.js 16.2.2 (App Router) |
-| Language | TypeScript 5 |
-| React | React 19.2.4 |
-| Styling | Tailwind CSS 4 |
-| UI Components | shadcn/ui |
-| Icons | Lucide React |
+| Framework | Vue 3 (CDN) |
+| Router | Vue Router 4 (CDN) |
+| Styling | Tailwind CSS (CDN) |
+| UI Components | DaisyUI (CDN) |
+| Markdown | Marked.js (CDN) |
+| Deployment | Go embed (embedded in binary)
 
 ---
 
@@ -130,14 +125,10 @@ internal/
 pkg/types/                   # Public API types
   document.go                # Document, Summary, Tag types
   query.go                   # Query request/response types
-web/                         # Next.js frontend
-  app/                       # App Router
-    page.tsx                 # Query homepage with progressive search
-    docs/                    # Document pages
-    tags/                    # Tag browser
-  components/ui/             # shadcn/ui components
-  lib/api.ts                 # API client
-  dist/                      # Static export output (for Gin hosting)
+cmd/web/                     # Vue 3 CDN frontend (embedded in binary)
+  index.html                 # HTML entry with CDN imports
+  app.js                     # Vue app with all components
+  FRONTEND.md                # Frontend documentation
 ```
 
 ---
@@ -189,7 +180,7 @@ make dev
 
 ### Production Build
 ```bash
-# Build for current platform
+# Build for current platform (includes embedded frontend)
 make build
 
 # Build for all platforms (Linux, Darwin, Windows)
@@ -197,13 +188,6 @@ make build-all
 
 # Docker build
 make docker-build
-```
-
-### Frontend Build
-```bash
-cd web
-npm install
-npm run build  # Output: web/dist/ (served by Gin)
 ```
 
 ---
@@ -523,8 +507,7 @@ Default setup uses SQLite with volume-mounted data directory.
 | `internal/client/llm/anthropic.go` | Anthropic Claude provider implementation |
 | `internal/client/llm/ollama.go` | Local Ollama provider implementation |
 | `internal/job` | Background scheduled tasks |
-| `web/` | Next.js frontend |
-| `web/dist/` | Static export for Gin hosting |
+| `cmd/web/` | Vue 3 CDN frontend (embedded in binary) |
 | `db/migrations/` | Database migration files |
 | `pkg/types` | Public types used across all layers |
 
@@ -539,8 +522,9 @@ Default setup uses SQLite with volume-mounted data directory.
 - On macOS: `brew install sqlite3`
 
 **Frontend not loading:**
-- Check `web/dist/` exists after `npm run build`
-- Verify `server.web_dir` in config points to correct path
+- Frontend is embedded in binary via Go embed, no build step needed
+- Check `cmd/web/` contains `index.html` and `app.js`
+- Clear browser cache and hard refresh (Cmd+Shift+R or Ctrl+F5)
 
 **MCP connection issues:**
 - Verify `mcp.enabled: true` in config
