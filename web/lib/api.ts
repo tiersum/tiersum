@@ -116,6 +116,20 @@ export const api = {
     return res.summaries
   },
 
+  updateDocument: async (id: string, doc: Partial<CreateDocumentRequest>) => {
+    const res = await fetchAPI<Document>(`/api/v1/documents/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(doc),
+    })
+    return res
+  },
+
+  deleteDocument: async (id: string) => {
+    await fetchAPI<void>(`/api/v1/documents/${id}`, {
+      method: 'DELETE',
+    })
+  },
+
   // Tags
   getTags: async () => {
     const res = await fetchAPI<{ tags: Tag[] }>('/api/v1/tags')

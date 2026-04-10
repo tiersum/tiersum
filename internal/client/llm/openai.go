@@ -6,7 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"strings"
 
 	"github.com/spf13/viper"
 
@@ -49,10 +51,26 @@ type openAIResponse struct {
 			Content string `json:"content"`
 		} `json:"message"`
 	} `json:"choices"`
+	Error *struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+	} `json:"error,omitempty"`
 }
 
 // Generate implements ILLMProvider.Generate
 func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
+	// Get temperature from config, default to 0.3
+	temperature := viper.GetFloat64("llm.openai.temperature")
+	if temperature == 0 {
+		temperature = 0.3
+	}
+	
+	// Some models (like kimi-k2.5) only support temperature=1
+	// Check if we need to override for specific models
+	if strings.Contains(p.model, "kimi-k2") || strings.Contains(p.model, "k2.5") {
+		temperature = 1.0
+	}
+	
 	reqBody := openAIRequest{
 		Model: p.model,
 		Messages: []message{
@@ -60,7 +78,7 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 			{Role: "user", Content: prompt},
 		},
 		MaxTokens:   maxTokens,
-		Temperature: 0.3,
+		Temperature: temperature,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -78,13 +96,24 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("http request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Check HTTP status code
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("api error: status=%d, body=%s", resp.StatusCode, string(body))
+	}
+
 	var result openAIResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	// Check for API error
+	if result.Error != nil {
+		return "", fmt.Errorf("api error: %s - %s", result.Error.Type, result.Error.Message)
 	}
 
 	if len(result.Choices) > 0 {

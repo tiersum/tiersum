@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/job"
+	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/internal/storage/memory"
@@ -214,60 +215,9 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 	results := s.buildResults(chapters)
 
 	// Record metrics
-	duration := time.Since(start).Seconds()
-	metrics.RecordQueryLatency(metrics.QueryPathHot, duration, len(results))
+	metrics.RecordQueryLatency(metrics.QueryPathHot, time.Since(start).Seconds(), len(results))
 
 	return results, steps, nil
-}
-
-// queryColdPath performs the cold document query path (BM25 + vector)
-func (s *QuerySvc) queryColdPath(ctx context.Context, req types.ProgressiveQueryRequest) ([]types.QueryItem, types.ProgressiveQueryStep, error) {
-	start := time.Now()
-
-	if s.memIndex == nil {
-		return nil, types.ProgressiveQueryStep{
-			Step:     "cold_docs",
-			Input:    req.Question,
-			Output:   0,
-			Duration: time.Since(start).Milliseconds(),
-		}, nil
-	}
-
-	// Generate query embedding (simplified - in production use proper embedding model)
-	queryEmbedding := memory.GenerateSimpleEmbedding(req.Question)
-
-	// Perform hybrid search
-	searchResults, err := s.memIndex.HybridSearch(req.Question, queryEmbedding, req.MaxResults/2)
-	if err != nil {
-		return nil, types.ProgressiveQueryStep{}, fmt.Errorf("hybrid search failed: %w", err)
-	}
-
-	// Convert search results to query items
-	var results []types.QueryItem
-	for _, sr := range searchResults {
-		results = append(results, types.QueryItem{
-			ID:        sr.DocumentID,
-			Title:     sr.Title,
-			Content:   sr.Content,
-			Tier:      types.TierChapter,
-			Path:      sr.DocumentID + "/snippet",
-			Relevance: sr.Score,
-			IsSource:  false,
-		})
-	}
-
-	step := types.ProgressiveQueryStep{
-		Step:     "cold_docs",
-		Input:    req.Question,
-		Output:   len(results),
-		Duration: time.Since(start).Milliseconds(),
-	}
-
-	// Record metrics
-	duration := time.Since(start).Seconds()
-	metrics.RecordQueryLatency(metrics.QueryPathCold, duration, len(results))
-
-	return results, step, nil
 }
 
 // queryColdPath performs the cold document query path (BM25 + vector)
@@ -592,14 +542,22 @@ func (s *QuerySvc) extractRelevantTags(results []types.TagFilterResult) []string
 // For Hot docs: uses LLM filtering
 // For Cold docs: uses simple keyword matching
 func (s *QuerySvc) queryAndFilterDocuments(ctx context.Context, query string, tags []string, limit int) ([]types.Document, error) {
+	var docs []types.Document
+	var err error
+	
 	if len(tags) == 0 {
-		return nil, nil
-	}
-
-	// Query documents by tags (OR logic - documents matching ANY tag)
-	docs, err := s.docRepo.ListByTags(ctx, tags, limit)
-	if err != nil {
-		return nil, fmt.Errorf("list documents by tags: %w", err)
+		// No tags available - query all documents as fallback
+		s.logger.Info("no tags available, querying all documents as fallback")
+		docs, err = s.docRepo.ListAll(ctx, limit)
+		if err != nil {
+			return nil, fmt.Errorf("list all documents: %w", err)
+		}
+	} else {
+		// Query documents by tags (OR logic - documents matching ANY tag)
+		docs, err = s.docRepo.ListByTags(ctx, tags, limit)
+		if err != nil {
+			return nil, fmt.Errorf("list documents by tags: %w", err)
+		}
 	}
 
 	if len(docs) == 0 {

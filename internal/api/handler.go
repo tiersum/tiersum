@@ -98,6 +98,10 @@ func (h *Handler) ListDocuments(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list documents"})
 		return
 	}
+	// Ensure we return an empty array instead of null
+	if docs == nil {
+		docs = []types.Document{}
+	}
 	c.JSON(http.StatusOK, gin.H{
 		"documents": docs,
 	})
@@ -197,7 +201,10 @@ func (h *Handler) ListTagGroups(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
+	// Ensure we return an empty array instead of null
+	if groups == nil {
+		groups = []types.TagGroup{}
+	}
 	c.JSON(http.StatusOK, gin.H{"groups": groups})
 }
 
@@ -225,7 +232,10 @@ func (h *Handler) ListTags(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
+	// Ensure we return an empty array instead of null
+	if tags == nil {
+		tags = []types.Tag{}
+	}
 	c.JSON(http.StatusOK, gin.H{"tags": tags})
 }
 
