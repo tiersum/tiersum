@@ -1,9 +1,14 @@
 # TierSum API server — multi-stage build.
 #
-# ONNX Runtime + MiniLM ONNX (cold embeddings):
-#   - Runtime stage installs Linux ORT under /usr/local/lib and downloads HF MiniLM into /app/third_party/minilm/.
-#   - Local dev: `make fetch-onnxruntime` + `make fetch-minilm` (see configs/config.example.yaml defaults).
-#   - Keep ARG ONNXRUNTIME_VERSION aligned with scripts/fetch-onnxruntime.sh (default 1.19.2).
+# Cold embeddings (same as local dev):
+#   - Runtime image runs `make fetch-onnxruntime` + `make fetch-minilm` (scripts + URLs match repo root).
+#   - ONNX lands under third_party/onnxruntime/linux_{amd64,arm64}/ (see scripts/fetch-onnxruntime.sh).
+#   - MiniLM under third_party/minilm/ (see scripts/fetch-minilm.sh).
+#   - config.yaml is patched so onnx_runtime_path matches the container CPU (linux_amd64 vs linux_arm64).
+#
+# Build args (optional, same env vars the shell scripts honor):
+#   ONNXRUNTIME_VERSION — default must stay aligned with scripts/fetch-onnxruntime.sh
+#   MINILM_HF_REPO      — Hugging Face repo id for fetch-minilm.sh
 #
 # Debian bookworm (glibc): official ONNX Linux builds are glibc-linked; Alpine/musl would not load them.
 
@@ -41,45 +46,40 @@ FROM debian:bookworm-slim
 
 WORKDIR /app
 
-# Pin a release that exists on GitHub (see microsoft/onnxruntime releases).
 ARG ONNXRUNTIME_VERSION=1.19.2
+ENV ONNXRUNTIME_VERSION=${ONNXRUNTIME_VERSION}
+
+ARG MINILM_HF_REPO=sentence-transformers/all-MiniLM-L6-v2
+ENV MINILM_HF_REPO=${MINILM_HF_REPO}
+
+COPY Makefile ./Makefile
+COPY scripts/fetch-onnxruntime.sh scripts/fetch-minilm.sh ./scripts/
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
+    make \
     libsqlite3-0 \
     libstdc++6 \
-    && set -eux; \
-    ARCH="$(uname -m)"; \
-    case "$ARCH" in \
-      x86_64) ORT_ARCH=x64 ;; \
-      aarch64|arm64) ORT_ARCH=aarch64 ;; \
-      *) echo "unsupported architecture ${ARCH}"; exit 1 ;; \
-    esac; \
-    curl -fsSL -o /tmp/ort.tgz \
-      "https://github.com/microsoft/onnxruntime/releases/download/v${ONNXRUNTIME_VERSION}/onnxruntime-linux-${ORT_ARCH}-${ONNXRUNTIME_VERSION}.tgz"; \
-    tar xf /tmp/ort.tgz -C /tmp; \
-    cp "/tmp/onnxruntime-linux-${ORT_ARCH}-${ONNXRUNTIME_VERSION}/lib"/libonnxruntime.so* /usr/local/lib/; \
-    ldconfig; \
-    rm -rf /tmp/ort.tgz "/tmp/onnxruntime-linux-${ORT_ARCH}-${ONNXRUNTIME_VERSION}"; \
-    mkdir -p /app/third_party/minilm; \
-    curl -fsSL -o /app/third_party/minilm/model.onnx -H "Accept: application/octet-stream" \
-      "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/onnx/model.onnx"; \
-    curl -fsSL -o /app/third_party/minilm/tokenizer.json -H "Accept: application/octet-stream" \
-      "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/main/tokenizer.json"; \
-    apt-get purge -y curl; \
-    apt-get autoremove -y; \
-    rm -rf /var/lib/apt/lists/*
-
-# onnxruntime_go / MiniLM loader (optional; config can override)
-ENV ONNXRUNTIME_LIB_PATH=/usr/local/lib/libonnxruntime.so
+    && make fetch-onnxruntime \
+    && make fetch-minilm \
+    && apt-get purge -y curl make \
+    && apt-get autoremove -y \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN mkdir -p /app/data
 
 COPY --from=builder /out/tiersum ./tiersum
 COPY --from=builder /app/configs/config.example.yaml ./config.yaml
-# config.example defaults to third_party/onnxruntime/linux_amd64/...; image installs ORT under /usr/local/lib.
-RUN sed -i -E 's|^([[:space:]]*onnx_runtime_path:).*|\1 /usr/local/lib/libonnxruntime.so|' /app/config.yaml
+
+# config.example defaults to linux_amd64; align path with the image architecture.
+RUN ARCH="$(uname -m)"; \
+    case "$ARCH" in \
+      x86_64) SUB=linux_amd64 ;; \
+      aarch64) SUB=linux_arm64 ;; \
+      *) echo "unsupported architecture: ${ARCH}"; exit 1 ;; \
+    esac; \
+    sed -i -E "s|^([[:space:]]*onnx_runtime_path:).*|\1 third_party/onnxruntime/${SUB}/lib/libonnxruntime.so|" /app/config.yaml
 
 EXPOSE 8080
 

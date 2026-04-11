@@ -1,4 +1,6 @@
-.PHONY: build test run clean docker lint fmt help fetch-onnxruntime fetch-minilm
+.PHONY: build test run clean docker lint fmt help fetch-onnxruntime fetch-minilm \
+	docker-build docker-build-amd64 docker-build-arm64 docker-build-both \
+	docker-push docker-push-both
 
 # Variables
 BINARY_NAME=tiersum
@@ -54,12 +56,34 @@ clean: ## Clean build artifacts
 	rm -rf $(BUILD_DIR)
 	rm -f coverage.out coverage.html
 
-docker-build: ## Build Docker image (Dockerfile under deployments/docker)
-	docker build -f deployments/docker/Dockerfile -t $(DOCKER_IMAGE):$(VERSION) -t $(DOCKER_IMAGE):latest --build-arg VERSION=$(VERSION) .
+DOCKERFILE=deployments/docker/Dockerfile
 
-docker-push: docker-build ## Push Docker image
+# Native image for the machine running Docker (amd64 Mac/PC → linux/amd64, Apple Silicon → linux/arm64).
+docker-build: ## Build Docker image for host architecture (tags :VERSION and :latest)
+	docker build -f $(DOCKERFILE) -t $(DOCKER_IMAGE):$(VERSION) -t $(DOCKER_IMAGE):latest --build-arg VERSION=$(VERSION) .
+
+# Explicit architectures (requires Docker Buildx; cross-build may use QEMU — first run can be slow).
+docker-build-amd64: ## Build linux/amd64 image (tags :VERSION-amd64 and :latest-amd64)
+	docker buildx build --platform linux/amd64 --load -f $(DOCKERFILE) \
+		-t $(DOCKER_IMAGE):$(VERSION)-amd64 -t $(DOCKER_IMAGE):latest-amd64 \
+		--build-arg VERSION=$(VERSION) .
+
+docker-build-arm64: ## Build linux/arm64 image (tags :VERSION-arm64 and :latest-arm64)
+	docker buildx build --platform linux/arm64 --load -f $(DOCKERFILE) \
+		-t $(DOCKER_IMAGE):$(VERSION)-arm64 -t $(DOCKER_IMAGE):latest-arm64 \
+		--build-arg VERSION=$(VERSION) .
+
+docker-build-both: docker-build-amd64 docker-build-arm64 ## Build both linux/amd64 and linux/arm64 images
+
+docker-push: docker-build ## Push Docker image (:VERSION and :latest, host arch)
 	docker push $(DOCKER_IMAGE):$(VERSION)
 	docker push $(DOCKER_IMAGE):latest
+
+docker-push-both: docker-build-both ## Push multi-arch tags (:VERSION-amd64, :latest-amd64, :*-arm64)
+	docker push $(DOCKER_IMAGE):$(VERSION)-amd64
+	docker push $(DOCKER_IMAGE):latest-amd64
+	docker push $(DOCKER_IMAGE):$(VERSION)-arm64
+	docker push $(DOCKER_IMAGE):latest-arm64
 
 docker-compose-up: ## Start with docker-compose
 	docker-compose up -d

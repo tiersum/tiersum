@@ -38,7 +38,7 @@ Runtime binaries are **gitignored** (large). Each developer or CI job runs `make
 
 ## Docker
 
-The `deployments/docker/Dockerfile` image installs ONNX Runtime under `/usr/local/lib` and downloads MiniLM into `/app/third_party/minilm/` during build; it does not use host `third_party/onnxruntime/`. This README targets local `make run` / bare-metal workflows.
+The `deployments/docker/Dockerfile` runtime stage runs the same **`make fetch-onnxruntime`** and **`make fetch-minilm`** as local development (copies `Makefile` + `scripts/` into the image), so URLs, ONNX version, and output layout match a Linux `host` fetch. It does not reuse your host `third_party/` tree. The baked `config.yaml` sets `onnx_runtime_path` to `third_party/onnxruntime/linux_amd64/...` or `linux_arm64/...` to match the image CPU.
 
 ## MiniLM model weights
 

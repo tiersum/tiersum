@@ -179,7 +179,7 @@ make fetch-onnxruntime   # 按本机平台下载 .so / .dylib
 make fetch-minilm        # 从 Hugging Face 拉取 model.onnx 与 tokenizer.json
 ```
 
-大文件 **不进 Git**；本地或 CI 需自行拉取。**Docker 镜像**构建时会下载 ORT 与 MiniLM，并改写镜像内 `config.yaml` 的 `onnx_runtime_path`。若 MiniLM 加载失败且 `provider` 为 `auto`，会退回简单哈希向量。
+大文件 **不进 Git**；本地或 CI 需自行拉取。**Docker 镜像**构建时在镜像内执行与本地相同的 **`make fetch-onnxruntime`** / **`make fetch-minilm`**（同源脚本与版本），并把 `onnx_runtime_path` 写成对应 `linux_amd64` 或 `linux_arm64` 的 `third_party/...` 路径。若 MiniLM 加载失败且 `provider` 为 `auto`，会退回简单哈希向量。
 
 详见 [third_party/onnxruntime/README.md](third_party/onnxruntime/README.md) 与 [third_party/minilm/README.md](third_party/minilm/README.md)。
 

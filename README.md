@@ -177,7 +177,7 @@ make fetch-onnxruntime   # ONNX .so / .dylib per platform
 make fetch-minilm        # model.onnx + tokenizer.json from Hugging Face
 ```
 
-Large artifacts are **gitignored**; run the commands above locally or in CI. The **Dockerfile** downloads both ORT and MiniLM into the image and adjusts `onnx_runtime_path` in the baked `config.yaml`. If MiniLM fails to load and `memory_index.embedding.provider` is `auto`, TierSum falls back to simple hash embeddings.
+Large artifacts are **gitignored**; run the commands above locally or in CI. The **Dockerfile** runs the same **`make fetch-onnxruntime`** and **`make fetch-minilm`** inside the image (same scripts and default versions as on your machine), then sets `onnx_runtime_path` in the baked `config.yaml` to the matching `third_party/onnxruntime/linux_*` library. If MiniLM fails to load and `memory_index.embedding.provider` is `auto`, TierSum falls back to simple hash embeddings.
 
 See [third_party/onnxruntime/README.md](third_party/onnxruntime/README.md) and [third_party/minilm/README.md](third_party/minilm/README.md).
 
