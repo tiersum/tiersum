@@ -54,8 +54,8 @@ func TestIndexerSvc_Index(t *testing.T) {
 	// Verify chapter summaries were created
 	chapters, err := summaryRepo.GetByDocument(ctx, "doc1")
 	require.NoError(t, err)
-	// Should have 4 summaries: 1 document + 2 chapters + 2 sources
-	assert.Len(t, chapters, 4)
+	// 1 document + 2 chapters + 2 source rows
+	assert.Len(t, chapters, 5)
 }
 
 func TestIndexerSvc_Index_NoChapters(t *testing.T) {
@@ -182,7 +182,7 @@ func TestSanitizePath(t *testing.T) {
 		},
 		{
 			input:    "Very Long Title " + makeString(200),
-			expected: "Very Long Title " + makeString(89), // 100 chars max
+			expected: ("Very Long Title " + makeString(200))[:100],
 		},
 		{
 			input:    "Mixed/Slash\\And Backslash",

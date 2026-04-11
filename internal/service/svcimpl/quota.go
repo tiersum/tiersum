@@ -61,6 +61,12 @@ func (q *QuotaManager) GetQuota() (used, total int, resetAt time.Time) {
 	return q.usedCount, q.perHour, q.resetTime
 }
 
+// GetRemaining returns how many hot-ingest slots are left this hour.
+func (q *QuotaManager) GetRemaining() int {
+	used, total, _ := q.GetQuota()
+	return total - used
+}
+
 // ForceReset resets quota immediately (for testing)
 func (q *QuotaManager) ForceReset() {
 	q.mu.Lock()

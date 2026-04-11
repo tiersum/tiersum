@@ -421,7 +421,6 @@ func TestTagGroupSvc_performGrouping_LLMError(t *testing.T) {
 }
 
 func TestTagGroupSvc_parseGroupResponse(t *testing.T) {
-	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	provider := NewMockLLMProvider()
@@ -479,7 +478,6 @@ func TestTagGroupSvc_parseGroupResponse(t *testing.T) {
 }
 
 func TestTagGroupSvc_parseTagFilterResults(t *testing.T) {
-	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	provider := NewMockLLMProvider()
@@ -533,7 +531,6 @@ func TestTagGroupSvc_parseTagFilterResults(t *testing.T) {
 }
 
 func TestTagGroupSvc_fallbackTagFilter(t *testing.T) {
-	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	provider := NewMockLLMProvider()

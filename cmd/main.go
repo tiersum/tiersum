@@ -23,6 +23,7 @@ import (
 
 	"github.com/tiersum/tiersum/internal/api"
 	"github.com/tiersum/tiersum/internal/di"
+	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/storage/db"
 	"github.com/tiersum/tiersum/internal/storage/memory"
@@ -74,10 +75,11 @@ func expandEnvVars() {
 
 // ServerDeps holds all server dependencies
 type ServerDeps struct {
-	Logger   *zap.Logger
-	SQLDB    *sql.DB
-	MemIndex *memory.Index
-	DI       *di.Dependencies
+	Logger       *zap.Logger
+	SQLDB        *sql.DB
+	MemIndex     *memory.Index
+	TextEmbedder embedding.TextEmbedder
+	DI           *di.Dependencies
 }
 
 // setupServerDeps initializes all server dependencies
@@ -102,24 +104,33 @@ func setupServerDeps() (*ServerDeps, error) {
 		logger.Fatal("Failed to create memory index", zap.Error(err))
 	}
 
+	textEmbedder, err := embedding.NewFromViper(logger)
+	if err != nil {
+		sqlDB.Close()
+		memIndex.Close()
+		return nil, fmt.Errorf("text embedder: %w", err)
+	}
+
 	// Load cold documents into memory index
-	if err := loadColdDocuments(sqlDB, getDriver(), memIndex, logger); err != nil {
+	if err := loadColdDocuments(sqlDB, getDriver(), memIndex, logger, textEmbedder); err != nil {
 		logger.Error("Failed to load cold documents into memory index", zap.Error(err))
 	}
 
 	// Wire all dependencies
-	deps, err := di.NewDependencies(sqlDB, getDriver(), memIndex, logger)
+	deps, err := di.NewDependencies(sqlDB, getDriver(), memIndex, textEmbedder, logger)
 	if err != nil {
+		_ = textEmbedder.Close()
 		sqlDB.Close()
 		memIndex.Close()
 		logger.Fatal("Failed to wire dependencies", zap.Error(err))
 	}
 
 	return &ServerDeps{
-		Logger:   logger,
-		SQLDB:    sqlDB,
-		MemIndex: memIndex,
-		DI:       deps,
+		Logger:       logger,
+		SQLDB:        sqlDB,
+		MemIndex:     memIndex,
+		TextEmbedder: textEmbedder,
+		DI:           deps,
 	}, nil
 }
 
@@ -293,6 +304,9 @@ func runServer(cmd *cobra.Command, args []string) {
 	}
 	defer deps.SQLDB.Close()
 	defer deps.MemIndex.Close()
+	if deps.TextEmbedder != nil {
+		defer func() { _ = deps.TextEmbedder.Close() }()
+	}
 
 	// Start job scheduler
 	deps.DI.JobScheduler.Start()
@@ -345,7 +359,7 @@ func runMigrations(sqlDB *sql.DB, driver string) error {
 	return migrator.MigrateUpSimple()
 }
 
-func loadColdDocuments(sqlDB *sql.DB, driver string, memIndex *memory.Index, logger *zap.Logger) error {
+func loadColdDocuments(sqlDB *sql.DB, driver string, memIndex *memory.Index, logger *zap.Logger, textEmbedder embedding.TextEmbedder) error {
 	start := time.Now()
 
 	// Create a simple cache for repository
@@ -372,9 +386,7 @@ func loadColdDocuments(sqlDB *sql.DB, driver string, memIndex *memory.Index, log
 
 	// Build index from cold documents
 	getEmbedding := func(doc *types.Document) []float32 {
-		// Try to parse embedding from document if available
-		// For now, generate simple embedding
-		return memory.GenerateSimpleEmbedding(doc.Content)
+		return embedding.FallbackEmbed(context.Background(), logger, textEmbedder, doc.Content)
 	}
 
 	if err := memIndex.RebuildFromDocuments(ctx, coldDocs, getEmbedding); err != nil {

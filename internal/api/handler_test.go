@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -52,6 +53,36 @@ func (m *mockDocService) Get(ctx context.Context, id string) (*types.Document, e
 	return m.docs[id], nil
 }
 
+func (m *mockDocService) GetRecent(ctx context.Context, limit int) ([]*types.Document, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	out := make([]*types.Document, 0, len(m.docs))
+	for _, d := range m.docs {
+		out = append(out, d)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
+func (m *mockDocService) List(ctx context.Context) ([]types.Document, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	out := make([]types.Document, 0, len(m.docs))
+	for _, d := range m.docs {
+		if d != nil {
+			out = append(out, *d)
+		}
+	}
+	return out, nil
+}
+
 type mockQueryService struct {
 	results []types.QueryResult
 	err     error
@@ -81,7 +112,7 @@ type mockTagGroupService struct {
 	err    error
 }
 
-func (m *mockTagGroupService) ClusterTags(ctx context.Context) error {
+func (m *mockTagGroupService) GroupTags(ctx context.Context) error {
 	return m.err
 }
 
@@ -192,6 +223,7 @@ func setupTestHandler() (*Handler, *gin.Engine) {
 		SummaryRepo:     &mockSummaryRepo{},
 		DocRepo:         nil,
 		MemIndex:        nil,
+		TextEmbedder:    embedding.NewSimple(),
 		Quota:           nil,
 		Logger:          zap.NewNop(),
 	}

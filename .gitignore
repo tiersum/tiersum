@@ -1,3 +1,10 @@
 /data/tiersum.db
 /data/tiersum.db-shm
 /data/tiersum.db-wal
+
+# ONNX Runtime from scripts/fetch-onnxruntime.sh (platform trees + VERSION; README stays)
+/third_party/onnxruntime/*/
+/third_party/onnxruntime/VERSION
+
+/third_party/minilm/model.onnx
+/third_party/minilm/tokenizer.json

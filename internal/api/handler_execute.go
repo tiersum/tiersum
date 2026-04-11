@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/storage/memory"
+	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -298,7 +298,7 @@ func (h *Handler) ExecuteColdDocSource(ctx context.Context, terms []string, maxR
 	}
 	n := parseMaxResultsFromString(maxResultsQuery, 100, 500)
 	queryText := strings.Join(terms, " ")
-	emb := memory.GenerateSimpleEmbedding(queryText)
+	emb := embedding.FallbackEmbed(ctx, h.Logger, h.TextEmbedder, queryText)
 	results, err := h.MemIndex.HybridSearch(queryText, emb, n)
 	if err != nil {
 		h.Logger.Error("cold doc_source", zap.Error(err))

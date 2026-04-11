@@ -168,6 +168,19 @@ storage:
     dsn: postgres://user:password@localhost:5432/tiersum?sslmode=disable
 ```
 
+### Cold embeddings (MiniLM + ONNX Runtime)
+
+Semantic vectors for the **cold** memory index use **all-MiniLM-L6-v2** ONNX files on disk plus the **ONNX Runtime** shared library (nothing is `go:embed`’d for the neural model). Defaults in `configs/config.example.yaml` point at `third_party/...` after:
+
+```bash
+make fetch-onnxruntime   # ONNX .so / .dylib per platform
+make fetch-minilm        # model.onnx + tokenizer.json from Hugging Face
+```
+
+Large artifacts are **gitignored**; run the commands above locally or in CI. The **Dockerfile** downloads both ORT and MiniLM into the image and adjusts `onnx_runtime_path` in the baked `config.yaml`. If MiniLM fails to load and `memory_index.embedding.provider` is `auto`, TierSum falls back to simple hash embeddings.
+
+See [third_party/onnxruntime/README.md](third_party/onnxruntime/README.md) and [third_party/minilm/README.md](third_party/minilm/README.md).
+
 ### Start Server
 
 ```bash

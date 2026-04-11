@@ -11,7 +11,7 @@ TierSum is a **Hierarchical Summary Knowledge Base** — a RAG-free document ret
 - **Language:** Go 1.23+ (backend), Vue 3 CDN (frontend)
 - **Architecture:** 5-Layer Architecture with Interface+Impl Pattern
 - **Database:** SQLite (default) or PostgreSQL (optional)
-- **Search:** BM25 (Bleve) + Vector (HNSW) hybrid search for cold documents
+- **Search:** BM25 (Bleve) + Vector (HNSW) hybrid search for cold documents (vectors: on-disk MiniLM ONNX + ONNX Runtime; see `make fetch-minilm` / `make fetch-onnxruntime`)
 - **LLM Integration:** OpenAI, Anthropic, or local (Ollama)
 - **Protocol Support:** REST API + MCP (Model Context Protocol)
 - **Frontend:** Vue 3 + Tailwind CSS + DaisyUI (CDN-based, no Node.js required)
@@ -28,6 +28,8 @@ go build -o tiersum ./cmd   # Direct go build
 # Development
 make run                    # Build + run with config.yaml
 make dev                    # Hot reload (requires `air`)
+make fetch-onnxruntime      # Download ONNX Runtime into third_party/ (MiniLM without OS install)
+make fetch-minilm           # Download MiniLM ONNX + tokenizer into third_party/minilm/ (reproducible)
 
 # Testing & Quality
 make test                   # Run tests with race detection + coverage
@@ -92,7 +94,7 @@ db/
     002_topic_summaries.sql
 deployments/
   docker/
-    Dockerfile               # Multi-stage build (Go 1.23-alpine)
+    Dockerfile               # Multi-stage build (Go + Debian bookworm, ONNX Runtime for MiniLM)
     docker-compose.yml       # SQLite default, optional PostgreSQL
 internal/
   api/                       # Layer 1: API Layer
@@ -291,7 +293,7 @@ llm:
 | `llm`               | OpenAI/Anthropic/Local provider settings       |
 | `storage.database`  | SQLite (default) or PostgreSQL                 |
 | `quota`             | Hot document rate limiting (default: 100/hour) |
-| `memory_index`      | HNSW parameters for vector search              |
+| `memory_index`      | Cold HNSW/BM25 + `embedding` (`auto` \| `simple` \| `minilm`; MiniLM needs on-disk ONNX + tokenizer via `fetch-minilm` + ONNX Runtime) |
 | `documents.tiering` | Hot/cold thresholds                            |
 | `mcp`               | MCP protocol settings                          |
 
@@ -405,7 +407,7 @@ A document becomes hot when:
 ```
 Ingest (cold)
     ↓
-Generate simple embedding (char n-gram hash)
+Text embedding (memory_index.embedding: disk MiniLM via `minilm_model_path` / `fetch-minilm` + ONNX Runtime, else simple hash when MiniLM unavailable)
     ↓
 Add to Memory Index (Bleve + HNSW)
     ↓
@@ -573,6 +575,9 @@ Default setup uses SQLite with volume-mounted data directory.
 | `db/migrations/`                   | Database migration files                                        |
 | `pkg/types`                        | Public types used across all layers                             |
 | `docs/CORE_API_FLOWS.md`           | Core REST API algorithms and call flows (non-trivial endpoints) |
+| `internal/embedding/`              | Cold text embeddings: simple hash, disk MiniLM (HF ONNX + mean pool) |
+| `third_party/minilm/README.md`     | Fetching MiniLM `model.onnx` + `tokenizer.json` (gitignored)       |
+| `third_party/onnxruntime/README.md`| Vendoring ONNX Runtime libs (gitignored)                            |
 
 
 ---
@@ -601,4 +606,10 @@ Default setup uses SQLite with volume-mounted data directory.
 
 - Check memory index loaded on startup (see startup logs)
 - Verify documents have `status: cold` in database
+
+**MiniLM / cold semantic embeddings not loading:**
+
+- Run `make fetch-onnxruntime` and `make fetch-minilm` from repo root (or use Docker image, which bundles both)
+- Ensure `memory_index.embedding.minilm_model_path` and `onnx_runtime_path` match your OS (defaults in `configs/config.example.yaml`; paths resolve against process working directory)
+- With `provider: auto`, a failed MiniLM init falls back to simple hash embeddings (check logs for the message)
 

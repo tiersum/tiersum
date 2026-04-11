@@ -11,6 +11,7 @@ import (
 	"github.com/tiersum/tiersum/internal/api"
 	"github.com/tiersum/tiersum/internal/client"
 	"github.com/tiersum/tiersum/internal/client/llm"
+	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/service/svcimpl"
@@ -45,7 +46,7 @@ type Dependencies struct {
 }
 
 // NewDependencies creates all dependencies with proper wiring
-func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, logger *zap.Logger) (*Dependencies, error) {
+func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, textEmbedder embedding.TextEmbedder, logger *zap.Logger) (*Dependencies, error) {
 	// 1. Storage Layer - Cache
 	cacheStore := cache.NewCache(0)
 
@@ -86,6 +87,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, logge
 		uow.TagGroups,
 		summarizer,
 		memIndex,
+		textEmbedder,
 		llmProvider,
 		logger,
 	)
@@ -95,12 +97,13 @@ func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, logge
 		summarizer,
 		uow.Tags,
 		memIndex,
+		textEmbedder,
 		quotaManager,
 		logger,
 	)
 
 	// 8. API Layer
-	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, uow.Tags, uow.Summaries, uow.Documents, memIndex, quotaManager, logger)
+	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, uow.Tags, uow.Summaries, uow.Documents, memIndex, textEmbedder, quotaManager, logger)
 	mcpServer := api.NewMCPServer(restHandler, logger)
 
 	// 9. Job Layer

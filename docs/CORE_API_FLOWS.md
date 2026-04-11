@@ -32,7 +32,7 @@ This document traces **non-trivial** REST endpoints: anything beyond simple list
 ### 1.3 Cold path
 
 - `status = cold`, empty tags.  
-- `**embedding.FallbackEmbed**` (`internal/embedding`): embedder from `memory_index.embedding.provider` — `**auto**` (try MiniLM at startup, else simple), `**minilm**` (MiniLM only), or `**simple**`. MiniLM uses all-MiniLM-L6-v2 (weights in dependency / larger binary) plus ONNX Runtime shared library. Per-call failure or wrong dimension still falls back to `**GenerateSimpleEmbedding**`.  
+- `**embedding.FallbackEmbed**` (`internal/embedding`): embedder from `memory_index.embedding.provider` — `**auto**` (try MiniLM at startup, else simple), `**minilm**` (MiniLM only), or `**simple**`. MiniLM loads HF ONNX from disk (`**minilm_model_path**`, `**make fetch-minilm**`) and mean-pools `last_hidden_state`; requires ONNX Runtime (e.g. `**make fetch-onnxruntime**`). Per-call failure or wrong dimension still falls back to `**GenerateSimpleEmbedding**`.  
 - `**MemIndex.AddDocument**` (Bleve + HNSW).  
 - Persist document via `**DocRepo.Create**`.
 
@@ -155,7 +155,7 @@ No LLM; included because behavior differs from a single-table dump when `group_i
 | Summaries persistence     | `internal/service/svcimpl/indexer.go`, `internal/storage/db/repository.go`             |
 | Tag grouping              | `internal/service/svcimpl/tag_grouping.go`                                             |
 | Memory index              | `internal/storage/memory/index.go`                                                     |
-| Cold embeddings           | `internal/embedding` (`simple` / `minilm`), wired in `cmd/main.go`, services, handlers |
+| Cold embeddings           | `internal/embedding` (`simple` / disk MiniLM), wired in `cmd/main.go`, services, handlers |
 | Promotion side effect     | `internal/job/promote_job.go`, `job.PromoteQueue` from `query.go`                      |
 
 

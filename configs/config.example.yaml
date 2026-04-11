@@ -140,7 +140,24 @@ quota:
 
 # Memory index configuration for cold documents
 memory_index:
-  # Vector dimension (384 for MiniLM-L6-v2)
+  # Text embedding for cold-document HNSW branch:
+  #   - "auto" (recommended): MiniLM-L6-v2 when ONNX Runtime is available, else simple hash embedding.
+  #   - "simple": hash/n-gram only (no ONNX).
+  #   - "minilm": require MiniLM + ONNX (fail startup if unavailable).
+  # MiniLM uses on-disk HF ONNX + tokenizer (`make fetch-minilm`) plus ONNX Runtime shared library (`make fetch-onnxruntime` or system install).
+  embedding:
+    provider: auto
+    # Defaults assume `make fetch-onnxruntime host` + `make fetch-minilm` from repo root (paths vs cwd at startup).
+    # Default ONNX path is Linux x64 (matches Docker image using this file as config). Local macOS examples:
+    #   Apple Silicon → third_party/onnxruntime/darwin_arm64/lib/libonnxruntime.dylib
+    #   Intel → third_party/onnxruntime/darwin_amd64/lib/libonnxruntime.dylib
+    # Linux arm64 → third_party/onnxruntime/linux_arm64/lib/libonnxruntime.so
+    # Or set ONNXRUNTIME_LIB_PATH / use a system-installed lib instead of these fields.
+    onnx_runtime_path: third_party/onnxruntime/linux_amd64/lib/libonnxruntime.so
+    minilm_model_path: third_party/minilm/model.onnx
+    # Empty → third_party/minilm/tokenizer.json (same directory as minilm_model_path).
+    minilm_tokenizer_path: ""
+  # Vector dimension (384 for MiniLM-L6-v2 and the built-in simple fallback)
   vector_dimension: 384
   # HNSW M parameter (max connections per layer)
   hnsw_m: 16

@@ -170,6 +170,19 @@ storage:
     dsn: postgres://user:password@localhost:5432/tiersum?sslmode=disable
 ```
 
+### 冷文档向量（MiniLM + ONNX Runtime）
+
+冷文档内存索引的语义向量使用磁盘上的 **all-MiniLM-L6-v2** ONNX 与 **ONNX Runtime** 动态库（**不**通过 `go:embed` 打包神经网络权重）。复制 `config.example.yaml` 后默认路径指向 `third_party/...`，需先在仓库根执行：
+
+```bash
+make fetch-onnxruntime   # 按本机平台下载 .so / .dylib
+make fetch-minilm        # 从 Hugging Face 拉取 model.onnx 与 tokenizer.json
+```
+
+大文件 **不进 Git**；本地或 CI 需自行拉取。**Docker 镜像**构建时会下载 ORT 与 MiniLM，并改写镜像内 `config.yaml` 的 `onnx_runtime_path`。若 MiniLM 加载失败且 `provider` 为 `auto`，会退回简单哈希向量。
+
+详见 [third_party/onnxruntime/README.md](third_party/onnxruntime/README.md) 与 [third_party/minilm/README.md](third_party/minilm/README.md)。
+
 ### 启动服务
 
 ```bash

@@ -1,4 +1,4 @@
-.PHONY: build test run clean docker lint fmt help
+.PHONY: build test run clean docker lint fmt help fetch-onnxruntime fetch-minilm
 
 # Variables
 BINARY_NAME=tiersum
@@ -54,8 +54,8 @@ clean: ## Clean build artifacts
 	rm -rf $(BUILD_DIR)
 	rm -f coverage.out coverage.html
 
-docker-build: ## Build Docker image
-	docker build -t $(DOCKER_IMAGE):$(VERSION) -t $(DOCKER_IMAGE):latest .
+docker-build: ## Build Docker image (Dockerfile under deployments/docker)
+	docker build -f deployments/docker/Dockerfile -t $(DOCKER_IMAGE):$(VERSION) -t $(DOCKER_IMAGE):latest --build-arg VERSION=$(VERSION) .
 
 docker-push: docker-build ## Push Docker image
 	docker push $(DOCKER_IMAGE):$(VERSION)
@@ -74,6 +74,14 @@ deps: ## Download and tidy dependencies
 	go mod download
 	go mod tidy
 	go mod verify
+
+fetch-onnxruntime: ## Vendor ONNX Runtime into third_party/ (MiniLM; optional, no OS package)
+	chmod +x scripts/fetch-onnxruntime.sh
+	./scripts/fetch-onnxruntime.sh host
+
+fetch-minilm: ## Download MiniLM ONNX + tokenizer into third_party/minilm/ (reproducible model files)
+	chmod +x scripts/fetch-minilm.sh
+	./scripts/fetch-minilm.sh
 
 generate: ## Generate code (mocks, etc.)
 	go generate ./...

@@ -11,11 +11,11 @@ import (
 
 	"github.com/tiersum/tiersum/internal/client"
 	"github.com/tiersum/tiersum/internal/config"
+	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
-	"github.com/tiersum/tiersum/internal/storage/memory"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -30,10 +30,11 @@ type QuerySvc struct {
 	summaryRepo storage.ISummaryRepository
 	tagRepo     storage.ITagRepository
 	groupRepo   storage.ITagGroupRepository
-	summarizer  service.ISummarizer
-	memIndex    storage.IInMemoryIndex
-	llm         client.ILLMProvider
-	logger      *zap.Logger
+	summarizer   service.ISummarizer
+	memIndex     storage.IInMemoryIndex
+	textEmbedder embedding.TextEmbedder
+	llm          client.ILLMProvider
+	logger       *zap.Logger
 }
 
 // NewQuerySvc creates a new query service
@@ -44,18 +45,20 @@ func NewQuerySvc(
 	groupRepo storage.ITagGroupRepository,
 	summarizer service.ISummarizer,
 	memIndex storage.IInMemoryIndex,
+	textEmbedder embedding.TextEmbedder,
 	llm client.ILLMProvider,
 	logger *zap.Logger,
 ) *QuerySvc {
 	return &QuerySvc{
-		docRepo:     docRepo,
-		summaryRepo: summaryRepo,
-		tagRepo:     tagRepo,
-		groupRepo:   groupRepo,
-		summarizer:  summarizer,
-		memIndex:    memIndex,
-		llm:         llm,
-		logger:      logger,
+		docRepo:      docRepo,
+		summaryRepo:  summaryRepo,
+		tagRepo:      tagRepo,
+		groupRepo:    groupRepo,
+		summarizer:   summarizer,
+		memIndex:     memIndex,
+		textEmbedder: textEmbedder,
+		llm:          llm,
+		logger:       logger,
 	}
 }
 
@@ -71,8 +74,8 @@ func (s *QuerySvc) Query(ctx context.Context, question string, depth types.Summa
 		return nil, err
 	}
 
-	// Convert to legacy format
-	var results []types.QueryResult
+	// Convert to legacy format (non-nil slice even when empty)
+	results := make([]types.QueryResult, 0)
 	for _, item := range resp.Results {
 		if depth == "" || item.Tier == depth {
 			results = append(results, types.QueryResult{
@@ -241,7 +244,7 @@ func (s *QuerySvc) queryColdPath(ctx context.Context, req types.ProgressiveQuery
 	}
 
 	// Generate query embedding (simplified - in production use proper embedding model)
-	queryEmbedding := memory.GenerateSimpleEmbedding(req.Question)
+	queryEmbedding := embedding.FallbackEmbed(ctx, s.logger, s.textEmbedder, req.Question)
 
 	// Perform hybrid search
 	searchResults, err := s.memIndex.HybridSearch(req.Question, queryEmbedding, req.MaxResults/2)

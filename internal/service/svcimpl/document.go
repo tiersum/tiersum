@@ -8,11 +8,16 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/config"
+	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
-	"github.com/tiersum/tiersum/internal/storage/memory"
 	"github.com/tiersum/tiersum/pkg/types"
 )
+
+// quotaGate abstracts hourly hot-ingest quota (real *QuotaManager or test doubles).
+type quotaGate interface {
+	CheckAndConsume() bool
+}
 
 // DocumentSvc implements service.IDocumentService
 type DocumentSvc struct {
@@ -20,9 +25,10 @@ type DocumentSvc struct {
 	indexer       service.IIndexer
 	summarizer    service.ISummarizer
 	tagRepo       storage.ITagRepository
-	memIndex      storage.IInMemoryIndex
-	quotaManager  *QuotaManager
-	logger        *zap.Logger
+	memIndex       storage.IInMemoryIndex
+	textEmbedder   embedding.TextEmbedder
+	quotaManager   quotaGate
+	logger         *zap.Logger
 }
 
 // NewDocumentSvc creates a new document service
@@ -32,7 +38,8 @@ func NewDocumentSvc(
 	summarizer service.ISummarizer,
 	tagRepo storage.ITagRepository,
 	memIndex storage.IInMemoryIndex,
-	quotaManager *QuotaManager,
+	textEmbedder embedding.TextEmbedder,
+	quotaManager quotaGate,
 	logger *zap.Logger,
 ) *DocumentSvc {
 	return &DocumentSvc{
@@ -41,6 +48,7 @@ func NewDocumentSvc(
 		summarizer:   summarizer,
 		tagRepo:      tagRepo,
 		memIndex:     memIndex,
+		textEmbedder: textEmbedder,
 		quotaManager: quotaManager,
 		logger:       logger,
 	}
@@ -176,12 +184,11 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 		doc.Status = types.DocStatusCold
 		doc.Tags = []string{} // Cold documents have no tags
 
-		// Generate simple embedding for vector index
-		embedding := memory.GenerateSimpleEmbedding(doc.Content)
+		vec := embedding.FallbackEmbed(ctx, s.logger, s.textEmbedder, doc.Content)
 
 		// Add to memory index (bleve + vector)
 		if s.memIndex != nil {
-			if err := s.memIndex.AddDocument(doc, embedding); err != nil {
+			if err := s.memIndex.AddDocument(doc, vec); err != nil {
 				s.logger.Warn("failed to add cold document to memory index",
 					zap.String("doc_id", doc.ID),
 					zap.Error(err))

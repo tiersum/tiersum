@@ -3,12 +3,9 @@ package svcimpl
 import (
 	"context"
 	"sync"
-	"time"
 
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/client"
-	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
@@ -195,7 +192,11 @@ func (m *MockSummaryRepository) Create(ctx context.Context, summary *types.Summa
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.summaries[summary.ID] = summary
+	key := summary.ID
+	if key == "" {
+		key = summary.Path
+	}
+	m.summaries[key] = summary
 	return nil
 }
 
@@ -431,7 +432,11 @@ func (m *MockTagGroupRepository) Create(ctx context.Context, group *types.TagGro
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.groups[group.ID] = group
+	key := group.ID
+	if key == "" {
+		key = group.Name
+	}
+	m.groups[key] = group
 	return nil
 }
 
