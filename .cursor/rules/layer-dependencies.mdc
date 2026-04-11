@@ -1,0 +1,48 @@
+---
+description: Layer dependency direction — upper layers use only lower-layer interfaces; no cross-layer concrete or sibling imports
+alwaysApply: true
+---
+
+# TierSum — layer dependencies (mandatory)
+
+## Layer stack (top → bottom)
+
+| Layer | Path | May depend on |
+|-------|------|----------------|
+| **API** | `internal/api/` | `internal/service` (**interfaces only**), `pkg/types` |
+| **Job** | `internal/job/` | Same as API: **`internal/service` interfaces only**, `pkg/types` if needed |
+| **Service** | `internal/service/` (`interface.go`), `internal/service/svcimpl/` | `internal/storage` (**interfaces**), `internal/client` (**interfaces**), `pkg/types`, `internal/config` / `internal/metrics` where appropriate |
+| **Storage** | `internal/storage/` | `internal/client` only if a storage adapter truly needs it; **never** `internal/api`, `internal/job`, `internal/service` |
+| **Client** | `internal/client/` | Standard/third-party libs; **never** `internal/api`, `internal/job`, `internal/service`, `internal/storage` |
+
+**Composition root:** `internal/di/container.go` wires concrete implementations. No other package should manually construct cross-layer graphs.
+
+## Rules
+
+1. **Interfaces only upward** — API and Job code must depend on **`service.I…` types** from `internal/service` (see `interface.go`). They must **not** import `internal/storage`, `internal/storage/db`, `internal/service/svcimpl`, or `internal/client` for business behavior.
+2. **No cross-layer shortcuts** — Do not call repository methods, embedders, or LLM providers from API/Job. Add or extend a **service interface** and implement it in `svcimpl`, then inject via DI.
+3. **Service owns downward contracts** — Service implementations may use `storage.I…` and `client.I…` only; they must not import `internal/api` or `internal/job`.
+4. **Shared DTOs** — `pkg/types` is neutral; API, service, and jobs may use it. It must not import `internal/*`.
+
+## Examples
+
+```go
+// BAD — API handler importing storage
+import "github.com/tiersum/tiersum/internal/storage"
+type Handler struct { DocRepo storage.IDocumentRepository }
+
+// GOOD — API uses a service façade
+import "github.com/tiersum/tiersum/internal/service"
+type Handler struct { Retrieval service.IRetrievalService }
+```
+
+```go
+// BAD — Job importing DB repository
+import "github.com/tiersum/tiersum/internal/storage/db"
+
+// GOOD — Job uses service maintenance contract
+import "github.com/tiersum/tiersum/internal/service"
+type PromoteJob struct { Maintenance service.IDocumentMaintenanceService }
+```
+
+When adding endpoints, jobs, or background work, **extend `internal/service/interface.go` (or a focused interface in that package)** before touching lower layers from upper code.
