@@ -230,7 +230,7 @@ export const DocumentCreatePage = {
                                 <span class="text-xs text-slate-600">Live</span>
                             </div>
                             <div class="card-body overflow-y-auto flex-1 min-h-0 pt-4">
-                                <article class="prose prose-invert prose-sm sm:prose-base max-w-none prose-headings:text-slate-100 prose-p:text-slate-300 prose-a:text-blue-400 prose-code:text-emerald-300">
+                                <article class="markdown-body max-w-none px-0 py-0 text-sm sm:text-[15px]">
                                     <div v-html="renderPreview(newDoc.content)"></div>
                                 </article>
                             </div>

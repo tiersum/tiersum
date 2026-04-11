@@ -51,19 +51,19 @@ func (f *ProviderFactory) createOpenAIProvider() (client.ILLMProvider, error) {
 
 	baseURL := viper.GetString("llm.openai.base_url")
 	model := viper.GetString("llm.openai.model")
-	
+
 	// Debug: log API key prefix
 	keyPrefix := apiKey
 	if len(apiKey) > 15 {
 		keyPrefix = apiKey[:15] + "..."
 	}
-	f.logger.Info("configured OpenAI provider", 
+	f.logger.Info("configured OpenAI provider",
 		zap.String("api_key_prefix", keyPrefix),
-		zap.String("base_url", baseURL), 
+		zap.String("base_url", baseURL),
 		zap.String("model", model))
 
 	provider := NewOpenAIProvider()
-	return provider, nil
+	return NewThinkStripProvider(provider), nil
 }
 
 func (f *ProviderFactory) createAnthropicProvider() (client.ILLMProvider, error) {
@@ -73,7 +73,7 @@ func (f *ProviderFactory) createAnthropicProvider() (client.ILLMProvider, error)
 	}
 
 	provider := NewAnthropicProvider()
-	return provider, nil
+	return NewThinkStripProvider(provider), nil
 }
 
 func (f *ProviderFactory) createOllamaProvider() (client.ILLMProvider, error) {
@@ -83,5 +83,5 @@ func (f *ProviderFactory) createOllamaProvider() (client.ILLMProvider, error) {
 	}
 
 	provider := NewOllamaProvider()
-	return provider, nil
+	return NewThinkStripProvider(provider), nil
 }

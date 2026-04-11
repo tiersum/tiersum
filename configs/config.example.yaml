@@ -22,6 +22,9 @@ server:
 llm:
   # Provider: openai, anthropic, local, azure
   provider: openai
+  # Strip chain-of-thought / thinking blocks from all provider replies. For OpenAI-compatible
+  # DeepSeek, DashScope, and SiliconFlow URLs, also sends chat_template_kwargs.enable_thinking=false.
+  disable_think: true
 
   # OpenAI specific (also works with OpenAI-compatible APIs)
   openai:
@@ -96,6 +99,16 @@ llm:
     base_url: http://localhost:11434
     model: llama3.2
     timeout: 60s
+
+# Progressive query (POST /api/v1/query/progressive) — synthesized AI answer only (extra LLM call after retrieval).
+# Hot/cold retrieval still uses llm.* above for tag/doc/chapter filters. Smaller values here reduce answer latency.
+query:
+  # Max completion tokens for the answer (unset: min(llm.*.max_tokens, 900)). Set higher for longer answers.
+  progressive_answer_max_tokens: 0
+  # How many top references (by relevance) to include in the answer prompt (unset: 12, max 30).
+  progressive_answer_max_references: 0
+  # Max bytes per reference excerpt in that prompt (unset: 3500, max 6000).
+  progressive_answer_excerpt_max_bytes: 0
 
 # Summarization configuration
 summarization:

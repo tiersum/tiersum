@@ -28,7 +28,46 @@ type IColdTextEmbedder interface {
 	Close() error
 }
 
-var headingLine = regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
+var (
+	headingLine           = regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
+	numberedHeadingMulti  = regexp.MustCompile(`^(\d+(?:\.\d+)+)\s+(\S.*)$`)
+	numberedHeadingSingle = regexp.MustCompile(`^(\d+)\.\s+(\S.*)$`)
+)
+
+// parseNumberedOutlineHeading treats lines like "1. 概述", "2.1 小节" as headings for cold split.
+// It rejects "1. **bold** list item" (ordered list under a section) so those stay in body text.
+func parseNumberedOutlineHeading(trimmed string) (title string, level int, ok bool) {
+	if trimmed == "" {
+		return "", 0, false
+	}
+	restIsListLike := func(s string) bool {
+		s = strings.TrimSpace(s)
+		return strings.HasPrefix(s, "*") || strings.HasPrefix(s, "_")
+	}
+	if m := numberedHeadingMulti.FindStringSubmatch(trimmed); m != nil {
+		rest := strings.TrimSpace(m[2])
+		if rest == "" || restIsListLike(rest) {
+			return "", 0, false
+		}
+		segs := strings.Split(m[1], ".")
+		if len(segs) < 2 {
+			return "", 0, false
+		}
+		lev := 1 + len(segs)
+		if lev > 6 {
+			lev = 6
+		}
+		return trimmed, lev, true
+	}
+	if m := numberedHeadingSingle.FindStringSubmatch(trimmed); m != nil {
+		rest := strings.TrimSpace(m[2])
+		if rest == "" || restIsListLike(rest) {
+			return "", 0, false
+		}
+		return trimmed, 2, true
+	}
+	return "", 0, false
+}
 
 // EstimateTokens approximates token count (no external tokenizer).
 func EstimateTokens(s string) int {
@@ -129,10 +168,24 @@ func parseSplitTree(markdown string) *splitNode {
 		}
 
 		if !inFence {
-			if m := headingLine.FindStringSubmatch(line); m != nil {
+			if m := headingLine.FindStringSubmatch(trim); m != nil {
 				flushBodyToCurrent()
 				level := len(m[1])
 				title := strings.TrimSpace(m[2])
+				for len(stack) > 1 && stack[len(stack)-1].level >= level {
+					stack = stack[:len(stack)-1]
+				}
+				parent := stack[len(stack)-1]
+				pathTitles := make([]string, 0, len(parent.pathTitles)+1)
+				pathTitles = append(pathTitles, parent.pathTitles...)
+				pathTitles = append(pathTitles, title)
+				child := &splitNode{level: level, title: title, pathTitles: pathTitles}
+				parent.children = append(parent.children, child)
+				stack = append(stack, child)
+				continue
+			}
+			if title, level, ok := parseNumberedOutlineHeading(trim); ok {
+				flushBodyToCurrent()
 				for len(stack) > 1 && stack[len(stack)-1].level >= level {
 					stack = stack[:len(stack)-1]
 				}
@@ -151,6 +204,44 @@ func parseSplitTree(markdown string) *splitNode {
 	}
 	flushBodyToCurrent()
 	return root
+}
+
+// buildMergedChapterBody joins subtree bodies for one merged cold chapter while re-inserting ATX
+// heading lines from the tree (parent + each child). Heading lines are not stored in localBody,
+// so without this the merged text would drop "### 2.1" / "### 2.2" even though the prose is kept.
+func buildMergedChapterBody(n *splitNode, prefix string, nested [][]rawSplitChapter) string {
+	var sb strings.Builder
+	if n.level > 0 && strings.TrimSpace(n.title) != "" {
+		sb.WriteString(strings.Repeat("#", n.level))
+		sb.WriteString(" ")
+		sb.WriteString(strings.TrimSpace(n.title))
+		sb.WriteString("\n\n")
+	}
+	if strings.TrimSpace(prefix) != "" {
+		sb.WriteString(prefix)
+	}
+	first := true
+	for i := range nested {
+		if i >= len(n.children) {
+			break
+		}
+		chs := nested[i]
+		child := n.children[i]
+		for j, piece := range chs {
+			if !first {
+				sb.WriteString("\n\n")
+			}
+			first = false
+			if j == 0 && child.level > 0 && strings.TrimSpace(child.title) != "" {
+				sb.WriteString(strings.Repeat("#", child.level))
+				sb.WriteString(" ")
+				sb.WriteString(strings.TrimSpace(child.title))
+				sb.WriteString("\n\n")
+			}
+			sb.WriteString(piece.text)
+		}
+	}
+	return strings.TrimSpace(sb.String())
 }
 
 func postOrderMergeSplit(n *splitNode, maxTokens, strideTokens int) []rawSplitChapter {
@@ -180,19 +271,7 @@ func postOrderMergeSplit(n *splitNode, maxTokens, strideTokens int) []rawSplitCh
 		return splitOversizedRaw(n.pathTitles, local, maxTokens, strideTokens)
 	}
 
-	var merged strings.Builder
-	merged.WriteString(prefix)
-	first := true
-	for _, chs := range nested {
-		for _, piece := range chs {
-			if !first {
-				merged.WriteString("\n\n")
-			}
-			first = false
-			merged.WriteString(piece.text)
-		}
-	}
-	combined := strings.TrimSpace(merged.String())
+	combined := buildMergedChapterBody(n, prefix, nested)
 	if combined == "" {
 		return nil
 	}

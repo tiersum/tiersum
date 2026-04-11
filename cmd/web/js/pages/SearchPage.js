@@ -80,10 +80,6 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
             return parseMarkdown(content);
         },
 
-        extractDocName(path) {
-            return path?.split('/')[0] || path || 'Unknown';
-        },
-
         extractChapterPath(path) {
             const parts = path?.split('/') || [];
             return parts.length > 1 ? parts.slice(1).join('/') : '';
@@ -103,6 +99,16 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
             if (s === 'cold') return 'badge-info';
             if (s === 'warming') return 'badge-secondary';
             return 'badge-ghost';
+        },
+
+        /** Progressive query: where `content` text came from (API `content_source`). */
+        contentSourceLabel(src) {
+            const s = (src || '').toLowerCase();
+            if (s === 'chapter_summary') return '摘要';
+            if (s === 'bm25') return '倒排';
+            if (s === 'vector') return '向量';
+            if (s === 'hybrid') return '混合（倒排+向量）';
+            return src || '—';
         },
 
         /** Open document detail with optional chapter path (matches API chapter `path`). */
@@ -179,9 +185,7 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                         <div class="h-4 bg-slate-800 rounded animate-pulse w-4/6"></div>
                                         <div class="h-20 bg-slate-800 rounded animate-pulse w-full mt-4"></div>
                                     </div>
-                                    <div v-else-if="aiAnswer" class="prose prose-invert max-w-none">
-                                        <div v-html="renderMarkdown(aiAnswer)" class="text-slate-300 leading-relaxed"></div>
-                                    </div>
+                                    <div v-else-if="aiAnswer" class="markdown-body max-w-none px-0 py-0 text-[15px] leading-relaxed" v-html="renderMarkdown(aiAnswer)"></div>
                                     <div v-else class="text-center py-12 text-slate-500">
                                         <p>Generating AI answer...</p>
                                     </div>
@@ -233,12 +237,19 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                                     <span class="badge badge-outline badge-sm">{{ (result.relevance * 100).toFixed(0) }}%</span>
                                                 </div>
                                                 <h3 class="font-semibold text-slate-200 line-clamp-2 mb-1">{{ result.title }}</h3>
+                                                <p class="text-xs text-slate-500 mb-1 font-mono break-all" :title="result.id">
+                                                    文档 ID: {{ result.id }}
+                                                </p>
                                                 <p class="text-xs text-slate-500 mb-2">
-                                                    From: {{ extractDocName(result.path) }} {{ extractChapterPath(result.path) ? '· ' + extractChapterPath(result.path) : '' }}
+                                                    <span class="text-slate-600">章节内容来源:</span>
+                                                    <span class="text-slate-400">{{ contentSourceLabel(result.content_source) }}</span>
+                                                </p>
+                                                <p class="text-xs text-slate-500 mb-2">
+                                                    路径: {{ extractChapterPath(result.path) || '(整篇)' }}
                                                 </p>
                                                 <p class="text-sm text-slate-400 line-clamp-4">{{ result.content?.substring(0, 300) }}{{ result.content?.length > 300 ? '...' : '' }}</p>
                                                 <div class="flex justify-between items-center mt-3 pt-2 border-t border-slate-700/50">
-                                                    <span class="text-xs text-slate-600 truncate max-w-[150px]">{{ result.path }}</span>
+                                                    <span class="text-xs text-slate-600 truncate max-w-[200px]" :title="result.path">{{ result.path }}</span>
                                                     <button type="button" @click.stop="goToDocumentFromSearch(result)" class="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">
                                                         View <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                                                     </button>

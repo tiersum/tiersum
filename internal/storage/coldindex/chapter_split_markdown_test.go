@@ -14,6 +14,23 @@ func TestEstimateTokens(t *testing.T) {
 	assert.Equal(t, 2, EstimateTokens("abcdefgh"))
 }
 
+func TestSplitMarkdown_orderedListWithBoldNotExtraChapters(t *testing.T) {
+	md := "## 10. 总结\n\nPrinciples:\n\n1. **顺序写**：a\n2. **稀疏索引**：b\n5. **页缓存依赖**：c\n\nFooter.\n"
+	segs := SplitMarkdown("d", "T", md, 512)
+	require.NotEmpty(t, segs)
+	for _, s := range segs {
+		assert.NotContains(t, s.Path, "页缓存依赖")
+		assert.NotContains(t, s.Path, "顺序写")
+	}
+	var found10 bool
+	for _, s := range segs {
+		if strings.Contains(s.Path, "10. 总结") && strings.Contains(s.Text, "页缓存依赖") {
+			found10 = true
+		}
+	}
+	assert.True(t, found10, "list items should stay inside ## 10 body, got %#v", segs)
+}
+
 func TestSplitMarkdown_noHeadings(t *testing.T) {
 	docID := "d1"
 	segs := SplitMarkdown(docID, "My Doc", "Hello world.\nSecond line.", 512)
@@ -35,17 +52,18 @@ func TestSplitMarkdown_singleHeading_small(t *testing.T) {
 	assert.True(t, found)
 }
 
-func TestSplitMarkdown_nestedMerge(t *testing.T) {
+func TestSplitMarkdown_nestedMergePreservesChildHeadings(t *testing.T) {
 	md := "# A\n\n## B\n\nx.\n\n## C\n\ny.\n"
 	segs := SplitMarkdown("doc", "Book", md, 512)
 	require.NotEmpty(t, segs)
 	merged := false
 	for _, s := range segs {
-		if strings.HasSuffix(s.Path, "/A") && strings.Contains(s.Text, "x.") && strings.Contains(s.Text, "y.") {
+		if strings.HasSuffix(s.Path, "/A") && strings.Contains(s.Text, "# A") && strings.Contains(s.Text, "## B") &&
+			strings.Contains(s.Text, "## C") && strings.Contains(s.Text, "x.") && strings.Contains(s.Text, "y.") {
 			merged = true
 		}
 	}
-	assert.True(t, merged, "expected merged chapter at #A, got %#v", segs)
+	assert.True(t, merged, "expected merged chapter at #A with child ## headings in body, got %#v", segs)
 }
 
 func TestSplitMarkdown_oversizedLeaf_parts(t *testing.T) {

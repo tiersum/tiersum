@@ -43,7 +43,7 @@ type ollamaRequest struct {
 	Prompt  string `json:"prompt"`
 	Stream  bool   `json:"stream"`
 	Options struct {
-		NumPredict int `json:"num_predict,omitempty"`
+		NumPredict  int     `json:"num_predict,omitempty"`
 		Temperature float64 `json:"temperature,omitempty"`
 	} `json:"options"`
 }

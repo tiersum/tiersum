@@ -32,10 +32,10 @@ func NewAnthropicProvider() *AnthropicProvider {
 }
 
 type anthropicRequest struct {
-	Model       string       `json:"model"`
-	MaxTokens   int          `json:"max_tokens"`
-	Temperature float64      `json:"temperature"`
-	Messages    []anthMsg    `json:"messages"`
+	Model       string    `json:"model"`
+	MaxTokens   int       `json:"max_tokens"`
+	Temperature float64   `json:"temperature"`
+	Messages    []anthMsg `json:"messages"`
 }
 
 type anthMsg struct {

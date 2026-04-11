@@ -80,6 +80,26 @@ func (h *Handler) ExecuteGetDocumentChapters(ctx context.Context, docID string) 
 	if doc == nil {
 		return http.StatusNotFound, gin.H{"error": "document not found"}
 	}
+
+	// Cold documents: DB chapter-tier rows (if any) are not the source of truth for the detail UI.
+	// Use the same markdown chapter split as the cold index so merged sections (e.g. ##2 + ###2.1 + ###2.2)
+	// return full text including all subsections; stale or partial summary rows would omit e.g. 2.2 tables.
+	if doc.Status == types.DocStatusCold {
+		out := make([]gin.H, 0)
+		mdChapters, ferr := h.Retrieval.MarkdownChaptersForDocument(ctx, doc)
+		if ferr != nil {
+			h.Logger.Warn("markdown chapters for cold document", zap.String("id", docID), zap.Error(ferr))
+		}
+		for _, c := range mdChapters {
+			out = append(out, gin.H{
+				"path":    c.Path,
+				"title":   c.Title,
+				"summary": c.Content,
+			})
+		}
+		return http.StatusOK, gin.H{"document_id": docID, "chapters": out}
+	}
+
 	chapters, err := h.Retrieval.ListChapterSummariesForDocument(ctx, docID)
 	if err != nil {
 		h.Logger.Error("failed to list chapters", zap.String("id", docID), zap.Error(err))

@@ -34,10 +34,13 @@ func NewOpenAIProvider() *OpenAIProvider {
 }
 
 type openAIRequest struct {
-	Model       string    `json:"model"`
-	Messages    []message `json:"messages"`
-	MaxTokens   int       `json:"max_tokens"`
-	Temperature float64   `json:"temperature"`
+	Model              string         `json:"model"`
+	Messages           []message      `json:"messages"`
+	MaxTokens          int            `json:"max_tokens"`
+	Temperature        float64        `json:"temperature"`
+	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
+	// Thinking is Moonshot Kimi K2 API: {"type":"disabled"} turns off chain-of-thought for compatible models.
+	Thinking map[string]any `json:"thinking,omitempty"`
 }
 
 type message struct {
@@ -64,21 +67,22 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 	if temperature == 0 {
 		temperature = 0.3
 	}
-	
+
 	// Some models (like kimi-k2.5) only support temperature=1
 	// Check if we need to override for specific models
 	if strings.Contains(p.model, "kimi-k2") || strings.Contains(p.model, "k2.5") {
 		temperature = 1.0
 	}
-	
+
 	reqBody := openAIRequest{
 		Model: p.model,
 		Messages: []message{
 			{Role: "system", Content: "You are a helpful assistant."},
 			{Role: "user", Content: prompt},
 		},
-		MaxTokens:   maxTokens,
-		Temperature: temperature,
+		MaxTokens:          maxTokens,
+		Temperature:        temperature,
+		ChatTemplateKwargs: openAIThinkOffChatTemplate(p.baseURL, p.model),
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -121,6 +125,25 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 	}
 
 	return "", fmt.Errorf("no response from OpenAI")
+}
+
+// openAIThinkOffChatTemplate returns chat_template_kwargs for OpenAI-compatible APIs that support disabling CoT.
+func openAIThinkOffChatTemplate(baseURL, model string) map[string]any {
+	if !disableThinkEnabled() {
+		return nil
+	}
+	u := strings.ToLower(baseURL)
+	m := strings.ToLower(model)
+	if strings.Contains(u, "deepseek.com") || strings.Contains(m, "deepseek") {
+		return map[string]any{"enable_thinking": false}
+	}
+	if strings.Contains(u, "dashscope.aliyuncs.com") || strings.Contains(u, "dashscope") {
+		return map[string]any{"enable_thinking": false}
+	}
+	if strings.Contains(u, "siliconflow.cn") {
+		return map[string]any{"enable_thinking": false}
+	}
+	return nil
 }
 
 var _ client.ILLMProvider = (*OpenAIProvider)(nil)

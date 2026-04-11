@@ -2,9 +2,9 @@
 
 > **Hierarchical Summary Knowledge Base** — A RAG-free document retrieval system powered by multi-layer abstraction and hot/cold document tiering.
 
-[![Go Version](https://img.shields.io/badge/go-1.23+-00ADD8?logo=go)](https://golang.org)
-[![MCP Protocol](https://img.shields.io/badge/MCP-1.0-6E49CB)](https://modelcontextprotocol.io)
-[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[Go Version](https://golang.org)
+[MCP Protocol](https://modelcontextprotocol.io)
+[License](LICENSE)
 
 [English](README.md) | [简体中文](README_zh.md)
 
@@ -39,19 +39,21 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 ## Core Features
 
-| Feature | Description |
-|:--------|:------------|
-| **Hot/Cold Tiering** | Smart document storage: Hot (full LLM analysis) vs Cold (BM25 + vector search) |
-| **3-Tier Summarization** | Document → Chapter → Source, auto-generated via LLM |
-| **Two-Level Tag Hierarchy** | L1 Tag Groups → L2 Tags (auto-generated) |
-| **Progressive Query** | LLM filters tags → documents → chapters at each step |
-| **Auto Tag Grouping** | LLM automatically groups related tags into categories |
+
+| Feature                         | Description                                                                       |
+| ------------------------------- | --------------------------------------------------------------------------------- |
+| **Hot/Cold Tiering**            | Smart document storage: Hot (full LLM analysis) vs Cold (BM25 + vector search)    |
+| **3-Tier Summarization**        | Document → Chapter → Source, auto-generated via LLM                               |
+| **Two-Level Tag Hierarchy**     | L1 Tag Groups → L2 Tags (auto-generated)                                          |
+| **Progressive Query**           | LLM filters tags → documents → chapters at each step                              |
+| **Auto Tag Grouping**           | LLM automatically groups related tags into categories                             |
 | **BM25 + Vector Hybrid Search** | Keyword + semantic search over cold markdown chapters (full chapter text in hits) |
-| **RAG Alternative** | Zero chunk fragmentation; full context preservation |
-| **Dual API** | REST API + MCP Tools for seamless agent integration |
-| **Modern Web UI** | Vue 3 CDN frontend with Tailwind + DaisyUI dark theme |
-| **Markdown-Native** | Optimized for `.md`; extensible skills for PDF/HTML/Docs |
-| **Incremental Updates** | Smart diffing — re-summarize only changed sections (planned) |
+| **RAG Alternative**             | Zero chunk fragmentation; full context preservation                               |
+| **Dual API**                    | REST API + MCP Tools for seamless agent integration                               |
+| **Modern Web UI**               | Vue 3 CDN frontend with Tailwind + DaisyUI dark theme                             |
+| **Markdown-Native**             | Optimized for `.md`; extensible skills for PDF/HTML/Docs                          |
+| **Incremental Updates**         | Smart diffing — re-summarize only changed sections (planned)                      |
+
 
 ---
 
@@ -60,6 +62,7 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 
 ### Hot Documents (Full Analysis)
+
 - ✅ Full LLM analysis with document + chapter summaries
 - ✅ Up to 10 auto-generated tags
 - ✅ LLM-based filtering during queries
@@ -69,6 +72,7 @@ TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 **Criteria (ingest_mode `auto`)**: prebuilt summary+chapters OR (quota available AND content > 5000 chars). Override with `ingest_mode`: `hot` or `cold`.
 
 ### Cold Documents (Efficient Storage)
+
 - ✅ Minimal processing, no LLM analysis
 - ✅ BM25 + Vector hybrid search (Bleve + HNSW)
 - ✅ Markdown tree split into chapters; hybrid search returns full matching chapter text
@@ -135,6 +139,7 @@ cd deployments/docker && docker-compose up -d
 ### Configuration
 
 **SQLite (Default - Zero Config):**
+
 ```yaml
 # configs/config.yaml
 server:
@@ -161,6 +166,7 @@ documents:
 ```
 
 **PostgreSQL (Optional - for high concurrency):**
+
 ```yaml
 storage:
   database:
@@ -177,7 +183,7 @@ make fetch-onnxruntime   # ONNX .so / .dylib per platform
 make fetch-minilm        # model.onnx + tokenizer.json from Hugging Face
 ```
 
-Large artifacts are **gitignored**; run the commands above locally or in CI. The **Dockerfile** runs the same **`make fetch-onnxruntime`** and **`make fetch-minilm`** inside the image (same scripts and default versions as on your machine), then sets `onnx_runtime_path` in the baked `config.yaml` to the matching `third_party/onnxruntime/linux_*` library. If MiniLM fails to load and `cold_index.embedding.provider` is `auto`, TierSum falls back to simple hash embeddings.
+Large artifacts are **gitignored**; run the commands above locally or in CI. The **Dockerfile** runs the same `**make fetch-onnxruntime`** and `**make fetch-minilm**` inside the image (same scripts and default versions as on your machine), then sets `onnx_runtime_path` in the baked `config.yaml` to the matching `third_party/onnxruntime/linux_*` library. If MiniLM fails to load and `cold_index.embedding.provider` is `auto`, TierSum falls back to simple hash embeddings.
 
 See [third_party/onnxruntime/README.md](third_party/onnxruntime/README.md) and [third_party/minilm/README.md](third_party/minilm/README.md).
 
@@ -252,25 +258,28 @@ curl "http://localhost:8080/api/v1/quota"
 
 MCP tool names and JSON bodies align with the REST API under `/api/v1` (see `internal/api/mcp.go`).
 
-| Tool | REST equivalent |
-|------|-----------------|
-| `api_v1_documents_post` | `POST /documents` |
-| `api_v1_documents_list` | `GET /documents` |
-| `api_v1_documents_get` | `GET /documents/:id` (`id`) |
-| `api_v1_documents_chapters_get` | `GET /documents/:id/chapters` (`id`) |
-| `api_v1_documents_summaries_get` | `GET /documents/:id/summaries` (`id`) |
-| `api_v1_query_progressive_post` | `POST /query/progressive` (`question`, `max_results`) |
-| `api_v1_tags_get` | `GET /tags` (`group_ids`, `max_results` optional) |
-| `api_v1_tags_groups_get` | `GET /tags/groups` |
-| `api_v1_tags_group_post` | `POST /tags/group` |
-| `api_v1_hot_doc_summaries_get` | `GET /hot/doc_summaries` (`tags`, `max_results`) |
-| `api_v1_hot_doc_chapters_get` | `GET /hot/doc_chapters` (`doc_ids`, `max_results`) |
-| `api_v1_hot_doc_source_get` | `GET /hot/doc_source` (`chapter_paths`, `max_results`) |
-| `api_v1_cold_doc_source_get` | `GET /cold/doc_source` (`q`, `max_results`) |
-| `api_v1_quota_get` | `GET /quota` |
-| `api_v1_metrics_get` | `GET /metrics` |
+
+| Tool                             | REST equivalent                                        |
+| -------------------------------- | ------------------------------------------------------ |
+| `api_v1_documents_post`          | `POST /documents`                                      |
+| `api_v1_documents_list`          | `GET /documents`                                       |
+| `api_v1_documents_get`           | `GET /documents/:id` (`id`)                            |
+| `api_v1_documents_chapters_get`  | `GET /documents/:id/chapters` (`id`)                   |
+| `api_v1_documents_summaries_get` | `GET /documents/:id/summaries` (`id`)                  |
+| `api_v1_query_progressive_post`  | `POST /query/progressive` (`question`, `max_results`)  |
+| `api_v1_tags_get`                | `GET /tags` (`group_ids`, `max_results` optional)      |
+| `api_v1_tags_groups_get`         | `GET /tags/groups`                                     |
+| `api_v1_tags_group_post`         | `POST /tags/group`                                     |
+| `api_v1_hot_doc_summaries_get`   | `GET /hot/doc_summaries` (`tags`, `max_results`)       |
+| `api_v1_hot_doc_chapters_get`    | `GET /hot/doc_chapters` (`doc_ids`, `max_results`)     |
+| `api_v1_hot_doc_source_get`      | `GET /hot/doc_source` (`chapter_paths`, `max_results`) |
+| `api_v1_cold_doc_source_get`     | `GET /cold/doc_source` (`q`, `max_results`)            |
+| `api_v1_quota_get`               | `GET /quota`                                           |
+| `api_v1_metrics_get`             | `GET /metrics`                                         |
+
 
 **Claude Desktop Integration**:
+
 ```json
 {
   "mcpServers": {
@@ -320,23 +329,27 @@ TierSum uses a **5-Layer Architecture** with Interface+Impl Pattern:
 TierSum includes a modern Vue 3 CDN-based frontend with the following features. **Which screen calls which REST endpoint** is documented in **[cmd/web/FRONTEND.md](cmd/web/FRONTEND.md)** (“Web UI ↔ REST API”).
 
 ### Query Page (`/#/`)
+
 - Central search box with Progressive Query support
 - Split-panel results: AI Answer (left) + Reference results (right)
 - Displays both hot and cold document results (from `POST /api/v1/query/progressive`)
 - Shows relevance scores and tier/status indicators
 
 ### Documents (`/#/docs`, `/#/docs/new`, `/#/docs/:id`)
+
 - **List** (`/#/docs`): filter by title/tags; opens detail on row click
 - **Create** (`/#/docs/new`): full-page Markdown editor + live preview
 - **Detail** (`/#/docs/:id`): loads document, summaries, and chapters via parallel GETs; cold docs emphasize source view
 
 ### Tag Browser (`/#/tags`)
+
 - Two-level tag navigation
 - Left panel: L1 Tag Groups (categories)
 - Right panel: L2 Tags (filtered by selected group; document counts from API)
 - Regroup button triggers `POST /api/v1/tags/group`
 
 ### Tech Stack
+
 - **Framework**: Vue 3 (via CDN)
 - **Router**: Vue Router 4 (via CDN)
 - **Styling**: Tailwind CSS (via CDN)
@@ -349,20 +362,22 @@ TierSum includes a modern Vue 3 CDN-based frontend with the following features. 
 
 ## Cold document chapters (retrieval)
 
-Cold markdown is split into **chapters** (heading tree + bottom-up token merge under `cold_index.markdown.chapter_max_tokens`). If a leaf is still too large, **sliding windows** apply (`cold_index.markdown.sliding_stride_tokens`, default 100 tokens between window starts; overlap ≈ budget − stride). Chapter paths are **parent heading path + numeric suffix** (e.g. `docId/Section/1`); with no headings, a synthetic **`__root__`** segment is used (e.g. `docId/__root__/1`).
+Cold markdown is split into **chapters** (heading tree + bottom-up token merge under `cold_index.markdown.chapter_max_tokens`). If a leaf is still too large, **sliding windows** apply (`cold_index.markdown.sliding_stride_tokens`, default 100 tokens between window starts; overlap ≈ budget − stride). Chapter paths are **parent heading path + numeric suffix** (e.g. `docId/Section/1`); with no headings, a synthetic `**__root__`** segment is used (e.g. `docId/__root__/1`).
 
 Chunks are indexed in **Bleve (BM25)** and **HNSW** (optional text embeddings). `GET /api/v1/cold/doc_source` runs a hybrid search; each hit’s `context` is the **full chapter body** for that path (not a small arbitrary snippet).
 
 ### Compared to traditional RAG
 
-| Aspect | Typical RAG | TierSum (cold path) |
-|:--------|:------------|:--------------------|
-| **Retrieval unit** | Fixed-size chunks (chars/tokens), weakly tied to document structure | **Markdown-aware chapters** from the heading tree; oversized leaves use **controlled sliding windows** with stable, addressable paths |
-| **Structure** | Headings, lists, and code often split mid-block | Prefer cuts at **heading semantics**; sliding only when a single leaf still exceeds the token budget |
-| **Overlap** | Fixed overlap between adjacent chunks (mainly anti-boundary) | Overlap derived from **window size − stride** (both configurable); continuity without random re-chunking |
-| **Indexing & fusion** | Often vector-first (BM25 optional) | **BM25 + vector hybrid**, merged with dedupe by chapter path |
-| **What the client sees** | Short chunks stitched in the prompt | **Full chapter text** per hit for the matched path |
-| **Cost / explainability** | Chunk + embed pipeline; similarity-only signals | No full LLM on ingest for cold; paths + optional `source` hint (**bm25** / **vector** / **hybrid**) aid debugging |
+
+| Aspect                    | Typical RAG                                                         | TierSum (cold path)                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| **Retrieval unit**        | Fixed-size chunks (chars/tokens), weakly tied to document structure | **Markdown-aware chapters** from the heading tree; oversized leaves use **controlled sliding windows** with stable, addressable paths |
+| **Structure**             | Headings, lists, and code often split mid-block                     | Prefer cuts at **heading semantics**; sliding only when a single leaf still exceeds the token budget                                  |
+| **Overlap**               | Fixed overlap between adjacent chunks (mainly anti-boundary)        | Overlap derived from **window size − stride** (both configurable); continuity without random re-chunking                              |
+| **Indexing & fusion**     | Often vector-first (BM25 optional)                                  | **BM25 + vector hybrid**, merged with dedupe by chapter path                                                                          |
+| **What the client sees**  | Short chunks stitched in the prompt                                 | **Full chapter text** per hit for the matched path                                                                                    |
+| **Cost / explainability** | Chunk + embed pipeline; similarity-only signals                     | No full LLM on ingest for cold; paths + optional `source` hint (**bm25** / **vector** / **hybrid**) aid debugging                     |
+
 
 **Where classic RAG may still fit better**: unstructured prose without headings, workflows that rely on very fine-grained arbitrary spans, or teams already standardized on a single dense-chunk pipeline.
 
@@ -454,19 +469,19 @@ make build-all
 
 ## Roadmap
 
-- [x] Hot/Cold document tiering with auto-promotion
-- [x] BM25 + Vector hybrid search over cold chapters (full chapter text)
-- [x] 3-tier summarization engine (Document + Chapter + Source)
-- [x] Two-level tag hierarchy with auto-grouping
-- [x] Progressive query with LLM filtering at each step
-- [x] LLM auto-tagging for documents
-- [x] REST API + MCP Server
-- [x] SQLite/PostgreSQL + in-memory cache storage
-- [x] Vue 3 CDN frontend with Tailwind + DaisyUI
-- [ ] OpenClaw skill pack (convert + update)
-- [ ] Real-time collaborative editing
-- [ ] Multi-modal support (images, diagrams)
-- [ ] Enterprise SSO + audit logs
+- Hot/Cold document tiering with auto-promotion
+- BM25 + Vector hybrid search over cold chapters (full chapter text)
+- 3-tier summarization engine (Document + Chapter + Source)
+- Two-level tag hierarchy with auto-grouping
+- Progressive query with LLM filtering at each step
+- LLM auto-tagging for documents
+- REST API + MCP Server
+- SQLite/PostgreSQL + in-memory cache storage
+- Vue 3 CDN frontend with Tailwind + DaisyUI
+- OpenClaw skill pack (convert + update)
+- Real-time collaborative editing
+- Multi-modal support (images, diagrams)
+- Enterprise SSO + audit logs
 
 ---
 
@@ -475,6 +490,7 @@ make build-all
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 **Good first issues**:
+
 - Additional document format parsers (LaTeX, AsciiDoc)
 - Local LLM adapter (Ollama, vLLM)
 - Enhanced Web UI features
@@ -492,3 +508,4 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - Inspired by [Anthropic's Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval)
 - MCP Protocol by [Anthropic](https://modelcontextprotocol.io)
 - Built with [Gin](https://gin-gonic.com), [Goldmark](https://github.com/yuin/goldmark), [Bleve](https://blevesearch.com), [HNSW](https://github.com/coder/hnsw)
+

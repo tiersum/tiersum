@@ -202,6 +202,10 @@ export const DocumentDetailPage = {
                                 </span>
                                 <span v-if="doc.tags?.length" class="text-slate-500">{{ doc.tags.join(', ') }}</span>
                             </div>
+                            <p class="text-xs text-slate-500 font-mono break-all mt-2 max-w-3xl" :title="doc.id">
+                                <span class="text-slate-600">文档 ID</span>
+                                {{ doc.id }}
+                            </p>
                         </div>
                         <div class="shrink-0 join">
                             <button type="button"
@@ -252,8 +256,8 @@ export const DocumentDetailPage = {
                                     <h2 class="text-lg font-semibold text-slate-200 mb-2">
                                         {{ selectedNav === 'overview' ? 'Document summary' : (activeChapter?.title || 'Section') }}
                                     </h2>
-                                    <div class="prose prose-invert max-w-none prose-headings:text-slate-100 prose-p:text-slate-300 border-t border-slate-800 pt-4">
-                                        <div v-html="renderMd(summaryBodyMarkdown)"></div>
+                                    <div class="border-t border-slate-800 pt-4">
+                                        <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(summaryBodyMarkdown)"></div>
                                     </div>
                                 </div>
                             </div>
@@ -263,8 +267,8 @@ export const DocumentDetailPage = {
                     <div v-else class="card bg-slate-900/50 border border-slate-800">
                         <div class="card-body">
                             <h2 class="text-lg font-semibold text-slate-200 mb-4">Original</h2>
-                            <div class="prose prose-invert max-w-none prose-headings:text-slate-100 prose-p:text-slate-300 border-t border-slate-800 pt-4">
-                                <div v-html="renderMd(doc.content || '')"></div>
+                            <div class="border-t border-slate-800 pt-4">
+                                <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(doc.content || '')"></div>
                             </div>
                         </div>
                     </div>

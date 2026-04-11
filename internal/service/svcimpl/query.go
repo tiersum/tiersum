@@ -226,14 +226,15 @@ func (s *QuerySvc) queryColdPath(ctx context.Context, req types.ProgressiveQuery
 			title = sr.Title
 		}
 		results = append(results, types.QueryItem{
-			ID:        sr.DocumentID,
-			Title:     title,
-			Content:   sr.Content,
-			Tier:      types.TierChapter,
-			Path:      path,
-			Relevance: sr.Score,
-			IsSource:  false,
-			Status:    types.DocStatusCold,
+			ID:            sr.DocumentID,
+			Title:         title,
+			Content:       sr.Content,
+			Tier:          types.TierChapter,
+			Path:          path,
+			Relevance:     sr.Score,
+			IsSource:      false,
+			Status:        types.DocStatusCold,
+			ContentSource: sr.Source,
 		})
 	}
 
@@ -732,14 +733,15 @@ func (s *QuerySvc) buildResults(chapters []types.Summary, docStatusByID map[stri
 	for i, ch := range chapters {
 		st := docStatusByID[ch.DocumentID]
 		results[i] = types.QueryItem{
-			ID:        ch.DocumentID,
-			Title:     extractTitleFromPath(ch.Path),
-			Content:   ch.Content,
-			Tier:      types.TierChapter,
-			Path:      ch.Path,
-			Relevance: 1.0, // Already filtered by LLM
-			IsSource:  false,
-			Status:    st,
+			ID:            ch.DocumentID,
+			Title:         extractTitleFromPath(ch.Path),
+			Content:       ch.Content,
+			Tier:          types.TierChapter,
+			Path:          ch.Path,
+			Relevance:     1.0, // Already filtered by LLM
+			IsSource:      false,
+			Status:        st,
+			ContentSource: "chapter_summary",
 		}
 	}
 	return results
