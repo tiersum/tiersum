@@ -31,7 +31,7 @@ var SchemaVersions = []SchemaVersion{
 	},
 	{
 		Version:  5,
-		Name:     "Add tag clustering and remove topics",
+		Name:     "Add tag groups and remove topics",
 		SQLite:   sqliteSchemaV5,
 		Postgres: postgresSchemaV5,
 	},
@@ -238,7 +238,7 @@ ALTER TABLE summaries ADD COLUMN is_source BOOLEAN DEFAULT FALSE;
 UPDATE summaries SET is_source = FALSE WHERE is_source IS NULL;
 `
 
-// sqliteSchemaV5 - Add tag clustering, remove topics, update summaries tier enum
+// sqliteSchemaV5 - Add tag groups, remove topics, update summaries tier enum
 const sqliteSchemaV5 = `
 -- Drop topic-related tables (data will be lost)
 DROP TABLE IF EXISTS topic_documents;
@@ -273,43 +273,43 @@ CREATE INDEX idx_summaries_document_id ON summaries(document_id);
 CREATE INDEX idx_summaries_tier ON summaries(tier);
 CREATE INDEX idx_summaries_path ON summaries(path);
 
--- Tag clusters table (Level 1 categories)
-CREATE TABLE IF NOT EXISTS tag_clusters (
+-- Tag groups table (Level 1 categories)
+CREATE TABLE IF NOT EXISTS tag_groups (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     description TEXT,
-    tags TEXT, -- JSON array of tags in this cluster
+    tags TEXT, -- JSON array of tags in this group
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_tag_clusters_name ON tag_clusters(name);
+CREATE INDEX idx_tag_groups_name ON tag_groups(name);
 
 -- Global tags table (Level 2 tags)
 CREATE TABLE IF NOT EXISTS global_tags (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
-    cluster_id TEXT REFERENCES tag_clusters(id) ON DELETE SET NULL,
+    group_id TEXT REFERENCES tag_groups(id) ON DELETE SET NULL,
     document_count INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_global_tags_name ON global_tags(name);
-CREATE INDEX idx_global_tags_cluster ON global_tags(cluster_id);
+CREATE INDEX idx_global_tags_group_id ON global_tags(group_id);
 
--- Cluster refresh log to track when clustering was last performed
-CREATE TABLE IF NOT EXISTS cluster_refresh_log (
+-- Tag group refresh log (optional bookkeeping for grouping runs)
+CREATE TABLE IF NOT EXISTS tag_group_refresh_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tag_count_before INTEGER,
     tag_count_after INTEGER,
-    cluster_count INTEGER,
+    group_count INTEGER,
     duration_ms INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 `
 
-// postgresSchemaV5 - Add tag clustering, remove topics, update summaries tier enum
+// postgresSchemaV5 - Add tag groups, remove topics, update summaries tier enum
 const postgresSchemaV5 = `
 -- Drop topic-related tables (data will be lost)
 DROP TABLE IF EXISTS topic_documents;
@@ -326,8 +326,8 @@ ALTER TABLE summaries ADD CONSTRAINT summaries_tier_check
 -- Update existing paragraph/topic entries to chapter
 UPDATE summaries SET tier = 'chapter' WHERE tier IN ('paragraph', 'topic');
 
--- Tag clusters table (Level 1 categories)
-CREATE TABLE IF NOT EXISTS tag_clusters (
+-- Tag groups table (Level 1 categories)
+CREATE TABLE IF NOT EXISTS tag_groups (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(200) NOT NULL UNIQUE,
     description TEXT,
@@ -336,34 +336,34 @@ CREATE TABLE IF NOT EXISTS tag_clusters (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_tag_clusters_name ON tag_clusters(name);
+CREATE INDEX idx_tag_groups_name ON tag_groups(name);
 
 -- Global tags table (Level 2 tags)
 CREATE TABLE IF NOT EXISTS global_tags (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(100) NOT NULL UNIQUE,
-    cluster_id UUID REFERENCES tag_clusters(id) ON DELETE SET NULL,
+    group_id UUID REFERENCES tag_groups(id) ON DELETE SET NULL,
     document_count INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX idx_global_tags_name ON global_tags(name);
-CREATE INDEX idx_global_tags_cluster ON global_tags(cluster_id);
+CREATE INDEX idx_global_tags_group_id ON global_tags(group_id);
 
--- Cluster refresh log
-CREATE TABLE IF NOT EXISTS cluster_refresh_log (
+-- Tag group refresh log
+CREATE TABLE IF NOT EXISTS tag_group_refresh_log (
     id SERIAL PRIMARY KEY,
     tag_count_before INTEGER,
     tag_count_after INTEGER,
-    cluster_count INTEGER,
+    group_count INTEGER,
     duration_ms INTEGER,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Triggers for updated_at
-CREATE TRIGGER update_tag_clusters_updated_at
-    BEFORE UPDATE ON tag_clusters
+CREATE TRIGGER update_tag_groups_updated_at
+    BEFORE UPDATE ON tag_groups
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 

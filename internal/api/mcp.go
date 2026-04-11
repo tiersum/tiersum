@@ -136,7 +136,7 @@ func (s *MCPServer) registerTools() {
 	), s.handleAPIv1HotDocSourceGet)
 
 	s.mcp.AddTool(mcp.NewTool("api_v1_cold_doc_source_get",
-		mcp.WithDescription(descPrefix+"GET /api/v1/cold/doc_source — q comma-separated keywords"),
+		mcp.WithDescription(descPrefix+"GET /api/v1/cold/doc_source — q comma-separated terms; hybrid search returns cold chapters (path + full text)"),
 		mcp.WithString("q", mcp.Required(), mcp.Description("Comma-separated keywords (same as query param `q`)")),
 		mcp.WithNumber("max_results", mcp.Description("Default 100, max 500")),
 	), s.handleAPIv1ColdDocSourceGet)

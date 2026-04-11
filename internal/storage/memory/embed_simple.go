@@ -1,9 +1,10 @@
-package embedding
+package memory
 
 import (
 	"context"
 
-	"github.com/tiersum/tiersum/internal/storage/memory"
+	"github.com/tiersum/tiersum/internal/storage/memory/coldvec"
+	"github.com/tiersum/tiersum/pkg/types"
 )
 
 // Simple uses the legacy hash/n-gram projection (no external runtime).
@@ -14,13 +15,15 @@ func NewSimple() *Simple {
 	return &Simple{}
 }
 
-// Embed implements TextEmbedder.
+// Embed implements IColdTextEmbedder.
 func (Simple) Embed(ctx context.Context, text string) ([]float32, error) {
 	_ = ctx
-	return memory.GenerateSimpleEmbedding(text), nil
+	return coldvec.SimpleHashEmbedding(text, types.ColdEmbeddingVectorDimension), nil
 }
 
-// Close implements TextEmbedder.
+// Close implements IColdTextEmbedder.
 func (Simple) Close() error {
 	return nil
 }
+
+var _ IColdTextEmbedder = (*Simple)(nil)

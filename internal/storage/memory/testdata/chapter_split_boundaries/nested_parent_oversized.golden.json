@@ -1,0 +1,117 @@
+{
+  "source_file": "nested_parent_oversized.input.md",
+  "doc_id": "boundary_nested",
+  "doc_title": "Nested Parent Oversized",
+  "max_tokens": 128,
+  "chapters": [
+    {
+      "path": "boundary_nested/Level One/Level Two/1",
+      "text": "xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv x",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/2",
+      "text": "uv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztu",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/3",
+      "text": "yztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xy",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/4",
+      "text": "v xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/5",
+      "text": "ztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyz",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/6",
+      "text": "xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/7",
+      "text": "tuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyzt",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/8",
+      "text": "xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv x",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/9",
+      "text": "uv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztu",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/10",
+      "text": "yztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xy",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/11",
+      "text": "v xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/12",
+      "text": "ztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyz",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/13",
+      "text": "xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/14",
+      "text": "tuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyzt",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/15",
+      "text": "xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv x",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/16",
+      "text": "uv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztu",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/17",
+      "text": "yztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xy",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/18",
+      "text": "v xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/19",
+      "text": "ztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyz",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/20",
+      "text": "xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_nested/Level One/Level Two/21",
+      "text": "tuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv",
+      "token_est": 120
+    }
+  ],
+  "meta": {
+    "chapter_count": 21,
+    "char_total_input": 5627
+  }
+}

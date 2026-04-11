@@ -11,7 +11,6 @@ import (
 	"github.com/tiersum/tiersum/internal/api"
 	"github.com/tiersum/tiersum/internal/client"
 	"github.com/tiersum/tiersum/internal/client/llm"
-	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/service/svcimpl"
@@ -35,18 +34,18 @@ type Dependencies struct {
 	MCPServer   *api.MCPServer // MCP protocol
 
 	// Job Layer
-	JobScheduler *job.Scheduler
-	PromoteJob   *job.PromoteJob
+	JobScheduler        *job.Scheduler
+	DocumentMaintenance service.IDocumentMaintenanceService
 
-	// Memory Index for cold documents
-	MemIndex *memory.Index
+	// ColdIndex is the concrete cold-document index (memory.Index).
+	ColdIndex *memory.Index
 
 	// Logger
 	Logger *zap.Logger
 }
 
 // NewDependencies creates all dependencies with proper wiring
-func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, textEmbedder embedding.TextEmbedder, logger *zap.Logger) (*Dependencies, error) {
+func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *memory.Index, logger *zap.Logger) (*Dependencies, error) {
 	// 1. Storage Layer - Cache
 	cacheStore := cache.NewCache(0)
 
@@ -86,8 +85,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, textE
 		uow.Tags,
 		uow.TagGroups,
 		summarizer,
-		memIndex,
-		textEmbedder,
+		coldIndex,
 		llmProvider,
 		logger,
 	)
@@ -96,36 +94,33 @@ func NewDependencies(sqlDB *sql.DB, driver string, memIndex *memory.Index, textE
 		indexer,
 		summarizer,
 		uow.Tags,
-		memIndex,
-		textEmbedder,
+		coldIndex,
 		quotaManager,
 		logger,
 	)
 
-	// 8. API Layer
-	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, uow.Tags, uow.Summaries, uow.Documents, memIndex, textEmbedder, quotaManager, logger)
+	// 8. API Layer — retrieval facade so HTTP handlers do not import storage interfaces
+	retrievalSvc := svcimpl.NewRetrievalSvc(uow.Tags, uow.Summaries, uow.Documents, coldIndex)
+	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, retrievalSvc, quotaManager, logger)
 	mcpServer := api.NewMCPServer(restHandler, logger)
 
-	// 9. Job Layer
+	// 9. Job Layer — jobs depend only on service.* contracts
+	docMaintenance := svcimpl.NewDocumentMaintenanceSvc(uow.Documents, indexer, summarizer, logger)
 	jobScheduler := job.NewScheduler(logger)
-	// Register tag grouping job (runs every 30 minutes)
 	jobScheduler.Register(job.NewTagGroupJob(tagGroupSvc, logger))
-	promoteJob := job.NewPromoteJob(uow.Documents, indexer, summarizer, logger)
-	// Register hot/cold document promotion job (runs every 5 minutes)
-	jobScheduler.Register(promoteJob)
-	// Register hot score update job (runs every hour)
-	jobScheduler.Register(job.NewHotScoreJob(uow.Documents, logger))
+	jobScheduler.Register(job.NewPromoteJob(docMaintenance))
+	jobScheduler.Register(job.NewHotScoreJob(docMaintenance))
 
 	return &Dependencies{
-		DocumentService: docService,
-		QueryService:    queryService,
-		TagGroupService: tagGroupSvc,
-		RESTHandler:     restHandler,
-		MCPServer:       mcpServer,
-		JobScheduler:    jobScheduler,
-		PromoteJob:      promoteJob,
-		MemIndex:        memIndex,
-		Logger:          logger,
+		DocumentService:     docService,
+		QueryService:        queryService,
+		TagGroupService:     tagGroupSvc,
+		RESTHandler:         restHandler,
+		MCPServer:           mcpServer,
+		JobScheduler:        jobScheduler,
+		DocumentMaintenance: docMaintenance,
+		ColdIndex:           coldIndex,
+		Logger:              logger,
 	}, nil
 }
 
@@ -137,15 +132,16 @@ var (
 	_ storage.ITagRepository      = (*db.TagRepo)(nil)
 	_ storage.ITagGroupRepository = (*db.TagGroupRepo)(nil)
 	_ storage.ICache              = (*cache.Cache)(nil)
-	_ storage.IInMemoryIndex      = (*memory.Index)(nil)
+	_ storage.IColdIndex          = (*memory.Index)(nil)
 
 	// Service Layer
 	_ service.IDocumentService = (*svcimpl.DocumentSvc)(nil)
 	_ service.IQueryService    = (*svcimpl.QuerySvc)(nil)
 	_ service.ITagGroupService = (*svcimpl.TagGroupSvc)(nil)
 	_ service.IIndexer         = (*svcimpl.IndexerSvc)(nil)
-	_ service.ISummarizer      = (*svcimpl.SummarizerSvc)(nil)
-	_ service.ILLMFilter       = (*svcimpl.SummarizerSvc)(nil)
+	_ service.ISummarizer       = (*svcimpl.SummarizerSvc)(nil)
+	_ service.IRetrievalService           = (*svcimpl.RetrievalSvc)(nil)
+	_ service.IDocumentMaintenanceService = (*svcimpl.DocumentMaintenanceSvc)(nil)
 
 	// Client Layer
 	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)

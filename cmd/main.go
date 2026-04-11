@@ -23,7 +23,6 @@ import (
 
 	"github.com/tiersum/tiersum/internal/api"
 	"github.com/tiersum/tiersum/internal/di"
-	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/storage/db"
 	"github.com/tiersum/tiersum/internal/storage/memory"
@@ -57,7 +56,7 @@ func initConfig() {
 	if err := viper.ReadInConfig(); err != nil {
 		log.Printf("Warning: config file not found: %v", err)
 	}
-	
+
 	// Expand environment variables in config values (e.g., ${VAR} -> value)
 	expandEnvVars()
 }
@@ -77,8 +76,8 @@ func expandEnvVars() {
 type ServerDeps struct {
 	Logger       *zap.Logger
 	SQLDB        *sql.DB
-	MemIndex     *memory.Index
-	TextEmbedder embedding.TextEmbedder
+	ColdIndex    *memory.Index
+	TextEmbedder memory.IColdTextEmbedder
 	DI           *di.Dependencies
 }
 
@@ -98,37 +97,45 @@ func setupServerDeps() (*ServerDeps, error) {
 	}
 
 	// Create memory index for cold documents
-	memIndex, err := memory.NewIndex(logger)
+	coldIndex, err := memory.NewIndex(logger)
 	if err != nil {
 		sqlDB.Close()
 		logger.Fatal("Failed to create memory index", zap.Error(err))
 	}
+	coldIndex.SetColdChapterMaxTokens(viper.GetInt("cold_index.markdown.chapter_max_tokens"))
+	memory.SetColdMarkdownSlidingStrideTokens(viper.GetInt("cold_index.markdown.sliding_stride_tokens"))
+	coldIndex.SetColdSearchRecall(
+		viper.GetInt("cold_index.search.branch_recall_multiplier"),
+		viper.GetInt("cold_index.search.branch_recall_floor"),
+		viper.GetInt("cold_index.search.branch_recall_ceiling"),
+	)
 
-	textEmbedder, err := embedding.NewFromViper(logger)
+	textEmbedder, err := memory.NewTextEmbedderFromViper(logger)
 	if err != nil {
 		sqlDB.Close()
-		memIndex.Close()
+		coldIndex.Close()
 		return nil, fmt.Errorf("text embedder: %w", err)
 	}
+	coldIndex.SetTextEmbedder(textEmbedder)
 
 	// Load cold documents into memory index
-	if err := loadColdDocuments(sqlDB, getDriver(), memIndex, logger, textEmbedder); err != nil {
+	if err := loadColdDocuments(sqlDB, getDriver(), coldIndex, logger); err != nil {
 		logger.Error("Failed to load cold documents into memory index", zap.Error(err))
 	}
 
 	// Wire all dependencies
-	deps, err := di.NewDependencies(sqlDB, getDriver(), memIndex, textEmbedder, logger)
+	deps, err := di.NewDependencies(sqlDB, getDriver(), coldIndex, logger)
 	if err != nil {
 		_ = textEmbedder.Close()
 		sqlDB.Close()
-		memIndex.Close()
+		coldIndex.Close()
 		logger.Fatal("Failed to wire dependencies", zap.Error(err))
 	}
 
 	return &ServerDeps{
 		Logger:       logger,
 		SQLDB:        sqlDB,
-		MemIndex:     memIndex,
+		ColdIndex:    coldIndex,
 		TextEmbedder: textEmbedder,
 		DI:           deps,
 	}, nil
@@ -165,7 +172,7 @@ func registerHealthRoute(r *gin.Engine, deps *ServerDeps) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":         "healthy",
 			"version":        Version,
-			"cold_doc_count": deps.MemIndex.GetDocumentCount(),
+			"cold_doc_count": deps.ColdIndex.ApproxEntries(),
 		})
 	})
 }
@@ -277,7 +284,7 @@ func startServer(router *gin.Engine, deps *ServerDeps) error {
 
 	deps.Logger.Info("Server started",
 		zap.Int("port", port),
-		zap.Int("cold_docs_indexed", deps.MemIndex.GetDocumentCount()))
+		zap.Int("cold_docs_indexed", deps.ColdIndex.ApproxEntries()))
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
@@ -303,7 +310,7 @@ func runServer(cmd *cobra.Command, args []string) {
 		log.Fatal(err)
 	}
 	defer deps.SQLDB.Close()
-	defer deps.MemIndex.Close()
+	defer deps.ColdIndex.Close()
 	if deps.TextEmbedder != nil {
 		defer func() { _ = deps.TextEmbedder.Close() }()
 	}
@@ -314,7 +321,7 @@ func runServer(cmd *cobra.Command, args []string) {
 
 	promoteCtx, promoteCancel := context.WithCancel(context.Background())
 	defer promoteCancel()
-	job.StartPromoteQueueConsumer(promoteCtx, deps.DI.PromoteJob, deps.Logger)
+	job.StartPromoteQueueConsumer(promoteCtx, deps.DI.DocumentMaintenance, deps.Logger)
 
 	// Setup and start server
 	router := setupRouter(deps)
@@ -359,7 +366,7 @@ func runMigrations(sqlDB *sql.DB, driver string) error {
 	return migrator.MigrateUpSimple()
 }
 
-func loadColdDocuments(sqlDB *sql.DB, driver string, memIndex *memory.Index, logger *zap.Logger, textEmbedder embedding.TextEmbedder) error {
+func loadColdDocuments(sqlDB *sql.DB, driver string, coldIndex *memory.Index, logger *zap.Logger) error {
 	start := time.Now()
 
 	// Create a simple cache for repository
@@ -384,12 +391,7 @@ func loadColdDocuments(sqlDB *sql.DB, driver string, memIndex *memory.Index, log
 
 	logger.Info("Loading cold documents into memory index", zap.Int("count", len(coldDocs)))
 
-	// Build index from cold documents
-	getEmbedding := func(doc *types.Document) []float32 {
-		return embedding.FallbackEmbed(context.Background(), logger, textEmbedder, doc.Content)
-	}
-
-	if err := memIndex.RebuildFromDocuments(ctx, coldDocs, getEmbedding); err != nil {
+	if err := coldIndex.RebuildFromDocuments(ctx, coldDocs); err != nil {
 		return fmt.Errorf("failed to rebuild index: %w", err)
 	}
 

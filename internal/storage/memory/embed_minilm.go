@@ -1,4 +1,4 @@
-package embedding
+package memory
 
 import (
 	"context"
@@ -25,15 +25,17 @@ func NewMiniLM(runtimePath, modelPath, tokenizerPath string) (*MiniLM, error) {
 	return &MiniLM{hf: hf}, nil
 }
 
-// Embed implements TextEmbedder.
+// Embed implements IColdTextEmbedder.
 func (e *MiniLM) Embed(ctx context.Context, text string) ([]float32, error) {
 	return e.hf.embed(ctx, text)
 }
 
-// Close implements TextEmbedder.
+// Close implements IColdTextEmbedder.
 func (e *MiniLM) Close() error {
 	if e.hf == nil {
 		return nil
 	}
 	return e.hf.close()
 }
+
+var _ IColdTextEmbedder = (*MiniLM)(nil)

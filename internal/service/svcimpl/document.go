@@ -8,7 +8,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/config"
-	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
@@ -21,14 +20,13 @@ type quotaGate interface {
 
 // DocumentSvc implements service.IDocumentService
 type DocumentSvc struct {
-	docRepo       storage.IDocumentRepository
-	indexer       service.IIndexer
-	summarizer    service.ISummarizer
-	tagRepo       storage.ITagRepository
-	memIndex       storage.IInMemoryIndex
-	textEmbedder   embedding.TextEmbedder
-	quotaManager   quotaGate
-	logger         *zap.Logger
+	docRepo      storage.IDocumentRepository
+	indexer      service.IIndexer
+	summarizer   service.ISummarizer
+	tagRepo      storage.ITagRepository
+	coldIndex    storage.IColdIndex
+	quotaManager quotaGate
+	logger       *zap.Logger
 }
 
 // NewDocumentSvc creates a new document service
@@ -37,8 +35,7 @@ func NewDocumentSvc(
 	indexer service.IIndexer,
 	summarizer service.ISummarizer,
 	tagRepo storage.ITagRepository,
-	memIndex storage.IInMemoryIndex,
-	textEmbedder embedding.TextEmbedder,
+	coldIndex storage.IColdIndex,
 	quotaManager quotaGate,
 	logger *zap.Logger,
 ) *DocumentSvc {
@@ -47,8 +44,7 @@ func NewDocumentSvc(
 		indexer:      indexer,
 		summarizer:   summarizer,
 		tagRepo:      tagRepo,
-		memIndex:     memIndex,
-		textEmbedder: textEmbedder,
+		coldIndex:    coldIndex,
 		quotaManager: quotaManager,
 		logger:       logger,
 	}
@@ -101,7 +97,7 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 		if hasPrebuiltSummary && hasPrebuiltTags {
 			// External agent provided everything - no internal LLM needed
 			doc.Tags = req.Tags
-			
+
 			// Create analysis result from prebuilt data
 			analysis := &types.DocumentAnalysisResult{
 				Summary:  req.Summary,
@@ -124,7 +120,7 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 					Chapters: []types.ChapterInfo{},
 				}
 			}
-			
+
 			// Merge provided tags with generated tags
 			tagSet := make(map[string]bool)
 			for _, tag := range req.Tags {
@@ -169,7 +165,7 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 			tagEntity := &types.Tag{
 				ID:      uuid.New().String(),
 				Name:    tag,
-				GroupID: "", // Will be assigned by clustering service
+				GroupID: "", // Will be assigned by tag grouping when applicable
 			}
 			if err := s.tagRepo.Create(ctx, tagEntity); err != nil {
 				s.logger.Warn("failed to create global tag", zap.String("tag", tag), zap.Error(err))
@@ -184,11 +180,9 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 		doc.Status = types.DocStatusCold
 		doc.Tags = []string{} // Cold documents have no tags
 
-		vec := embedding.FallbackEmbed(ctx, s.logger, s.textEmbedder, doc.Content)
-
-		// Add to memory index (bleve + vector)
-		if s.memIndex != nil {
-			if err := s.memIndex.AddDocument(doc, vec); err != nil {
+		// Add to cold in-memory index
+		if s.coldIndex != nil {
+			if err := s.coldIndex.AddDocument(ctx, doc); err != nil {
 				s.logger.Warn("failed to add cold document to memory index",
 					zap.String("doc_id", doc.ID),
 					zap.Error(err))

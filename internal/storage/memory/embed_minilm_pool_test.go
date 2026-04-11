@@ -1,4 +1,4 @@
-package embedding
+package memory
 
 import (
 	"math"
@@ -10,11 +10,10 @@ import (
 
 func TestMeanPoolL2Norm_singleToken(t *testing.T) {
 	batchSize, seqLen, hidden := 1, 2, 4
-	// One real token at s=0, padding at s=1 (mask 0)
 	mask := []int64{1, 0}
 	flat := make([]float32, batchSize*seqLen*hidden)
 	for h := 0; h < hidden; h++ {
-		flat[h] = float32(h + 1) // first position embedding
+		flat[h] = float32(h + 1)
 	}
 	out := meanPoolL2Norm(batchSize, seqLen, hidden, flat, mask)
 	require.Len(t, out, 1)
@@ -24,7 +23,6 @@ func TestMeanPoolL2Norm_singleToken(t *testing.T) {
 		norm += float64(v * v)
 	}
 	assert.InDelta(t, 1.0, math.Sqrt(norm), 1e-5)
-	// Mean of [1,2,3,4] then normalized
 	expected := []float32{1, 2, 3, 4}
 	var s float64
 	for _, v := range expected {
@@ -40,7 +38,6 @@ func TestMeanPoolL2Norm_twoTokensAverage(t *testing.T) {
 	batchSize, seqLen, hidden := 1, 2, 2
 	mask := []int64{1, 1}
 	flat := make([]float32, batchSize*seqLen*hidden)
-	// s=0: [2,4], s=1: [4,8] -> mean [3,6]
 	flat[0], flat[1] = 2, 4
 	flat[2], flat[3] = 4, 8
 	out := meanPoolL2Norm(batchSize, seqLen, hidden, flat, mask)

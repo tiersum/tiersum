@@ -481,43 +481,44 @@ func (m *MockTagGroupRepository) GetCount(ctx context.Context) (int, error) {
 	return len(m.groups), nil
 }
 
-// MockInMemoryIndex is a mock implementation of storage.IInMemoryIndex
-type MockInMemoryIndex struct {
+// MockColdIndex is a mock implementation of storage.IColdIndex
+type MockColdIndex struct {
 	mu        sync.RWMutex
 	docs      map[string]*types.Document
-	searchResults []storage.SearchResult
+	searchResults []storage.ColdIndexHit
 	err       error
 }
 
-func NewMockInMemoryIndex() *MockInMemoryIndex {
-	return &MockInMemoryIndex{
+func NewMockColdIndex() *MockColdIndex {
+	return &MockColdIndex{
 		docs: make(map[string]*types.Document),
 	}
 }
 
-func (m *MockInMemoryIndex) SetError(err error) {
+func (m *MockColdIndex) SetError(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.err = err
 }
 
-func (m *MockInMemoryIndex) SetSearchResults(results []storage.SearchResult) {
+func (m *MockColdIndex) SetSearchResults(results []storage.ColdIndexHit) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.searchResults = results
 }
 
-func (m *MockInMemoryIndex) AddDocument(doc *types.Document, embedding []float32) error {
+func (m *MockColdIndex) AddDocument(ctx context.Context, doc *types.Document) error {
 	if m.err != nil {
 		return m.err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.docs[doc.ID] = doc
+	_ = ctx
 	return nil
 }
 
-func (m *MockInMemoryIndex) RemoveDocument(docID string) error {
+func (m *MockColdIndex) RemoveDocument(docID string) error {
 	if m.err != nil {
 		return m.err
 	}
@@ -527,41 +528,22 @@ func (m *MockInMemoryIndex) RemoveDocument(docID string) error {
 	return nil
 }
 
-func (m *MockInMemoryIndex) Search(ctx context.Context, queryText string, queryEmbedding []float32, topK int) ([]storage.SearchResult, error) {
+func (m *MockColdIndex) Search(ctx context.Context, queryText string, topK int) ([]storage.ColdIndexHit, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
+	_ = queryText
+	_ = topK
 	return m.searchResults, nil
 }
 
-func (m *MockInMemoryIndex) SearchWithBleve(queryText string, topK int) ([]storage.SearchResult, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.searchResults, nil
-}
-
-func (m *MockInMemoryIndex) SearchWithVector(queryEmbedding []float32, topK int, queryText string) ([]storage.SearchResult, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.searchResults, nil
-}
-
-func (m *MockInMemoryIndex) HybridSearch(queryText string, queryEmbedding []float32, topK int) ([]storage.SearchResult, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.searchResults, nil
-}
-
-func (m *MockInMemoryIndex) GetDocumentCount() int {
+func (m *MockColdIndex) ApproxEntries() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.docs)
 }
 
-func (m *MockInMemoryIndex) RebuildFromDocuments(ctx context.Context, docs []types.Document, getEmbedding func(doc *types.Document) []float32) error {
+func (m *MockColdIndex) RebuildFromDocuments(ctx context.Context, docs []types.Document) error {
 	if m.err != nil {
 		return m.err
 	}
@@ -571,10 +553,11 @@ func (m *MockInMemoryIndex) RebuildFromDocuments(ctx context.Context, docs []typ
 	for i := range docs {
 		m.docs[docs[i].ID] = &docs[i]
 	}
+	_ = ctx
 	return nil
 }
 
-func (m *MockInMemoryIndex) Close() error {
+func (m *MockColdIndex) Close() error {
 	return nil
 }
 

@@ -8,46 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
-
-func TestQuerySvc_Query_LegacyInterface(t *testing.T) {
-	ctx := context.Background()
-	docRepo := NewMockDocumentRepository()
-	summaryRepo := NewMockSummaryRepository()
-	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
-	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
-
-	svc := NewQuerySvc(
-		docRepo,
-		summaryRepo,
-		tagRepo,
-		groupRepo,
-		summarizer,
-		memIndex,
-		embedding.NewSimple(),
-		nil,
-		testLogger(),
-	)
-
-	// Set up test data
-	tagRepo.Create(ctx, &types.Tag{ID: "tag1", Name: "golang"})
-	docRepo.Create(ctx, &types.Document{
-		ID:     "doc1",
-		Title:  "Go Programming",
-		Tags:   []string{"golang"},
-		Status: types.DocStatusHot,
-	})
-
-	// Test legacy query interface
-	results, err := svc.Query(ctx, "go programming", types.TierChapter)
-	require.NoError(t, err)
-	assert.NotNil(t, results)
-}
 
 func TestQuerySvc_ProgressiveQuery_EmptyTags(t *testing.T) {
 	ctx := context.Background()
@@ -56,7 +19,7 @@ func TestQuerySvc_ProgressiveQuery_EmptyTags(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -64,8 +27,7 @@ func TestQuerySvc_ProgressiveQuery_EmptyTags(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -89,7 +51,7 @@ func TestQuerySvc_ProgressiveQuery_WithHotDocs(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -97,8 +59,7 @@ func TestQuerySvc_ProgressiveQuery_WithHotDocs(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -146,7 +107,7 @@ func TestQuerySvc_filterL2Tags_DirectFilter(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -154,8 +115,7 @@ func TestQuerySvc_filterL2Tags_DirectFilter(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -182,7 +142,7 @@ func TestQuerySvc_filterL2Tags_TwoLevelFilter(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -190,8 +150,7 @@ func TestQuerySvc_filterL2Tags_TwoLevelFilter(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -228,7 +187,7 @@ func TestQuerySvc_queryAndFilterDocuments(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -236,8 +195,7 @@ func TestQuerySvc_queryAndFilterDocuments(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -273,7 +231,7 @@ func TestQuerySvc_filterColdDocuments(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -281,8 +239,7 @@ func TestQuerySvc_filterColdDocuments(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -313,7 +270,7 @@ func TestQuerySvc_matchesColdDocument(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -321,8 +278,7 @@ func TestQuerySvc_matchesColdDocument(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -374,7 +330,7 @@ func TestQuerySvc_queryAndFilterChapters(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -382,8 +338,7 @@ func TestQuerySvc_queryAndFilterChapters(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -416,7 +371,7 @@ func TestQuerySvc_createColdDocumentChapter(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -424,8 +379,7 @@ func TestQuerySvc_createColdDocumentChapter(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -469,7 +423,7 @@ func TestQuerySvc_mergeHotAndColdResults(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -477,8 +431,7 @@ func TestQuerySvc_mergeHotAndColdResults(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -510,7 +463,7 @@ func TestQuerySvc_queryColdPath(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -518,20 +471,19 @@ func TestQuerySvc_queryColdPath(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
 
 	// Set up mock search results
-	memIndex.SetSearchResults([]storage.SearchResult{
+	coldIndex.SetSearchResults([]storage.ColdIndexHit{
 		{
 			DocumentID: "cold1",
+			Path:       "cold1/Intro",
 			Title:      "Cold Document",
 			Content:    "This is a cold document",
 			Score:      0.85,
-			Source:     "hybrid",
 		},
 	})
 
@@ -546,6 +498,8 @@ func TestQuerySvc_queryColdPath(t *testing.T) {
 	assert.Equal(t, "cold_docs", step.Step)
 	require.Len(t, results, 1)
 	assert.Equal(t, types.DocStatusCold, results[0].Status)
+	assert.Equal(t, "cold1/Intro", results[0].Path)
+	assert.Equal(t, "Intro", results[0].Title)
 }
 
 func TestQuerySvc_queryColdPath_NilIndex(t *testing.T) {
@@ -563,7 +517,6 @@ func TestQuerySvc_queryColdPath_NilIndex(t *testing.T) {
 		groupRepo,
 		summarizer,
 		nil, // nil index
-		embedding.NewSimple(),
 		nil,
 		testLogger(),
 	)
@@ -587,7 +540,7 @@ func TestQuerySvc_filterL1Groups(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -595,8 +548,7 @@ func TestQuerySvc_filterL1Groups(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -623,7 +575,7 @@ func TestQuerySvc_getL2TagsFromGroups(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -631,8 +583,7 @@ func TestQuerySvc_getL2TagsFromGroups(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -653,7 +604,7 @@ func TestQuerySvc_extractTagNames(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -661,8 +612,7 @@ func TestQuerySvc_extractTagNames(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -682,7 +632,7 @@ func TestQuerySvc_extractRelevantTags(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -690,8 +640,7 @@ func TestQuerySvc_extractRelevantTags(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -712,7 +661,7 @@ func TestQuerySvc_buildResults(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -720,8 +669,7 @@ func TestQuerySvc_buildResults(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -790,7 +738,7 @@ func TestQuerySvc_filterHotDocuments_Error(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -798,8 +746,7 @@ func TestQuerySvc_filterHotDocuments_Error(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -822,7 +769,7 @@ func TestQuerySvc_filterL2TagsDirect_Error(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 
 	svc := NewQuerySvc(
 		docRepo,
@@ -830,8 +777,7 @@ func TestQuerySvc_filterL2TagsDirect_Error(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		nil,
 		testLogger(),
 	)
@@ -866,7 +812,7 @@ func TestQuerySvc_ProgressiveQuery_AnswerFromLLM(t *testing.T) {
 	tagRepo := NewMockTagRepository()
 	groupRepo := NewMockTagGroupRepository()
 	summarizer := NewMockSummarizer()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 	llm := NewMockLLMProvider()
 	llm.SetResponse("Synthetic answer with [^1^].")
 
@@ -899,8 +845,7 @@ func TestQuerySvc_ProgressiveQuery_AnswerFromLLM(t *testing.T) {
 		tagRepo,
 		groupRepo,
 		summarizer,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		llm,
 		testLogger(),
 	)

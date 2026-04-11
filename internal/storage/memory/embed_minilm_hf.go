@@ -1,4 +1,4 @@
-package embedding
+package memory
 
 import (
 	"bytes"
@@ -13,7 +13,7 @@ import (
 	"github.com/sugarme/tokenizer/pretrained"
 	ort "github.com/yalue/onnxruntime_go"
 
-	"github.com/tiersum/tiersum/internal/storage/memory"
+	"github.com/tiersum/tiersum/pkg/types"
 )
 
 const minilmHiddenSize = 384
@@ -86,8 +86,8 @@ func (m *hfMiniLM) embed(ctx context.Context, text string) ([]float32, error) {
 	if len(out) == 0 {
 		return nil, fmt.Errorf("empty embedding batch")
 	}
-	if len(out[0]) != memory.VectorDimension {
-		return nil, fmt.Errorf("minilm embedding dim %d, want %d", len(out[0]), memory.VectorDimension)
+	if len(out[0]) != types.ColdEmbeddingVectorDimension {
+		return nil, fmt.Errorf("minilm embedding dim %d, want %d", len(out[0]), types.ColdEmbeddingVectorDimension)
 	}
 	return out[0], nil
 }

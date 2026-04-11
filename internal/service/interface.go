@@ -23,10 +23,28 @@ type IDocumentService interface {
 
 // IQueryService defines query business logic
 type IQueryService interface {
-	// Query performs hierarchical query with LLM filtering
-	Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error)
-	// ProgressiveQuery performs the new two-level tag-based progressive query
+	// ProgressiveQuery performs the two-level tag-based progressive query
 	ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error)
+}
+
+// IDocumentMaintenanceService covers background document tiering (cold→hot promotion, hot scores).
+// Used by the job layer; implementations compose storage indexing and summarization.
+type IDocumentMaintenanceService interface {
+	RunColdPromotionSweep(ctx context.Context) error
+	PromoteColdDocumentByID(ctx context.Context, docID string) error
+	RecalculateDocumentHotScores(ctx context.Context) error
+}
+
+// IRetrievalService exposes read operations used only by the HTTP/MCP API layer.
+// It composes storage so handlers do not depend on repository or cold-index interfaces.
+type IRetrievalService interface {
+	ListTags(ctx context.Context, groupIDs []string, byGroupLimit int, listAllCap int) ([]types.Tag, error)
+	ListSummariesForDocument(ctx context.Context, documentID string) ([]types.Summary, error)
+	ListChapterSummariesForDocument(ctx context.Context, documentID string) ([]types.Summary, error)
+	HotDocumentsWithDocSummaries(ctx context.Context, tags []string, limit int) ([]types.Document, []types.Summary, error)
+	ChapterSummariesByDocumentIDs(ctx context.Context, docIDs []string) (map[string][]types.Summary, error)
+	ListSourcesByChapterPaths(ctx context.Context, paths []string) ([]types.Summary, error)
+	SearchColdByQuery(ctx context.Context, query string, limit int) ([]types.ColdSearchHit, error)
 }
 
 // ITagGroupService defines tag grouping business logic
@@ -62,10 +80,3 @@ type ISummarizer interface {
 	FilterChapters(ctx context.Context, query string, chapters []types.Summary) ([]types.LLMFilterResult, error)
 }
 
-// ILLMFilter is kept for backward compatibility, merged into ISummarizer
-type ILLMFilter interface {
-	// FilterDocuments selects relevant documents based on query
-	FilterDocuments(ctx context.Context, query string, docs []types.Document) ([]types.LLMFilterResult, error)
-	// FilterChapters selects relevant chapters based on query
-	FilterChapters(ctx context.Context, query string, chapters []types.Summary) ([]types.LLMFilterResult, error)
-}

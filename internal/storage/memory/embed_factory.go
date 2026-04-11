@@ -1,4 +1,4 @@
-package embedding
+package memory
 
 import (
 	"fmt"
@@ -26,19 +26,19 @@ func resolveEmbeddingFilePath(p string) string {
 	return filepath.Clean(filepath.Join(wd, p))
 }
 
-// NewFromViper builds a TextEmbedder from memory_index.embedding.* settings.
+// NewTextEmbedderFromViper builds an IColdTextEmbedder from memory_index.embedding.* settings.
 //
 // provider:
 //   - "" or "auto" (default): try all-MiniLM-L6-v2 + ONNX Runtime; on init failure use simple hash embedding.
 //   - "simple": legacy hash/n-gram projection only (no ONNX).
 //   - "minilm" or "all-minilm-l6-v2": MiniLM only; startup error if ONNX/model cannot load.
-func NewFromViper(logger *zap.Logger) (TextEmbedder, error) {
+func NewTextEmbedderFromViper(logger *zap.Logger) (IColdTextEmbedder, error) {
 	p := strings.ToLower(strings.TrimSpace(viper.GetString("memory_index.embedding.provider")))
 	rt := resolveEmbeddingFilePath(viper.GetString("memory_index.embedding.onnx_runtime_path"))
 	modelPath := resolveEmbeddingFilePath(viper.GetString("memory_index.embedding.minilm_model_path"))
 	tokPath := resolveEmbeddingFilePath(viper.GetString("memory_index.embedding.minilm_tokenizer_path"))
 
-	tryMiniLM := func() (TextEmbedder, error) {
+	tryMiniLM := func() (IColdTextEmbedder, error) {
 		return NewMiniLM(rt, modelPath, tokPath)
 	}
 

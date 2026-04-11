@@ -98,15 +98,18 @@ deployments/
     docker-compose.yml       # SQLite default, optional PostgreSQL
 internal/
   api/                       # Layer 1: API Layer
-    handler.go               # REST API handlers
+    handler.go               # REST handlers (depends on service.* only, no storage repos)
     handler_test.go          # Handler tests
     mcp.go                   # MCP protocol handlers
   service/                   # Layer 2: Service Layer
-    interface.go             # I-prefixed service interfaces
+    interface.go             # I-prefixed service interfaces (includes IRetrievalService for API read paths)
+    errors.go                # Shared service errors (e.g. cold index unavailable)
     svcimpl/                 # Implementation subpackage
       document.go            # DocumentSvc implements IDocumentService
+      retrieval.go           # RetrievalSvc implements IRetrievalService (tags/summaries/hot/cold reads for HTTP)
       query.go               # QuerySvc implements IQueryService
       tag_grouping.go        # TagGroupSvc implements ITagGroupService
+      document_maintenance.go # DocumentMaintenanceSvc implements IDocumentMaintenanceService (jobs)
       indexer.go             # IndexerSvc implements IIndexer
       summarizer.go          # SummarizerSvc implements ISummarizer
       quota.go               # QuotaManager for hot doc rate limiting
@@ -119,26 +122,33 @@ internal/
       migrator.go            # Schema migration manager
     cache/                   # Cache implementation
       cache.go               # Cache implements ICache
-    memory/                  # In-memory index for cold documents
-      index.go               # BM25 + Vector hybrid index with Chinese support
-  client/                    # Layer 4: Client Layer
-    interface.go             # I-prefixed client interfaces
-    llm/                     # LLM client implementations
+    memory/                  # Cold in-memory index: chapter split, BM25 (Bleve), vectors (HNSW), cold text embed
+      index.go               # storage.IColdIndex impl (documents + text Search); SetTextEmbedder optional for internal vectors
+      chapter_split.go       # IColdChapterSplitter, MarkdownSplitter, IColdTextEmbedder contract
+      coldvec/               # Deterministic hash embedding fallback (no imports from service/api)
+      inverted_bleve.go      # Bleve BM25 cold chapter index
+      vector_hnsw.go         # HNSW vector cold chapter index
+      embed_*.go             # MiniLM / simple cold embeddings; NewTextEmbedderFromViper
+  client/                    # Layer 4: Client Layer (third-party systems, e.g. LLM APIs)
+    interface.go             # I-prefixed client interfaces (e.g. ILLMProvider)
+    llm/                     # LLM client implementations (OpenAI, Anthropic, Ollama)
       openai.go              # OpenAIProvider implements ILLMProvider
-  job/                       # Job Layer (background tasks)
+  job/                       # Job Layer (background tasks; depends on internal/service only)
     scheduler.go             # Job scheduler
     jobs.go                  # TagGroupJob
-    promote_job.go           # Cold-to-hot promotion job
-    hotscore_job.go          # Hot score recalculation job
+    promote_job.go           # Schedules IDocumentMaintenanceService.RunColdPromotionSweep
+    promote_consumer.go      # Async queue → PromoteColdDocumentByID
+    hotscore_job.go          # Schedules RecalculateDocumentHotScores
   di/                        # Dependency Injection (composition root)
     container.go             # Wires all layers together
-pkg/types/                   # Public API types
+pkg/types/                   # Public API types + shared cold-embedding constants
   document.go                # Document, Summary, Tag types
   query.go                   # Query request/response types
+  cold_embedding.go          # ColdEmbeddingVectorDimension, DefaultColdChapterMaxTokens
 cmd/web/                     # Vue 3 CDN frontend (embedded in binary)
-  index.html                 # HTML entry with CDN imports
-  app.js                     # Vue app with all components
-  FRONTEND.md                # Frontend documentation
+  index.html                 # HTML shell + importmap; loads `js/main.js` (ESM)
+  js/                        # ES modules: `main.js`, `api_client.js`, `pages/`, `components/`
+  FRONTEND.md                # Frontend stack, routes, **Web UI ↔ REST API** table
 ```
 
 ---
@@ -154,9 +164,9 @@ Layer 2: Service Layer (internal/service/)
     ↓ uses
 Layer 3: Storage Layer (internal/storage/)
     ↓ uses
-Layer 4: Client Layer (internal/client/)
+Layer 4: Client Layer (internal/client/) — third-party APIs (e.g. LLM); not cold-index embeddings
 
-Job Layer can use: Service Layer, Storage Layer
+Job Layer (same dependency rule as API): Service Layer only (`internal/service`, e.g. `ITagGroupService`, `IDocumentMaintenanceService`)
 ```
 
 ### Key Rules
@@ -167,6 +177,7 @@ Job Layer can use: Service Layer, Storage Layer
 4. **DI in di/**: All wiring happens in `internal/di/container.go`
 5. **API unified**: REST and MCP handlers in same package (`internal/api/`)
 6. **English Comments Only**: All code comments must be written in English
+7. **Strict layer boundaries**: Upper layers (**`internal/api`**, **`internal/job`**) may depend only on **`internal/service`** **interfaces** (`interface.go` and the same package’s contracts) and neutral **`pkg/types`** — not on **`internal/storage`**, **`internal/service/svcimpl`**, **`internal/storage/db`**, or **`internal/client`**. Service code uses storage and client **only through** `internal/storage/interface.go` and `internal/client/interface.go`. **`.cursor/rules/layer-dependencies.mdc`** summarizes allowed edges and forbidden cross-layer shortcuts (concrete repos, bypassing DI).
 
 ---
 
@@ -293,7 +304,8 @@ llm:
 | `llm`               | OpenAI/Anthropic/Local provider settings       |
 | `storage.database`  | SQLite (default) or PostgreSQL                 |
 | `quota`             | Hot document rate limiting (default: 100/hour) |
-| `memory_index`      | Cold HNSW/BM25 + `embedding` (`auto` \| `simple` \| `minilm`; MiniLM needs on-disk ONNX + tokenizer via `fetch-minilm` + ONNX Runtime) |
+| `cold_index`        | Cold markdown chapter split (`markdown.chapter_max_tokens`, `markdown.sliding_stride_tokens`) and hybrid branch recall (`search.branch_recall_*`) |
+| `memory_index`      | Cold embedding provider (`embedding`: `auto` \| `simple` \| `minilm`) and HNSW numeric params (`hnsw_*`) |
 | `documents.tiering` | Hot/cold thresholds                            |
 | `mcp`               | MCP protocol settings                          |
 
@@ -377,10 +389,10 @@ func TestFeature(t *testing.T) {
 | content     | TEXT | Summary or source content          |
 
 
-### Global Tags & Tag Clusters
+### Global Tags & Tag Groups
 
 - `global_tags` - Level 2 tags with document counts
-- `tag_clusters` - Level 1 groups (created by LLM clustering)
+- `tag_groups` - Level 1 groups (created by LLM-based tag grouping)
 
 ---
 
@@ -409,11 +421,13 @@ Ingest (cold)
     ↓
 Text embedding (memory_index.embedding: disk MiniLM via `minilm_model_path` / `fetch-minilm` + ONNX Runtime, else simple hash when MiniLM unavailable)
     ↓
-Add to Memory Index (Bleve + HNSW)
+Markdown chapter split (`memory.IColdChapterSplitter` in `internal/storage/memory`, token budget `cold_index.markdown.chapter_max_tokens`)
+    ↓
+Add to Memory Index (Bleve + HNSW) — one row per cold chapter (`document_id` + `path`)
     ↓
 Query via BM25 + Vector hybrid search
     ↓
-Extract keyword-based snippets
+Return matching chapter full text (no keyword snippet)
     ↓
 If query_count >= 3 → PromoteQueue
     ↓
@@ -427,9 +441,9 @@ PromoteJob (every 5 min) → Full LLM analysis → hot
 
 | Job             | File              | Interval   | Purpose                                                          |
 | --------------- | ----------------- | ---------- | ---------------------------------------------------------------- |
-| **TagGroupJob** | `jobs.go`         | 30 minutes | LLM-based tag clustering into L1 groups                          |
-| **PromoteJob**  | `promote_job.go`  | 5 minutes  | Promotes cold docs (query_count > 3) to hot                      |
-| **HotScoreJob** | `hotscore_job.go` | 1 hour     | Updates hot scores: `query_count / (1 + hours_since_last_query)` |
+| **TagGroupJob** | `jobs.go`         | 30 minutes | LLM-based tag grouping into L1 groups                            |
+| **PromoteJob**  | `promote_job.go`  | 5 minutes  | Delegates to `IDocumentMaintenanceService.RunColdPromotionSweep` (cold→hot when `query_count` ≥ threshold) |
+| **HotScoreJob** | `hotscore_job.go` | 1 hour     | Delegates to `IDocumentMaintenanceService.RecalculateDocumentHotScores` |
 
 
 **Scheduler** (`scheduler.go`):
@@ -444,10 +458,11 @@ PromoteJob (every 5 min) → Full LLM analysis → hot
 
 ### Core API flows (algorithms)
 
-Endpoints that are more than simple CRUD — ingest tiering, progressive query, tag clustering, hot/cold retrieval, hybrid cold search — are documented in **[docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md)** (call chain from REST handlers into services and storage).
+Endpoints that are more than simple CRUD — ingest tiering, progressive query, tag grouping, hot/cold retrieval, hybrid cold search — are documented in **[docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md)** (call chain from REST handlers into services and storage).
 
 ### REST API
 
+The **embedded Vue UI** (`cmd/web/js/`) uses a subset of these routes; see **`cmd/web/FRONTEND.md`** → *Web UI ↔ REST API* for the mapping by screen.
 
 | Method | Endpoint                          | Description                                                                           |
 | ------ | --------------------------------- | ------------------------------------------------------------------------------------- |
@@ -462,7 +477,7 @@ Endpoints that are more than simple CRUD — ingest tiering, progressive query, 
 | GET    | `/api/v1/hot/doc_summaries`       | Hot/warming docs matching `tags`; document-level summary only (`tags`, `max_results`) |
 | GET    | `/api/v1/hot/doc_chapters`        | Chapter summaries for `doc_ids` (comma-separated, `max_results` caps doc count)       |
 | GET    | `/api/v1/hot/doc_source`          | Original text for `chapter_paths` (comma-separated, `max_results`)                    |
-| GET    | `/api/v1/cold/doc_source`         | Cold snippets via memory index (`q` comma-separated terms, `max_results`)             |
+| GET    | `/api/v1/cold/doc_source`         | Cold chapter hits via memory index (`q` comma-separated terms, `max_results`; JSON includes `path` per chapter) |
 | POST   | `/api/v1/tags/group`              | Trigger tag grouping                                                                  |
 | GET    | `/api/v1/quota`                   | Check quota status                                                                    |
 | GET    | `/api/v1/metrics`                 | Prometheus metrics                                                                    |
@@ -512,7 +527,7 @@ var _ service.IMyService = (*MySvc)(nil)
 2. **Implement** in subpackage (e.g., `service/svcimpl/`)
 3. **Wire** in `di/container.go`
 4. **Add tests** in `*_test.go`
-5. **Core API docs:** If the change affects a **non–simple-CRUD** API (multi-step logic, LLM, tiering, hybrid search, tag clustering, hot/cold retrieval), update **`docs/CORE_API_FLOWS.md`** in the same PR/commit. Cursor rule: `.cursor/rules/core-api-flows-doc.mdc`.
+5. **Core API docs:** If the change affects a **non–simple-CRUD** API (multi-step logic, LLM, tiering, hybrid search, tag grouping, hot/cold retrieval), update **`docs/CORE_API_FLOWS.md`** in the same PR/commit. Cursor rule: `.cursor/rules/core-api-flows-doc.mdc`.
 6. **AGENTS.md edits:** When changing **`AGENTS.md`**, in the same pass **strengthen Architecture-related sections** (`## Project Structure`, `## Architecture Principles`, and aligned topics such as hot/cold tiering or jobs) so structure, layers, and cross-links stay accurate. Cursor rule: `.cursor/rules/agents-architecture.mdc`.
 
 ---
@@ -564,18 +579,24 @@ Default setup uses SQLite with volume-mounted data directory.
 | `internal/service/svcimpl`         | Service implementations                                         |
 | `internal/storage/interface.go`    | Storage interfaces (I-prefix)                                   |
 | `internal/storage/db`              | Repository implementations                                      |
-| `internal/storage/memory/index.go` | BM25 + Vector index with snippet extraction                     |
+| `internal/storage/memory/index.go` | BM25 + Vector hybrid index over cold **chapters** (`storage.IColdIndex`) |
+| `internal/storage/memory/chapter_split.go` | `memory.IColdChapterSplitter`, `memory.IColdTextEmbedder`, default markdown tree / token merge |
 | `internal/di/container.go`         | Dependency injection / composition root                         |
+| `internal/service/svcimpl/retrieval.go` | `IRetrievalService`: API-only read facade over repos + cold index |
 | `internal/client/llm/factory.go`   | LLM provider factory (dynamic selection)                        |
 | `internal/client/llm/openai.go`    | OpenAI provider implementation                                  |
 | `internal/client/llm/anthropic.go` | Anthropic Claude provider implementation                        |
 | `internal/client/llm/ollama.go`    | Local Ollama provider implementation                            |
-| `internal/job`                     | Background scheduled tasks                                      |
-| `cmd/web/`                         | Vue 3 CDN frontend (embedded in binary)                         |
+| `internal/job`                     | Background scheduled tasks (depend on `internal/service` only)   |
+| `internal/service/svcimpl/document_maintenance.go` | `IDocumentMaintenanceService`: promotion sweep, queue promote, hot scores |
+| `cmd/web/`                         | Vue 3 CDN frontend (embedded); ESM entry `js/main.js`, pages under `js/pages/` |
 | `db/migrations/`                   | Database migration files                                        |
 | `pkg/types`                        | Public types used across all layers                             |
 | `docs/CORE_API_FLOWS.md`           | Core REST API algorithms and call flows (non-trivial endpoints) |
-| `internal/embedding/`              | Cold text embeddings: simple hash, disk MiniLM (HF ONNX + mean pool) |
+| `docs/COLD_INDEX.md`               | Cold index **core algorithms** (English): chapter extraction, Bleve+HNSW, hybrid merge, config |
+| `docs/COLD_INDEX_zh.md`            | 同上，**中文**设计说明 |
+| `internal/storage/memory/embed_*.go` | MiniLM / simple cold embeddings; `memory.NewTextEmbedderFromViper`, `memory.FallbackColdTextEmbedding` |
+| `internal/storage/memory/coldvec/`   | Deterministic hash embedding (cold index fallback)                 |
 | `third_party/minilm/README.md`     | Fetching MiniLM `model.onnx` + `tokenizer.json` (gitignored)       |
 | `third_party/onnxruntime/README.md`| Vendoring ONNX Runtime libs (gitignored)                            |
 
@@ -594,7 +615,7 @@ Default setup uses SQLite with volume-mounted data directory.
 **Frontend not loading:**
 
 - Frontend is embedded in binary via Go embed, no build step needed
-- Check `cmd/web/` contains `index.html` and `app.js`
+- Check `cmd/web/` contains `index.html` and `js/main.js` (and sibling `js/` modules)
 - Clear browser cache and hard refresh (Cmd+Shift+R or Ctrl+F5)
 
 **MCP connection issues:**

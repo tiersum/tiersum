@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -93,7 +92,7 @@ func TestDocumentSvc_Ingest_ColdDocument(t *testing.T) {
 	indexer := NewMockIndexer()
 	summarizer := NewMockSummarizer()
 	tagRepo := NewMockTagRepository()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 	quotaManager := NewMockQuotaManager()
 
 	svc := NewDocumentSvc(
@@ -101,8 +100,7 @@ func TestDocumentSvc_Ingest_ColdDocument(t *testing.T) {
 		indexer,
 		summarizer,
 		tagRepo,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		quotaManager,
 		testLogger(),
 	)
@@ -133,7 +131,7 @@ func TestDocumentSvc_Ingest_HotDocument_WithFullAnalysis(t *testing.T) {
 	indexer := NewMockIndexer()
 	summarizer := NewMockSummarizer()
 	tagRepo := NewMockTagRepository()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 	quotaManager := NewMockQuotaManager()
 
 	svc := NewDocumentSvc(
@@ -141,8 +139,7 @@ func TestDocumentSvc_Ingest_HotDocument_WithFullAnalysis(t *testing.T) {
 		indexer,
 		summarizer,
 		tagRepo,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		quotaManager,
 		testLogger(),
 	)
@@ -187,7 +184,7 @@ func TestDocumentSvc_Ingest_WithPrebuiltData(t *testing.T) {
 	indexer := NewMockIndexer()
 	summarizer := NewMockSummarizer()
 	tagRepo := NewMockTagRepository()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 	quotaManager := NewMockQuotaManager()
 
 	svc := NewDocumentSvc(
@@ -195,8 +192,7 @@ func TestDocumentSvc_Ingest_WithPrebuiltData(t *testing.T) {
 		indexer,
 		summarizer,
 		tagRepo,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		quotaManager,
 		testLogger(),
 	)
@@ -228,7 +224,7 @@ func TestDocumentSvc_Ingest_ForceHot(t *testing.T) {
 	indexer := NewMockIndexer()
 	summarizer := NewMockSummarizer()
 	tagRepo := NewMockTagRepository()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 	quotaManager := NewMockQuotaManager()
 
 	svc := NewDocumentSvc(
@@ -236,8 +232,7 @@ func TestDocumentSvc_Ingest_ForceHot(t *testing.T) {
 		indexer,
 		summarizer,
 		tagRepo,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		quotaManager,
 		testLogger(),
 	)
@@ -261,7 +256,7 @@ func TestDocumentSvc_Ingest_DocRepoError(t *testing.T) {
 	indexer := NewMockIndexer()
 	summarizer := NewMockSummarizer()
 	tagRepo := NewMockTagRepository()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 	quotaManager := NewMockQuotaManager()
 
 	svc := NewDocumentSvc(
@@ -269,8 +264,7 @@ func TestDocumentSvc_Ingest_DocRepoError(t *testing.T) {
 		indexer,
 		summarizer,
 		tagRepo,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		quotaManager,
 		testLogger(),
 	)
@@ -295,7 +289,7 @@ func TestDocumentSvc_Ingest_MergeTags(t *testing.T) {
 	indexer := NewMockIndexer()
 	summarizer := NewMockSummarizer()
 	tagRepo := NewMockTagRepository()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 	quotaManager := NewMockQuotaManager()
 
 	svc := NewDocumentSvc(
@@ -303,8 +297,7 @@ func TestDocumentSvc_Ingest_MergeTags(t *testing.T) {
 		indexer,
 		summarizer,
 		tagRepo,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		quotaManager,
 		testLogger(),
 	)
@@ -338,7 +331,7 @@ func TestDocumentSvc_Get(t *testing.T) {
 	indexer := NewMockIndexer()
 	summarizer := NewMockSummarizer()
 	tagRepo := NewMockTagRepository()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 	quotaManager := NewMockQuotaManager()
 
 	svc := NewDocumentSvc(
@@ -346,8 +339,7 @@ func TestDocumentSvc_Get(t *testing.T) {
 		indexer,
 		summarizer,
 		tagRepo,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		quotaManager,
 		testLogger(),
 	)
@@ -383,7 +375,7 @@ func TestDocumentSvc_GetRecent(t *testing.T) {
 	indexer := NewMockIndexer()
 	summarizer := NewMockSummarizer()
 	tagRepo := NewMockTagRepository()
-	memIndex := NewMockInMemoryIndex()
+	coldIndex := NewMockColdIndex()
 	quotaManager := NewMockQuotaManager()
 
 	svc := NewDocumentSvc(
@@ -391,8 +383,7 @@ func TestDocumentSvc_GetRecent(t *testing.T) {
 		indexer,
 		summarizer,
 		tagRepo,
-		memIndex,
-		embedding.NewSimple(),
+		coldIndex,
 		quotaManager,
 		testLogger(),
 	)

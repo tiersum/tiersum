@@ -1,0 +1,97 @@
+{
+  "source_file": "with_parent_oversized.input.md",
+  "doc_id": "boundary_with_parent",
+  "doc_title": "With Parent Oversized",
+  "max_tokens": 128,
+  "chapters": [
+    {
+      "path": "boundary_with_parent/Parent Section/1",
+      "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word wo",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/2",
+      "text": "ord word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word wor",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/3",
+      "text": "rd word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/4",
+      "text": "d word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/5",
+      "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/6",
+      "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word wo",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/7",
+      "text": "ord word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word wor",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/8",
+      "text": "rd word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/9",
+      "text": "d word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/10",
+      "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/11",
+      "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word wo",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/12",
+      "text": "ord word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word wor",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/13",
+      "text": "rd word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/14",
+      "text": "d word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/15",
+      "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word w",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/16",
+      "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word wo",
+      "token_est": 128
+    },
+    {
+      "path": "boundary_with_parent/Parent Section/17",
+      "text": "ord word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word",
+      "token_est": 101
+    }
+  ],
+  "meta": {
+    "chapter_count": 17,
+    "char_total_input": 4518
+  }
+}

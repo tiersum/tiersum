@@ -46,7 +46,7 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 | **Two-Level Tag Hierarchy** | L1 Tag Groups → L2 Tags (auto-generated) |
 | **Progressive Query** | LLM filters tags → documents → chapters at each step |
 | **Auto Tag Grouping** | LLM automatically groups related tags into categories |
-| **BM25 + Vector Hybrid Search** | Keyword + semantic search with keyword-based snippet extraction |
+| **BM25 + Vector Hybrid Search** | Keyword + semantic search over cold markdown chapters (full chapter text in hits) |
 | **RAG Alternative** | Zero chunk fragmentation; full context preservation |
 | **Dual API** | REST API + MCP Tools for seamless agent integration |
 | **Modern Web UI** | Vue 3 CDN frontend with Tailwind + DaisyUI dark theme |
@@ -71,7 +71,7 @@ TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 ### Cold Documents (Efficient Storage)
 - ✅ Minimal processing, no LLM analysis
 - ✅ BM25 + Vector hybrid search (Bleve + HNSW)
-- ✅ Keyword-based snippet extraction
+- ✅ Markdown tree split into chapters; hybrid search returns full matching chapter text
 - ✅ Automatic promotion after 3+ queries
 - ⚡ No quota consumption
 
@@ -88,7 +88,7 @@ TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 │                    Cold Documents                           │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  BM25 + Vector Hybrid Search                          │  │
-│  │  Keyword-based Snippet Extraction                     │  │
+│  │  Chapter-level index + full chapter text in hits      │  │
 │  │  Auto-promote after 3 queries → Hot                   │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
@@ -303,7 +303,7 @@ TierSum uses a **5-Layer Architecture** with Interface+Impl Pattern:
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
-│  Storage Layer    (DB repositories + Cache + Memory Index)  │
+│  Storage Layer    (DB repositories + Cache + cold index)     │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
@@ -317,25 +317,24 @@ TierSum uses a **5-Layer Architecture** with Interface+Impl Pattern:
 
 ## Web UI
 
-TierSum includes a modern Vue 3 CDN-based frontend with the following features:
+TierSum includes a modern Vue 3 CDN-based frontend with the following features. **Which screen calls which REST endpoint** is documented in **[cmd/web/FRONTEND.md](cmd/web/FRONTEND.md)** (“Web UI ↔ REST API”).
 
 ### Query Page (`/#/`)
 - Central search box with Progressive Query support
 - Split-panel results: AI Answer (left) + Reference results (right)
-- Displays both hot and cold document results
-- Shows relevance scores and source indicators
+- Displays both hot and cold document results (from `POST /api/v1/query/progressive`)
+- Shows relevance scores and tier/status indicators
 
-### Documents Page (`/#/docs`)
-- Document list with search/filter
-- Create new document with modal form
-- Document metadata (title, tags, format, status)
-- Hot score and query count statistics
+### Documents (`/#/docs`, `/#/docs/new`, `/#/docs/:id`)
+- **List** (`/#/docs`): filter by title/tags; opens detail on row click
+- **Create** (`/#/docs/new`): full-page Markdown editor + live preview
+- **Detail** (`/#/docs/:id`): loads document, summaries, and chapters via parallel GETs; cold docs emphasize source view
 
 ### Tag Browser (`/#/tags`)
 - Two-level tag navigation
 - Left panel: L1 Tag Groups (categories)
-- Right panel: L2 Tags with document counts
-- Click tags to filter documents
+- Right panel: L2 Tags (filtered by selected group; document counts from API)
+- Regroup button triggers `POST /api/v1/tags/group`
 
 ### Tech Stack
 - **Framework**: Vue 3 (via CDN)
@@ -348,41 +347,28 @@ TierSum includes a modern Vue 3 CDN-based frontend with the following features:
 
 ---
 
-## Snippet Extraction Algorithm
+## Cold document chapters (retrieval)
 
-For cold documents, TierSum extracts keyword-based snippets to provide relevant context without loading full documents:
+Cold markdown is split into **chapters** (heading tree + bottom-up token merge under `cold_index.markdown.chapter_max_tokens`). If a leaf is still too large, **sliding windows** apply (`cold_index.markdown.sliding_stride_tokens`, default 100 tokens between window starts; overlap ≈ budget − stride). Chapter paths are **parent heading path + numeric suffix** (e.g. `docId/Section/1`); with no headings, a synthetic **`__root__`** segment is used (e.g. `docId/__root__/1`).
 
-```
-Query: "How does kube-scheduler work?"
-    │
-    ▼
-Extract Keywords: ["kube-scheduler", "work", "schedule", ...]
-    │
-    ▼
-Locate in Document: Find all keyword positions
-    │
-    ▼
-Context Windows: Extract 200 chars before/after each match
-    │
-    ▼
-Merge Overlapping: Combine snippets within 50 chars
-    │
-    ▼
-Return Top 3: Most relevant merged snippets
-```
+Chunks are indexed in **Bleve (BM25)** and **HNSW** (optional text embeddings). `GET /api/v1/cold/doc_source` runs a hybrid search; each hit’s `context` is the **full chapter body** for that path (not a small arbitrary snippet).
 
-**Example Output:**
-```
-... The kube-scheduler is the control plane component that
-assigns pods to nodes. It works by watching for newly created
-pods and selecting the best node for them to run on ...
+### Compared to traditional RAG
 
-...
+| Aspect | Typical RAG | TierSum (cold path) |
+|:--------|:------------|:--------------------|
+| **Retrieval unit** | Fixed-size chunks (chars/tokens), weakly tied to document structure | **Markdown-aware chapters** from the heading tree; oversized leaves use **controlled sliding windows** with stable, addressable paths |
+| **Structure** | Headings, lists, and code often split mid-block | Prefer cuts at **heading semantics**; sliding only when a single leaf still exceeds the token budget |
+| **Overlap** | Fixed overlap between adjacent chunks (mainly anti-boundary) | Overlap derived from **window size − stride** (both configurable); continuity without random re-chunking |
+| **Indexing & fusion** | Often vector-first (BM25 optional) | **BM25 + vector hybrid**, merged with dedupe by chapter path |
+| **What the client sees** | Short chunks stitched in the prompt | **Full chapter text** per hit for the matched path |
+| **Cost / explainability** | Chunk + embed pipeline; similarity-only signals | No full LLM on ingest for cold; paths + optional `source` hint (**bm25** / **vector** / **hybrid**) aid debugging |
 
-... Scheduling decisions consider resource requirements,
-affinity rules, and taints/tolerations. The scheduler
-uses a scoring algorithm to rank nodes ...
-```
+**Where classic RAG may still fit better**: unstructured prose without headings, workflows that rely on very fine-grained arbitrary spans, or teams already standardized on a single dense-chunk pipeline.
+
+**Where TierSum’s cold model fits better**: Markdown-heavy technical docs, preserving **hierarchy and chapter boundaries**, lower cold-side LLM cost, and alignment with the **hot** path (layered summaries + tag navigation) as one coherent system.
+
+**Algorithm deep-dive:** [docs/COLD_INDEX.md](docs/COLD_INDEX.md) (English) · [docs/COLD_INDEX_zh.md](docs/COLD_INDEX_zh.md) (中文)
 
 ---
 
@@ -393,8 +379,9 @@ tiersum/
 ├── cmd/
 │   ├── main.go                 # API server entrypoint
 │   └── web/                    # Vue 3 CDN frontend (embedded in binary)
-│       ├── index.html          # HTML entry with CDN imports
-│       └── app.js              # Vue app with all components
+│       ├── index.html          # Shell + importmap; ESM entry `js/main.js`
+│       ├── js/                 # Vue app modules (pages, api_client, …)
+│       └── FRONTEND.md         # Stack, routes, UI ↔ REST mapping
 ├── configs/                    # Configuration files
 │   ├── config.example.yaml
 │   └── config.yaml
@@ -409,7 +396,7 @@ db/
 │   │   └── svcimpl/            # Implementations
 │   │       ├── document.go     # Hot/cold tiering
 │   │       ├── query.go        # Progressive query
-│   │       ├── tag_grouping.go # Auto clustering
+│   │       ├── tag_grouping.go # LLM tag grouping (L1)
 │   │       ├── indexer.go      # Summary indexing
 │   │       ├── summarizer.go   # LLM analysis
 │   │       └── quota.go        # Rate limiting
@@ -468,7 +455,7 @@ make build-all
 ## Roadmap
 
 - [x] Hot/Cold document tiering with auto-promotion
-- [x] BM25 + Vector hybrid search with snippet extraction
+- [x] BM25 + Vector hybrid search over cold chapters (full chapter text)
 - [x] 3-tier summarization engine (Document + Chapter + Source)
 - [x] Two-level tag hierarchy with auto-grouping
 - [x] Progressive query with LLM filtering at each step

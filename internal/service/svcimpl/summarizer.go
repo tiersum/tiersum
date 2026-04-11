@@ -553,4 +553,3 @@ func estimateTokens(text string) int {
 }
 
 var _ service.ISummarizer = (*SummarizerSvc)(nil)
-var _ service.ILLMFilter = (*SummarizerSvc)(nil)

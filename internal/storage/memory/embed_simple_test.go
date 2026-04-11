@@ -1,4 +1,4 @@
-package embedding
+package memory
 
 import (
 	"context"
@@ -7,14 +7,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/tiersum/tiersum/internal/storage/memory"
+	"github.com/tiersum/tiersum/pkg/types"
 )
 
 func TestSimple_Embed_dimensionAndNormalized(t *testing.T) {
 	s := NewSimple()
 	vec, err := s.Embed(context.Background(), "hello world 测试")
 	require.NoError(t, err)
-	require.Len(t, vec, memory.VectorDimension)
+	require.Len(t, vec, types.ColdEmbeddingVectorDimension)
 	var sum float64
 	for _, v := range vec {
 		sum += float64(v * v)

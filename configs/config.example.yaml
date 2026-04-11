@@ -138,7 +138,20 @@ quota:
   # Documents exceeding this quota will be processed as cold (no LLM, BM25+vector only)
   per_hour: 100
 
-# Memory index configuration for cold documents
+# Cold document index (Bleve BM25 + HNSW over markdown chapters)
+cold_index:
+  markdown:
+    # Estimated max tokens per cold markdown chapter (tree + bottom-up merge); ~chars/4 heuristic
+    chapter_max_tokens: 512
+    # Sliding-window step between starts (estimated tokens) when a leaf still exceeds chapter_max_tokens; overlap ≈ chapter_max_tokens − this value
+    sliding_stride_tokens: 100
+  search:
+    # Each branch (BM25 / vector) fetches this many candidates before merge; final cut uses request topK.
+    branch_recall_multiplier: 2
+    branch_recall_floor: 20
+    branch_recall_ceiling: 200
+
+# Memory index: embedding stack and HNSW tuning (cold document vectors)
 memory_index:
   # Text embedding for cold-document HNSW branch:
   #   - "auto" (recommended): MiniLM-L6-v2 when ONNX Runtime is available, else simple hash embedding.
@@ -165,10 +178,6 @@ memory_index:
   hnsw_ef_construction: 200
   # HNSW efSearch parameter
   hnsw_ef_search: 100
-  # BM25 top-k results
-  bm25_topk: 20
-  # Vector search top-k results
-  vector_topk: 20
 
 # MCP (Model Context Protocol) configuration
 mcp:

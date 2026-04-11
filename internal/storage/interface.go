@@ -57,7 +57,7 @@ type ITagRepository interface {
 	List(ctx context.Context) ([]types.Tag, error)
 	// ListByGroup retrieves tags belonging to a specific group
 	ListByGroup(ctx context.Context, groupID string) ([]types.Tag, error)
-	// ListByGroupIDs returns tags whose group_id (cluster_id) is in groupIDs, ordered by group then name, capped at limit.
+	// ListByGroupIDs returns tags whose group_id is in groupIDs, ordered by group then name, capped at limit.
 	ListByGroupIDs(ctx context.Context, groupIDs []string, limit int) ([]types.Tag, error)
 	// IncrementDocumentCount increments the document count for a tag
 	IncrementDocumentCount(ctx context.Context, tagName string) error
@@ -87,42 +87,29 @@ type ICache interface {
 	Set(key string, value interface{})
 }
 
-// IInMemoryIndex defines in-memory index operations for cold documents
-type IInMemoryIndex interface {
-	// AddDocument adds a document to the index with optional embedding
-	AddDocument(doc *types.Document, embedding []float32) error
-	// RemoveDocument removes a document from the index
+// IColdIndex is the cold-document index contract for the service layer.
+// It exposes only documents and plain-text queries; ranking strategy and storage layout are implementation-defined.
+type IColdIndex interface {
+	// AddDocument adds or replaces the document in the cold index.
+	AddDocument(ctx context.Context, doc *types.Document) error
+	// RemoveDocument removes the document from the cold index.
 	RemoveDocument(docID string) error
-	// Search performs hybrid BM25 + vector search
-	Search(ctx context.Context, queryText string, queryEmbedding []float32, topK int) ([]SearchResult, error)
-	// SearchWithBleve performs BM25 text search only
-	SearchWithBleve(queryText string, topK int) ([]SearchResult, error)
-	// SearchWithVector performs vector similarity search only (with optional query text for snippets)
-	SearchWithVector(queryEmbedding []float32, topK int, queryText string) ([]SearchResult, error)
-	// HybridSearch performs hybrid search with result merging
-	HybridSearch(queryText string, queryEmbedding []float32, topK int) ([]SearchResult, error)
-	// GetDocumentCount returns the number of indexed documents
-	GetDocumentCount() int
-	// RebuildFromDocuments rebuilds the index from a list of documents
-	RebuildFromDocuments(ctx context.Context, docs []types.Document, getEmbedding func(doc *types.Document) []float32) error
-	// Close closes the index
+	// Search returns ranked content matches for the query string.
+	Search(ctx context.Context, query string, limit int) ([]ColdIndexHit, error)
+	// ApproxEntries returns a non-negative size hint for metrics (implementation-defined, e.g. row count).
+	ApproxEntries() int
+	// RebuildFromDocuments replaces the entire index from the given documents (typically all cold docs).
+	RebuildFromDocuments(ctx context.Context, docs []types.Document) error
 	Close() error
 }
 
-// SearchResult represents a search result from in-memory index
-type SearchResult struct {
-	DocumentID string    `json:"document_id"`
-	Title      string    `json:"title"`
-	Content    string    `json:"content"`    // Extracted snippet content
-	Score      float64   `json:"score"`
-	Source     string    `json:"source"`     // "bm25", "vector", or "hybrid"
-	Snippets   []Snippet `json:"snippets"`   // List of snippets from multiple keyword hits
-}
-
-// Snippet represents a text snippet extracted around a keyword match
-type Snippet struct {
-	Text     string `json:"text"`       // Snippet text
-	StartPos int    `json:"start_pos"`  // Start position in original text
-	EndPos   int    `json:"end_pos"`    // End position in original text
-	Keyword  string `json:"keyword"`    // Matched keyword
+// ColdIndexHit is one ranked match from IColdIndex.Search (one cold document chapter).
+// Source is an optional explainability hint for clients (e.g. how the row was surfaced in the implementation); callers must not branch business logic on it.
+type ColdIndexHit struct {
+	DocumentID string  `json:"document_id"`
+	Path       string  `json:"path,omitempty"` // cold chapter path (doc id + heading path)
+	Title      string  `json:"title"`
+	Content    string  `json:"content"`
+	Score      float64 `json:"score"`
+	Source     string  `json:"source,omitempty"` // trace only: e.g. bm25, vector, hybrid
 }

@@ -9,9 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/internal/service"
-	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -25,11 +23,7 @@ type Handler struct {
 	DocService      service.IDocumentService
 	QueryService    service.IQueryService
 	TagGroupService service.ITagGroupService
-	TagRepo         storage.ITagRepository
-	SummaryRepo     storage.ISummaryRepository
-	DocRepo         storage.IDocumentRepository
-	MemIndex        storage.IInMemoryIndex
-	TextEmbedder    embedding.TextEmbedder
+	Retrieval       service.IRetrievalService
 	Quota           QuotaSnapshot
 	Logger          *zap.Logger
 }
@@ -39,11 +33,7 @@ func NewHandler(
 	docService service.IDocumentService,
 	queryService service.IQueryService,
 	tagGroupService service.ITagGroupService,
-	tagRepo storage.ITagRepository,
-	summaryRepo storage.ISummaryRepository,
-	docRepo storage.IDocumentRepository,
-	memIndex storage.IInMemoryIndex,
-	textEmbedder embedding.TextEmbedder,
+	retrieval service.IRetrievalService,
 	quota QuotaSnapshot,
 	logger *zap.Logger,
 ) *Handler {
@@ -51,11 +41,7 @@ func NewHandler(
 		DocService:      docService,
 		QueryService:    queryService,
 		TagGroupService: tagGroupService,
-		TagRepo:         tagRepo,
-		SummaryRepo:     summaryRepo,
-		DocRepo:         docRepo,
-		MemIndex:        memIndex,
-		TextEmbedder:    textEmbedder,
+		Retrieval:       retrieval,
 		Quota:           quota,
 		Logger:          logger,
 	}

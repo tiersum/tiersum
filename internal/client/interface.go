@@ -1,5 +1,5 @@
-// Package client defines client layer interfaces
-// Third-party system dependencies
+// Package client defines interfaces for third-party systems (e.g. LLM HTTP APIs).
+// Implementations live in subpackages such as client/llm. Cold chapter and query text vectors use memory.IColdTextEmbedder (see internal/storage/memory).
 package client
 
 import "context"

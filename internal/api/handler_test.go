@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -84,15 +83,7 @@ func (m *mockDocService) List(ctx context.Context) ([]types.Document, error) {
 }
 
 type mockQueryService struct {
-	results []types.QueryResult
-	err     error
-}
-
-func (m *mockQueryService) Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return m.results, nil
+	err error
 }
 
 func (m *mockQueryService) ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error) {
@@ -135,80 +126,42 @@ func (m *mockTagGroupService) FilterL2TagsByQuery(ctx context.Context, query str
 	return nil, nil
 }
 
-type mockTagRepo struct {
-	tags []types.Tag
-	err  error
+type mockRetrieval struct {
+	err error
 }
 
-func (m *mockTagRepo) Create(ctx context.Context, tag *types.Tag) error {
-	return m.err
-}
-
-func (m *mockTagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error) {
-	return nil, nil
-}
-
-func (m *mockTagRepo) List(ctx context.Context) ([]types.Tag, error) {
+func (m *mockRetrieval) ListTags(ctx context.Context, groupIDs []string, byGroupLimit int, listAllCap int) ([]types.Tag, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	return m.tags, nil
+	return []types.Tag{}, nil
 }
 
-func (m *mockTagRepo) ListByGroup(ctx context.Context, groupID string) ([]types.Tag, error) {
-	return nil, nil
+func (m *mockRetrieval) ListSummariesForDocument(ctx context.Context, documentID string) ([]types.Summary, error) {
+	return nil, m.err
 }
 
-func (m *mockTagRepo) ListByGroupIDs(ctx context.Context, groupIDs []string, limit int) ([]types.Tag, error) {
-	return nil, nil
+func (m *mockRetrieval) ListChapterSummariesForDocument(ctx context.Context, documentID string) ([]types.Summary, error) {
+	return nil, m.err
 }
 
-func (m *mockTagRepo) IncrementDocumentCount(ctx context.Context, tagName string) error {
-	return nil
+func (m *mockRetrieval) HotDocumentsWithDocSummaries(ctx context.Context, tags []string, limit int) ([]types.Document, []types.Summary, error) {
+	return nil, nil, m.err
 }
 
-func (m *mockTagRepo) DeleteAll(ctx context.Context) error {
-	return nil
-}
-
-func (m *mockTagRepo) GetCount(ctx context.Context) (int, error) {
-	return len(m.tags), nil
-}
-
-type mockSummaryRepo struct {
-	summaries []types.Summary
-	err       error
-}
-
-func (m *mockSummaryRepo) Create(ctx context.Context, summary *types.Summary) error {
-	return m.err
-}
-
-func (m *mockSummaryRepo) GetByDocument(ctx context.Context, docID string) ([]types.Summary, error) {
-	return nil, nil
-}
-
-func (m *mockSummaryRepo) GetByPath(ctx context.Context, path string) (*types.Summary, error) {
-	return nil, nil
-}
-
-func (m *mockSummaryRepo) QueryByTierAndPrefix(ctx context.Context, tier types.SummaryTier, pathPrefix string) ([]types.Summary, error) {
+func (m *mockRetrieval) ChapterSummariesByDocumentIDs(ctx context.Context, docIDs []string) (map[string][]types.Summary, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	return m.summaries, nil
+	return map[string][]types.Summary{}, nil
 }
 
-func (m *mockSummaryRepo) ListDocumentTierByDocumentIDs(ctx context.Context, documentIDs []string) ([]types.Summary, error) {
-	return nil, nil
+func (m *mockRetrieval) ListSourcesByChapterPaths(ctx context.Context, paths []string) ([]types.Summary, error) {
+	return nil, m.err
 }
 
-func (m *mockSummaryRepo) ListSourcesByPaths(ctx context.Context, chapterPaths []string) ([]types.Summary, error) {
-	return nil, nil
-}
-
-func (m *mockSummaryRepo) DeleteByDocument(ctx context.Context, docID string) error {
-	return nil
+func (m *mockRetrieval) SearchColdByQuery(ctx context.Context, query string, limit int) ([]types.ColdSearchHit, error) {
+	return nil, m.err
 }
 
 func setupTestHandler() (*Handler, *gin.Engine) {
@@ -219,11 +172,7 @@ func setupTestHandler() (*Handler, *gin.Engine) {
 		DocService:      newMockDocService(),
 		QueryService:    &mockQueryService{},
 		TagGroupService: &mockTagGroupService{},
-		TagRepo:         &mockTagRepo{},
-		SummaryRepo:     &mockSummaryRepo{},
-		DocRepo:         nil,
-		MemIndex:        nil,
-		TextEmbedder:    embedding.NewSimple(),
+		Retrieval:       &mockRetrieval{},
 		Quota:           nil,
 		Logger:          zap.NewNop(),
 	}

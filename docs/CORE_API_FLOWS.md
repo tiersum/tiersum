@@ -32,8 +32,8 @@ This document traces **non-trivial** REST endpoints: anything beyond simple list
 ### 1.3 Cold path
 
 - `status = cold`, empty tags.  
-- `**embedding.FallbackEmbed**` (`internal/embedding`): embedder from `memory_index.embedding.provider` — `**auto**` (try MiniLM at startup, else simple), `**minilm**` (MiniLM only), or `**simple**`. MiniLM loads HF ONNX from disk (`**minilm_model_path**`, `**make fetch-minilm**`) and mean-pools `last_hidden_state`; requires ONNX Runtime (e.g. `**make fetch-onnxruntime**`). Per-call failure or wrong dimension still falls back to `**GenerateSimpleEmbedding**`.  
-- `**MemIndex.AddDocument**` (Bleve + HNSW).  
+- `**DocumentSvc**` (cold): `**coldIndex.AddDocument(ctx, doc)**` (`storage.IColdIndex`): implementation splits markdown (`**cold_index.markdown.chapter_max_tokens**` / optional `**memory.Index.SetColdChapterSplitter**`) and indexes content; optional `**memory.Index.SetTextEmbedder**` at startup supplies the same embedding stack as `memory_index.embedding`.  
+- If a leaf body still exceeds the token budget, it is split with **sliding windows**: each window is up to the token budget wide; the next window starts **`cold_index.markdown.sliding_stride_tokens`** later (default **100** tokens, same rune/token estimate), so overlap ≈ budget − stride. Paths are parent heading path + **`1`**, **`2`**, …; with no heading path, synthetic **`__root__`** is used (e.g. `docId/__root__/1`).  
 - Persist document via `**DocRepo.Create**`.
 
 ### 1.4 Response
@@ -74,15 +74,15 @@ Results are **merged** (`mergeHotAndColdResults`): hot entries win by document i
 3. `**trackDocumentAccess`** (async per doc): increment query count; if cold and count reaches `**ColdPromotionThreshold`**, enqueue `**job.PromoteQueue**`.
 4. `**queryAndFilterChapters**`
   - Hot: load chapter-tier summaries per doc from `**SummaryRepo.QueryByTierAndPrefix**`.  
-  - Cold: `**createColdDocumentChapter**` — keyword hit → ~200 chars context snippet; else first 500 chars.  
+  - Cold: `**createColdDocumentChapter**` — returns the **full** cold document body as one pseudo-chapter (`path` `docId/full`) when cold docs appear on the hot path (no keyword snippet).  
   - `**Summarizer.FilterChapters**`; keep **≥ 0.5** relevance.
 5. `**buildResults`** → `[]QueryItem` (chapter tier, paths, status from doc map).
 
 ### 2.3 Cold path (`queryColdPath`)
 
 - If no memory index → empty step.  
-- `**embedding.FallbackEmbed`** on the question (same provider as §1.3) + `**MemIndex.HybridSearch(question, embedding, max_results/2)**` (see §5).  
-- Map each hit to a `**QueryItem**` (`path` like `docId/snippet`, `status=cold`).
+- `**QuerySvc**`: `**coldIndex.Search(ctx, question, max_results/2)**` — the index applies optional semantic ranking internally when a text embedder was wired at startup (see §5).  
+- Map each hit to a `**QueryItem**`: `path` and `content` come from the cold index hit (`ColdIndexHit` fields); legacy empty path falls back to `docId/full`. `status=cold`.
 
 ### 2.4 Answer field (`generateProgressiveAnswer`)
 
@@ -95,7 +95,7 @@ Results are **merged** (`mergeHotAndColdResults`): hot entries win by document i
 **Handler:** `ExecuteTriggerTagGroup` → `TagGroupSvc.GroupTags` (`internal/service/svcimpl/tag_grouping.go`).
 
 1. `**TagRepo.List`** all global tags.
-2. `**performGrouping`**: LLM returns JSON clusters → `[]TagGroup` (name, description, member tag names).
+2. `**performGrouping`**: LLM returns JSON groups → `[]TagGroup` (name, description, member tag names).
 3. `**GroupRepo.DeleteAll`** then create each group.
 4. For each tag name in a group: `**GetByName**`, set `GroupID`, `**TagRepo.Create**` (implementation note: relies on create path for assignment).
 5. Updates in-memory refresh bookkeeping for `**ShouldRefresh**`.
@@ -107,7 +107,7 @@ Scheduled `**TagGroupJob**` runs the same service on an interval.
 ## 4. Hot retrieval family (`GET /api/v1/hot/...`)
 
 **Handlers:** `ExecuteHotDocSummaries`, `ExecuteHotDocChapters`, `ExecuteHotDocSource` (`internal/api/handler_execute.go`).  
-**Data:** `DocRepo` + `SummaryRepo` only (no LLM in these endpoints).
+**Data:** `**IRetrievalService**` (`RetrievalSvc` → `DocRepo` + `SummaryRepo` under the hood; no LLM in these endpoints).
 
 
 | Endpoint                 | Algorithm                                                                                                                                                                                             |
@@ -121,15 +121,18 @@ Scheduled `**TagGroupJob**` runs the same service on an interval.
 
 ## 5. `GET /api/v1/cold/doc_source` — Cold hybrid search
 
-**Handler:** `ExecuteColdDocSource` → `**MemIndex.HybridSearch`** (`internal/storage/memory/index.go`).
+**Design (algorithms, indexing, merge, config):** [COLD_INDEX.md](COLD_INDEX.md) · [COLD_INDEX_zh.md](COLD_INDEX_zh.md)（中文）
+
+**Handler:** `ExecuteColdDocSource` → `**IRetrievalService.SearchColdByQuery**` → `**IColdIndex.Search**` (`internal/storage/memory/index.go`).
 
 1. Parse `**q`** as comma-separated terms → single query string.
-2. `**embedding.FallbackEmbed`** on that string (§1.3).
-3. `**HybridSearch**`:
-  - **BM25** via Bleve (`SearchWithBleve`) with **keyword-based snippets** in results.  
-  - **Vector** via HNSW (`SearchWithVector`) when embedding length matches `VectorDimension`.  
-  - `**mergeHybridResults`**: per-document merge; BM25 score normalized × **0.5**, vector × **0.5**; combined docs get `source: hybrid`; sort by score; `topK`.
-4. Handler maps rows to JSON (`document_id`, `title`, `score`, `source`, `context`, optional `snippets[]`).
+2. `**SearchColdByQuery**` maps `**ColdIndexHit**` rows to `**types.ColdSearchHit**` for the HTTP layer. Under the hood, `**IColdIndex.Search(ctx, queryText, topK)**` — if `**memory.Index.SetTextEmbedder**` was called at startup (`cmd/main.go` after `**NewTextEmbedderFromViper**`), the index may rank using additional signals internally; otherwise search is text-only.
+3. Inside `**Search**`, the implementation may merge lexical and optional semantic indexes:
+  - Each branch retrieves more candidates than the final **topK** (pool size from **cold_index.search**: `branch_recall_multiplier`, `branch_recall_floor`, `branch_recall_ceiling`), then merge so overlap can surface in the final cut.  
+  - Text index branch — each hit is one **cold chapter**; `context` is the **full** chapter text (no keyword windowing).
+  - Vector branch when embedding length matches `VectorDimension` — same chapter-level hits.
+  - `**mergeHybridResults`**: dedupe by **`document_id` + `path`** (not by document alone); normalized score blend; combined rows get `source: hybrid`; sort by score; keep **`topK`**.
+4. Handler maps `**types.ColdSearchHit**` rows to JSON (`document_id`, optional `path`, `title`, `score`, `context`, optional `source` for UI/debug trace only).
 
 ---
 
@@ -137,8 +140,7 @@ Scheduled `**TagGroupJob**` runs the same service on an interval.
 
 **Handler:** `ExecuteListTags`.
 
-- If `**group_ids`** non-empty: `**TagRepo.ListByGroupIDs`** with `max_results` (defaults/clamps per handler).  
-- Else: `**TagRepo.List`**, optional client-side cap from `max_results`.
+- `**IRetrievalService.ListTags**`: if `**group_ids**` non-empty, `**ListByGroupIDs**` with `max_results` (defaults/clamps per handler); else `**TagRepo.List**` with optional cap from `max_results` (implemented in `**RetrievalSvc**`).
 
 No LLM; included because behavior differs from a single-table dump when `group_ids` is set.
 
@@ -149,14 +151,15 @@ No LLM; included because behavior differs from a single-table dump when `group_i
 
 | Concern                   | Primary files                                                                          |
 | ------------------------- | -------------------------------------------------------------------------------------- |
-| HTTP + shared REST bodies | `internal/api/handler.go`, `internal/api/handler_execute.go`                           |
+| HTTP + shared REST bodies | `internal/api/handler.go`, `internal/api/handler_execute.go` (read paths via `**IRetrievalService**`) |
 | Ingest + tiering          | `internal/service/svcimpl/document.go`, `internal/config/tiering.go`                   |
 | Progressive query         | `internal/service/svcimpl/query.go`, `progressive_answer.go`                           |
 | Summaries persistence     | `internal/service/svcimpl/indexer.go`, `internal/storage/db/repository.go`             |
 | Tag grouping              | `internal/service/svcimpl/tag_grouping.go`                                             |
 | Memory index              | `internal/storage/memory/index.go`                                                     |
-| Cold embeddings           | `internal/embedding` (`simple` / disk MiniLM), wired in `cmd/main.go`, services, handlers |
-| Promotion side effect     | `internal/job/promote_job.go`, `job.PromoteQueue` from `query.go`                      |
+| Cold index algorithms     | [COLD_INDEX.md](COLD_INDEX.md), [COLD_INDEX_zh.md](COLD_INDEX_zh.md)                    |
+| Cold embeddings           | `memory.NewTextEmbedderFromViper` + `**memory.Index.SetTextEmbedder**` in `cmd/main.go`; `**storage.IColdIndex**` exposes only documents + text `**Search**` / `**ColdIndexHit**` |
+| Promotion side effect     | `job.PromoteQueue` → `IDocumentMaintenanceService.PromoteColdDocumentByID`; sweep in `svcimpl/document_maintenance.go` |
 
 
 ---

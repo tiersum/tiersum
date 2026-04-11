@@ -46,7 +46,7 @@
 | **两级标签** | L1 标签组 → L2 标签（自动生成） |
 | **渐进式查询** | 每步用 LLM 过滤：标签 → 文档 → 章节 |
 | **标签自动聚类** | LLM 将相关标签归入 L1 类别 |
-| **BM25 + 向量混合** | 关键词 + 语义检索，并做基于关键词的片段抽取 |
+| **BM25 + 向量混合** | 对冷文档按 **章节** 建索引，关键词 + 语义混合检索，命中返回 **整章正文** |
 | **RAG 替代思路** | 避免无结构切碎，尽量保留上下文 |
 | **双接口** | REST API + MCP，便于智能体集成 |
 | **Web 界面** | Vue 3 CDN + Tailwind + DaisyUI 暗色主题 |
@@ -71,7 +71,7 @@ TierSum 用两层策略平衡 **LLM 成本** 与 **检索效果**：
 ### 冷文档（轻量存储）
 - ✅ 最小化处理，不做完整 LLM 分析  
 - ✅ Bleve（BM25）+ HNSW 混合检索  
-- ✅ 基于关键词的片段抽取  
+- ✅ 按标题树切分为 **章节** 后建索引；检索结果带 **完整章节正文**  
 - ✅ 查询次数达到阈值（如 3 次）后可自动晋升为热文档  
 - ⚡ **不消耗** 热文档配额  
 
@@ -88,7 +88,7 @@ TierSum 用两层策略平衡 **LLM 成本** 与 **检索效果**：
 │                    Cold Documents                           │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  BM25 + Vector Hybrid Search                          │  │
-│  │  Keyword-based Snippet Extraction                     │  │
+│  │  按章节建索引，命中返回整章正文                         │  │
 │  │  Auto-promote after 3 queries → Hot                   │  │
 │  └───────────────────────────────────────────────────────┘  │
 └─────────────────────────────────────────────────────────────┘
@@ -346,43 +346,28 @@ TierSum 采用 **五层架构** + **接口与实现分离**（`I*` 接口 + `svc
 
 ---
 
-## 冷文档片段抽取（简述）
+## 冷文档章节检索（简述）
 
-对冷文档，在不拉取全文的前提下，用 **关键词命中 + 上下文窗口** 生成片段：
+冷文档 Markdown 按 **标题树 + 自下而上 token 合并**（`cold_index.markdown.chapter_max_tokens`）切成 **章节**。若单个叶子仍超预算，再用 **滑动窗口**（`cold_index.markdown.sliding_stride_tokens`，默认相邻窗起始相距 100 个估算 token；重叠约「预算 − 步长」）。路径为 **父级标题全路径 + 序号**（如 `docId/章节标题/1`）；无标题时增加合成根 **`__root__`**（如 `docId/__root__/1`）。
 
-```
-Query: "How does kube-scheduler work?"
-    │
-    ▼
-提取关键词: ["kube-scheduler", "work", "schedule", ...]
-    │
-    ▼
-在文档中定位所有命中位置
-    │
-    ▼
-上下文窗口：每个命中前后各约 200 字符
-    │
-    ▼
-合并重叠：相距约 50 字符内的片段合并
-    │
-    ▼
-返回前若干条合并后的片段
-```
+章节写入 **Bleve（BM25）** 与 **HNSW**（可选文本向量），`GET /api/v1/cold/doc_source` 做混合检索；每条结果的 `context` 为对应 **整章正文**，而不是任意小块「片段」。
 
-下文示例为**英文技术文档**演示输出，与查询语言无关：
+### 与传统 RAG 的对比
 
-**示例输出：**
-```
-... The kube-scheduler is the control plane component that
-assigns pods to nodes. It works by watching for newly created
-pods and selecting the best node for them to run on ...
+| 维度 | 常见传统 RAG | TierSum（冷路径） |
+|:--------|:------------|:--------------------|
+| **检索单元** | 多为固定 char/token 块，与结构弱相关 | **Markdown 语义章节**（标题树）；超大叶子用 **可控滑动窗**，路径可寻址 |
+| **结构保留** | 标题、列表、代码易被拦腰切断 | 优先在 **标题边界** 切段；仅超大叶子滑动，仍保留 **path** 便于对齐与排错 |
+| **重叠策略** | 相邻块固定 overlap，主要为防断句 | 由 **窗长 − 步长** 决定（均可配置），偏「延续上下文」而非随机叠块 |
+| **索引与融合** | 常以向量为主（BM25 可选） | **BM25 + 向量混合**，按章节路径去重融合 |
+| **返回内容** | 小块拼进 prompt | 命中为 **整章正文** |
+| **成本与可解释性** | 切块 + 向量化；信号多为相似度 | 冷入库无完整 LLM；**path** 与可选 **source**（bm25 / vector / hybrid）便于解释 |
 
-...
+**传统 RAG 仍可能更合适**：无标题长文、强依赖任意位置极细粒度命中、或已深度绑定统一向量切块流水线。
 
-... Scheduling decisions consider resource requirements,
-affinity rules, and taints/tolerations. The scheduler
-uses a scoring algorithm to rank nodes ...
-```
+**TierSum 冷方案更合适**：Markdown / 技术文档、希望 **少碎块、保层级**、冷侧 **控成本**，并与 **热路径**（分层摘要 + 标签渐进查询）形成同一套产品叙事。
+
+**算法与实现细节：** [docs/COLD_INDEX_zh.md](docs/COLD_INDEX_zh.md)（中文）· [docs/COLD_INDEX.md](docs/COLD_INDEX.md)（English）
 
 ---
 
@@ -391,11 +376,10 @@ uses a scoring algorithm to rank nodes ...
 ```
 tiersum/
 ├── cmd/
-│   ├── main.go
 │   ├── main.go               # entrypoint; //go:embed web/*
 │   └── web/                    # Vue 3 CDN 前端（嵌入二进制）
-│       ├── index.html
-│       └── app.js
+│       ├── index.html          # importmap + `js/main.js`
+│       └── js/                 # ESM：页面与 api_client
 ├── configs/
 ├── deployments/
 │   └── docker/
@@ -464,5 +448,5 @@ make build-all
 ### 翻译与一致性说明
 
 - 本文与 [README.md](README.md) **同步意图**介绍产品；**行为细节以当前分支代码与 `AGENTS.md` 为准**。  
-- 术语对照：**Progressive Query** → 渐进式查询；**Hot/Cold** → 热/冷（文档分层）；**snippet** → 片段；**tier** → 层级/档。  
+- 术语对照：**Progressive Query** → 渐进式查询；**Hot/Cold** → 热/冷（文档分层）；冷索引命中单位 → **章节**（整章正文）；**tier** → 层级/档。  
 - 英文 README 中的 **URL、JSON 字段名、工具名** 保持英文，便于直接复制调用。

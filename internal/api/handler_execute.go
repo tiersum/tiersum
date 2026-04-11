@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -9,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/embedding"
+	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -78,7 +79,7 @@ func (h *Handler) ExecuteGetDocumentChapters(ctx context.Context, docID string) 
 	if doc == nil {
 		return http.StatusNotFound, gin.H{"error": "document not found"}
 	}
-	chapters, err := h.SummaryRepo.QueryByTierAndPrefix(ctx, types.TierChapter, docID+"/")
+	chapters, err := h.Retrieval.ListChapterSummariesForDocument(ctx, docID)
 	if err != nil {
 		h.Logger.Error("failed to list chapters", zap.String("id", docID), zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": "failed to list chapters"}
@@ -100,7 +101,7 @@ func (h *Handler) ExecuteGetDocumentChapters(ctx context.Context, docID string) 
 
 // ExecuteGetDocumentSummaries matches GET /api/v1/documents/:id/summaries.
 func (h *Handler) ExecuteGetDocumentSummaries(ctx context.Context, id string) (int, any) {
-	summaries, err := h.SummaryRepo.GetByDocument(ctx, id)
+	summaries, err := h.Retrieval.ListSummariesForDocument(ctx, id)
 	if err != nil {
 		h.Logger.Error("failed to get document summaries", zap.String("id", id), zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": err.Error()}
@@ -151,26 +152,21 @@ func (h *Handler) ExecuteTriggerTagGroup(ctx context.Context) (int, any) {
 
 // ExecuteListTags matches GET /api/v1/tags (group_ids optional; max_results optional string like the query param).
 func (h *Handler) ExecuteListTags(ctx context.Context, groupIDs []string, maxResultsQuery string) (int, any) {
-	var tags []types.Tag
-	var err error
+	byGroupLimit := 0
+	listAllCap := 0
 	if len(groupIDs) > 0 {
-		n := parseMaxResultsFromString(maxResultsQuery, 100, 10000)
-		tags, err = h.TagRepo.ListByGroupIDs(ctx, groupIDs, n)
+		byGroupLimit = parseMaxResultsFromString(maxResultsQuery, 100, 10000)
 	} else {
-		tags, err = h.TagRepo.List(ctx)
-		if err == nil {
-			if raw := strings.TrimSpace(maxResultsQuery); raw != "" {
-				if capN, e := strconv.Atoi(raw); e == nil && capN > 0 {
-					if capN > 10000 {
-						capN = 10000
-					}
-					if len(tags) > capN {
-						tags = tags[:capN]
-					}
+		if raw := strings.TrimSpace(maxResultsQuery); raw != "" {
+			if capN, e := strconv.Atoi(raw); e == nil && capN > 0 {
+				listAllCap = capN
+				if listAllCap > 10000 {
+					listAllCap = 10000
 				}
 			}
 		}
 	}
+	tags, err := h.Retrieval.ListTags(ctx, groupIDs, byGroupLimit, listAllCap)
 	if err != nil {
 		h.Logger.Error("failed to list tags", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": err.Error()}
@@ -183,30 +179,17 @@ func (h *Handler) ExecuteListTags(ctx context.Context, groupIDs []string, maxRes
 
 // ExecuteHotDocSummaries matches GET /api/v1/hot/doc_summaries.
 func (h *Handler) ExecuteHotDocSummaries(ctx context.Context, tags []string, maxResultsQuery string) (int, any) {
-	if h.DocRepo == nil {
-		return http.StatusServiceUnavailable, gin.H{"error": "document repository not configured"}
-	}
 	if len(tags) == 0 {
 		return http.StatusBadRequest, gin.H{"error": "tags query parameter is required (comma-separated)"}
 	}
 	n := parseMaxResultsFromString(maxResultsQuery, 1000, 10000)
-	docs, err := h.DocRepo.ListMetaByTagsAndStatuses(ctx, tags,
-		[]types.DocumentStatus{types.DocStatusHot, types.DocStatusWarming}, n)
+	docs, sumRows, err := h.Retrieval.HotDocumentsWithDocSummaries(ctx, tags, n)
 	if err != nil {
 		h.Logger.Error("hot doc_summaries", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": err.Error()}
 	}
 	if len(docs) == 0 {
 		return http.StatusOK, gin.H{"items": []any{}}
-	}
-	ids := make([]string, len(docs))
-	for i := range docs {
-		ids[i] = docs[i].ID
-	}
-	sumRows, err := h.SummaryRepo.ListDocumentTierByDocumentIDs(ctx, ids)
-	if err != nil {
-		h.Logger.Error("hot doc_summaries summaries", zap.Error(err))
-		return http.StatusInternalServerError, gin.H{"error": err.Error()}
 	}
 	byDoc := make(map[string]string, len(sumRows))
 	for _, s := range sumRows {
@@ -235,13 +218,14 @@ func (h *Handler) ExecuteHotDocChapters(ctx context.Context, docIDs []string, ma
 	if len(docIDs) > maxDocs {
 		docIDs = docIDs[:maxDocs]
 	}
+	byDoc, err := h.Retrieval.ChapterSummariesByDocumentIDs(ctx, docIDs)
+	if err != nil {
+		h.Logger.Error("hot doc_chapters", zap.Error(err))
+		return http.StatusInternalServerError, gin.H{"error": err.Error()}
+	}
 	docsOut := make([]gin.H, 0, len(docIDs))
 	for _, docID := range docIDs {
-		chapters, err := h.SummaryRepo.QueryByTierAndPrefix(ctx, types.TierChapter, docID+"/")
-		if err != nil {
-			h.Logger.Error("hot doc_chapters", zap.String("doc_id", docID), zap.Error(err))
-			return http.StatusInternalServerError, gin.H{"error": err.Error()}
-		}
+		chapters := byDoc[docID]
 		chOut := make([]gin.H, 0, len(chapters))
 		for _, s := range chapters {
 			if s.IsSource {
@@ -268,7 +252,7 @@ func (h *Handler) ExecuteHotDocSource(ctx context.Context, paths []string, maxRe
 		return http.StatusBadRequest, gin.H{"error": "chapter_paths query parameter is required (comma-separated)"}
 	}
 	capN := parseMaxResultsFromString(maxResultsQuery, 100, 2000)
-	summaries, err := h.SummaryRepo.ListSourcesByPaths(ctx, paths)
+	summaries, err := h.Retrieval.ListSourcesByChapterPaths(ctx, paths)
 	if err != nil {
 		h.Logger.Error("hot doc_source", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": err.Error()}
@@ -290,16 +274,15 @@ func (h *Handler) ExecuteHotDocSource(ctx context.Context, paths []string, maxRe
 
 // ExecuteColdDocSource matches GET /api/v1/cold/doc_source.
 func (h *Handler) ExecuteColdDocSource(ctx context.Context, terms []string, maxResultsQuery string) (int, any) {
-	if h.MemIndex == nil {
-		return http.StatusServiceUnavailable, gin.H{"error": "cold document index not available"}
-	}
 	if len(terms) == 0 {
 		return http.StatusBadRequest, gin.H{"error": "q query parameter is required (comma-separated keywords)"}
 	}
 	n := parseMaxResultsFromString(maxResultsQuery, 100, 500)
 	queryText := strings.Join(terms, " ")
-	emb := embedding.FallbackEmbed(ctx, h.Logger, h.TextEmbedder, queryText)
-	results, err := h.MemIndex.HybridSearch(queryText, emb, n)
+	results, err := h.Retrieval.SearchColdByQuery(ctx, queryText, n)
+	if errors.Is(err, service.ErrColdIndexUnavailable) {
+		return http.StatusServiceUnavailable, gin.H{"error": "cold document index not available"}
+	}
 	if err != nil {
 		h.Logger.Error("cold doc_source", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": err.Error()}
@@ -310,20 +293,13 @@ func (h *Handler) ExecuteColdDocSource(ctx context.Context, terms []string, maxR
 			"document_id": r.DocumentID,
 			"title":       r.Title,
 			"score":       r.Score,
-			"source":      r.Source,
 			"context":     r.Content,
 		}
-		if len(r.Snippets) > 0 {
-			snips := make([]gin.H, 0, len(r.Snippets))
-			for _, sn := range r.Snippets {
-				snips = append(snips, gin.H{
-					"text":      sn.Text,
-					"start_pos": sn.StartPos,
-					"end_pos":   sn.EndPos,
-					"keyword":   sn.Keyword,
-				})
-			}
-			entry["snippets"] = snips
+		if r.Path != "" {
+			entry["path"] = r.Path
+		}
+		if r.Source != "" {
+			entry["source"] = r.Source
 		}
 		items = append(items, entry)
 	}

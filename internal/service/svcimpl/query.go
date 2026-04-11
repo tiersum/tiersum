@@ -11,7 +11,6 @@ import (
 
 	"github.com/tiersum/tiersum/internal/client"
 	"github.com/tiersum/tiersum/internal/config"
-	"github.com/tiersum/tiersum/internal/embedding"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
@@ -30,11 +29,10 @@ type QuerySvc struct {
 	summaryRepo storage.ISummaryRepository
 	tagRepo     storage.ITagRepository
 	groupRepo   storage.ITagGroupRepository
-	summarizer   service.ISummarizer
-	memIndex     storage.IInMemoryIndex
-	textEmbedder embedding.TextEmbedder
-	llm          client.ILLMProvider
-	logger       *zap.Logger
+	summarizer  service.ISummarizer
+	coldIndex   storage.IColdIndex
+	llm         client.ILLMProvider
+	logger      *zap.Logger
 }
 
 // NewQuerySvc creates a new query service
@@ -44,56 +42,24 @@ func NewQuerySvc(
 	tagRepo storage.ITagRepository,
 	groupRepo storage.ITagGroupRepository,
 	summarizer service.ISummarizer,
-	memIndex storage.IInMemoryIndex,
-	textEmbedder embedding.TextEmbedder,
+	coldIndex storage.IColdIndex,
 	llm client.ILLMProvider,
 	logger *zap.Logger,
 ) *QuerySvc {
 	return &QuerySvc{
-		docRepo:      docRepo,
-		summaryRepo:  summaryRepo,
-		tagRepo:      tagRepo,
-		groupRepo:    groupRepo,
-		summarizer:   summarizer,
-		memIndex:     memIndex,
-		textEmbedder: textEmbedder,
-		llm:          llm,
-		logger:       logger,
+		docRepo:     docRepo,
+		summaryRepo: summaryRepo,
+		tagRepo:     tagRepo,
+		groupRepo:   groupRepo,
+		summarizer:  summarizer,
+		coldIndex:   coldIndex,
+		llm:         llm,
+		logger:      logger,
 	}
 }
 
-// Query performs hierarchical query (legacy interface)
-func (s *QuerySvc) Query(ctx context.Context, question string, depth types.SummaryTier) ([]types.QueryResult, error) {
-	req := types.ProgressiveQueryRequest{
-		Question:   question,
-		MaxResults: 100,
-	}
-
-	resp, err := s.ProgressiveQuery(ctx, req)
-	if err != nil {
-		return nil, err
-	}
-
-	// Convert to legacy format (non-nil slice even when empty)
-	results := make([]types.QueryResult, 0)
-	for _, item := range resp.Results {
-		if depth == "" || item.Tier == depth {
-			results = append(results, types.QueryResult{
-				DocumentID:    item.ID,
-				DocumentTitle: item.Title,
-				Tier:          item.Tier,
-				Path:          item.Path,
-				Content:       item.Content,
-				Relevance:     item.Relevance,
-			})
-		}
-	}
-
-	return results, nil
-}
-
-// ProgressiveQuery implements the new two-level tag-based progressive query
-// 1 Query L1 clusters + keyword -> LLM filter -> L2 tags
+// ProgressiveQuery implements the two-level tag-based progressive query
+// 1 Query L1 tag groups + keyword -> LLM filter -> L2 tags
 // 2 L2 tags -> query top 100 doc summaries -> LLM filter -> docs
 // 3 Docs -> query chapter summaries -> LLM filter -> chapters
 // 4 Chapters -> query source content
@@ -173,7 +139,7 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 	start := time.Now()
 	var steps []types.ProgressiveQueryStep
 
-	// Step 1: Get L1 clusters and filter to get relevant L2 tags
+	// Step 1: Get L1 tag groups and filter to get relevant L2 tags
 	step1Start := time.Now()
 	l2Tags, err := s.filterL2Tags(ctx, req.Question)
 	if err != nil {
@@ -230,11 +196,11 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 	return results, steps, nil
 }
 
-// queryColdPath performs the cold document query path (BM25 + vector)
+// queryColdPath performs the cold document query path (in-memory cold index).
 func (s *QuerySvc) queryColdPath(ctx context.Context, req types.ProgressiveQueryRequest) ([]types.QueryItem, types.ProgressiveQueryStep, error) {
 	start := time.Now()
 
-	if s.memIndex == nil {
+	if s.coldIndex == nil {
 		return nil, types.ProgressiveQueryStep{
 			Step:     "cold_docs",
 			Input:    req.Question,
@@ -243,24 +209,28 @@ func (s *QuerySvc) queryColdPath(ctx context.Context, req types.ProgressiveQuery
 		}, nil
 	}
 
-	// Generate query embedding (simplified - in production use proper embedding model)
-	queryEmbedding := embedding.FallbackEmbed(ctx, s.logger, s.textEmbedder, req.Question)
-
-	// Perform hybrid search
-	searchResults, err := s.memIndex.HybridSearch(req.Question, queryEmbedding, req.MaxResults/2)
+	searchResults, err := s.coldIndex.Search(ctx, req.Question, req.MaxResults/2)
 	if err != nil {
-		return nil, types.ProgressiveQueryStep{}, fmt.Errorf("hybrid search failed: %w", err)
+		return nil, types.ProgressiveQueryStep{}, fmt.Errorf("cold index search failed: %w", err)
 	}
 
 	// Convert search results to query items
 	var results []types.QueryItem
 	for _, sr := range searchResults {
+		path := sr.Path
+		if path == "" {
+			path = sr.DocumentID + "/full"
+		}
+		title := extractTitleFromPath(path)
+		if title == "" || title == sr.DocumentID {
+			title = sr.Title
+		}
 		results = append(results, types.QueryItem{
 			ID:        sr.DocumentID,
-			Title:     sr.Title,
+			Title:     title,
 			Content:   sr.Content,
 			Tier:      types.TierChapter,
-			Path:      sr.DocumentID + "/snippet",
+			Path:      path,
 			Relevance: sr.Score,
 			IsSource:  false,
 			Status:    types.DocStatusCold,
@@ -555,7 +525,7 @@ func (s *QuerySvc) extractRelevantTags(results []types.TagFilterResult) []string
 func (s *QuerySvc) queryAndFilterDocuments(ctx context.Context, query string, tags []string, limit int) ([]types.Document, error) {
 	var docs []types.Document
 	var err error
-	
+
 	if len(tags) == 0 {
 		// No L2 tag names after filtering (empty tag table, or LLM returned no tags above threshold).
 		// Scope documents by listing up to limit; hot/cold paths still apply LLM or keyword filtering.
@@ -688,7 +658,7 @@ func (s *QuerySvc) queryAndFilterChapters(ctx context.Context, query string, doc
 	// Get all chapters for these documents
 	var allChapters []types.Summary
 	for _, doc := range docs {
-		// For cold documents, create a simple pseudo-chapter from the content snippet
+		// For cold documents, use the full body as one pseudo-chapter for LLM filtering
 		if doc.Status != types.DocStatusHot {
 			chapter := s.createColdDocumentChapter(doc, query)
 			if chapter != nil {
@@ -740,59 +710,16 @@ func (s *QuerySvc) queryAndFilterChapters(ctx context.Context, query string, doc
 	return filteredChapters, nil
 }
 
-// createColdDocumentChapter creates a pseudo-chapter for a cold document
-// Returns a snippet around matched keywords
+// createColdDocumentChapter returns the full cold document body as one chapter (no keyword snippet).
+// Progressive cold hits come from the memory index with per-chapter paths; this path is for hot-path chapter filtering only.
 func (s *QuerySvc) createColdDocumentChapter(doc types.Document, query string) *types.Summary {
-	keywords := types.ExtractKeywords(query, 5)
-	content := doc.Content
-
-	// Find the first matching keyword and extract snippet around it
-	for _, keyword := range keywords {
-		idx := strings.Index(strings.ToLower(content), strings.ToLower(keyword))
-		if idx >= 0 {
-			// Extract snippet: 200 chars before and after the match
-			start := idx - 200
-			if start < 0 {
-				start = 0
-			}
-			end := idx + len(keyword) + 200
-			if end > len(content) {
-				end = len(content)
-			}
-
-			snippet := content[start:end]
-			if start > 0 {
-				snippet = "..." + snippet
-			}
-			if end < len(content) {
-				snippet = snippet + "..."
-			}
-
-			return &types.Summary{
-				ID:         doc.ID + "_snippet",
-				DocumentID: doc.ID,
-				Tier:       types.TierChapter,
-				Path:       doc.ID + "/snippet",
-				Content:    snippet,
-				IsSource:   false,
-				CreatedAt:  doc.CreatedAt,
-				UpdatedAt:  doc.UpdatedAt,
-			}
-		}
-	}
-
-	// If no keyword match, return first 500 chars as snippet
-	snippet := content
-	if len(content) > 500 {
-		snippet = content[:500] + "..."
-	}
-
+	_ = query
 	return &types.Summary{
-		ID:         doc.ID + "_snippet",
+		ID:         doc.ID + "_cold",
 		DocumentID: doc.ID,
 		Tier:       types.TierChapter,
-		Path:       doc.ID + "/snippet",
-		Content:    snippet,
+		Path:       doc.ID + "/full",
+		Content:    doc.Content,
 		IsSource:   false,
 		CreatedAt:  doc.CreatedAt,
 		UpdatedAt:  doc.UpdatedAt,

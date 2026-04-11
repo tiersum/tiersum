@@ -646,10 +646,10 @@ func (r *TagRepo) Create(ctx context.Context, tag *types.Tag) error {
 	tag.CreatedAt = now
 	tag.UpdatedAt = now
 
-	query := `INSERT INTO global_tags (id, name, cluster_id, document_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) 
+	query := `INSERT INTO global_tags (id, name, group_id, document_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) 
 			  ON CONFLICT(name) DO UPDATE SET updated_at = ?`
 	if r.driver == "postgres" {
-		query = `INSERT INTO global_tags (id, name, cluster_id, document_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6) 
+		query = `INSERT INTO global_tags (id, name, group_id, document_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6) 
 				 ON CONFLICT(name) DO UPDATE SET updated_at = $7`
 	}
 
@@ -662,15 +662,15 @@ func (r *TagRepo) Create(ctx context.Context, tag *types.Tag) error {
 
 // GetByName implements ITagRepository.GetByName
 func (r *TagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error) {
-	query := `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags WHERE name = ?`
+	query := `SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags WHERE name = ?`
 	if r.driver == "postgres" {
-		query = `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags WHERE name = $1`
+		query = `SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags WHERE name = $1`
 	}
 
 	var t types.Tag
-	var clusterID sql.NullString
+	var grpID sql.NullString
 	err := r.db.QueryRowContext(ctx, query, name).Scan(
-		&t.ID, &t.Name, &clusterID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt,
+		&t.ID, &t.Name, &grpID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -679,15 +679,15 @@ func (r *TagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error
 		return nil, fmt.Errorf("get global tag by name: %w", err)
 	}
 
-	if clusterID.Valid {
-		t.GroupID = clusterID.String
+	if grpID.Valid {
+		t.GroupID = grpID.String
 	}
 	return &t, nil
 }
 
 // List implements ITagRepository.List
 func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
-	query := `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags ORDER BY name`
+	query := `SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags ORDER BY name`
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
@@ -698,12 +698,12 @@ func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
 	var tags []types.Tag
 	for rows.Next() {
 		var t types.Tag
-		var clusterID sql.NullString
-		if err := rows.Scan(&t.ID, &t.Name, &clusterID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var grpID sql.NullString
+		if err := rows.Scan(&t.ID, &t.Name, &grpID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
-		if clusterID.Valid {
-			t.GroupID = clusterID.String
+		if grpID.Valid {
+			t.GroupID = grpID.String
 		}
 		tags = append(tags, t)
 	}
@@ -712,9 +712,9 @@ func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
 
 // ListByGroup implements ITagRepository.ListByGroup
 func (r *TagRepo) ListByGroup(ctx context.Context, groupID string) ([]types.Tag, error) {
-	query := `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags WHERE cluster_id = ? ORDER BY name`
+	query := `SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags WHERE group_id = ? ORDER BY name`
 	if r.driver == "postgres" {
-		query = `SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags WHERE cluster_id = $1 ORDER BY name`
+		query = `SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags WHERE group_id = $1 ORDER BY name`
 	}
 
 	rows, err := r.db.QueryContext(ctx, query, groupID)
@@ -726,12 +726,12 @@ func (r *TagRepo) ListByGroup(ctx context.Context, groupID string) ([]types.Tag,
 	var tags []types.Tag
 	for rows.Next() {
 		var t types.Tag
-		var cid sql.NullString
-		if err := rows.Scan(&t.ID, &t.Name, &cid, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var grpID sql.NullString
+		if err := rows.Scan(&t.ID, &t.Name, &grpID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
-		if cid.Valid {
-			t.GroupID = cid.String
+		if grpID.Valid {
+			t.GroupID = grpID.String
 		}
 		tags = append(tags, t)
 	}
@@ -749,12 +749,12 @@ func (r *TagRepo) ListByGroupIDs(ctx context.Context, groupIDs []string, limit i
 	placeholders, args := buildInPlaceholders(r.driver, groupIDs)
 	var query string
 	if r.driver == "postgres" {
-		query = fmt.Sprintf(`SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags 
-			WHERE cluster_id IN (%s) ORDER BY cluster_id, name LIMIT $%d`, placeholders, len(groupIDs)+1)
+		query = fmt.Sprintf(`SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags 
+			WHERE group_id IN (%s) ORDER BY group_id, name LIMIT $%d`, placeholders, len(groupIDs)+1)
 		args = append(args, limit)
 	} else {
-		query = fmt.Sprintf(`SELECT id, name, cluster_id, document_count, created_at, updated_at FROM global_tags 
-			WHERE cluster_id IN (%s) ORDER BY cluster_id, name LIMIT ?`, placeholders)
+		query = fmt.Sprintf(`SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags 
+			WHERE group_id IN (%s) ORDER BY group_id, name LIMIT ?`, placeholders)
 		args = append(args, limit)
 	}
 
@@ -767,12 +767,12 @@ func (r *TagRepo) ListByGroupIDs(ctx context.Context, groupIDs []string, limit i
 	var tags []types.Tag
 	for rows.Next() {
 		var t types.Tag
-		var cid sql.NullString
-		if err := rows.Scan(&t.ID, &t.Name, &cid, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var grpID sql.NullString
+		if err := rows.Scan(&t.ID, &t.Name, &grpID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
-		if cid.Valid {
-			t.GroupID = cid.String
+		if grpID.Valid {
+			t.GroupID = grpID.String
 		}
 		tags = append(tags, t)
 	}
@@ -842,9 +842,9 @@ func (r *TagGroupRepo) Create(ctx context.Context, group *types.TagGroup) error 
 	group.CreatedAt = now
 	group.UpdatedAt = now
 
-	query := `INSERT INTO tag_clusters (id, name, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+	query := `INSERT INTO tag_groups (id, name, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
 	if r.driver == "postgres" {
-		query = `INSERT INTO tag_clusters (id, name, description, tags, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
+		query = `INSERT INTO tag_groups (id, name, description, tags, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
 	}
 
 	_, err := r.db.ExecContext(ctx, query, group.ID, group.Name, group.Description, group.Tags, group.CreatedAt, group.UpdatedAt)
@@ -856,9 +856,9 @@ func (r *TagGroupRepo) Create(ctx context.Context, group *types.TagGroup) error 
 
 // GetByID implements ITagGroupRepository.GetByID
 func (r *TagGroupRepo) GetByID(ctx context.Context, id string) (*types.TagGroup, error) {
-	query := `SELECT id, name, description, tags, created_at, updated_at FROM tag_clusters WHERE id = ?`
+	query := `SELECT id, name, description, tags, created_at, updated_at FROM tag_groups WHERE id = ?`
 	if r.driver == "postgres" {
-		query = `SELECT id, name, description, tags, created_at, updated_at FROM tag_clusters WHERE id = $1`
+		query = `SELECT id, name, description, tags, created_at, updated_at FROM tag_groups WHERE id = $1`
 	}
 
 	var c types.TagGroup
@@ -879,7 +879,7 @@ func (r *TagGroupRepo) GetByID(ctx context.Context, id string) (*types.TagGroup,
 
 // List implements ITagGroupRepository.List
 func (r *TagGroupRepo) List(ctx context.Context) ([]types.TagGroup, error) {
-	query := `SELECT id, name, description, tags, created_at, updated_at FROM tag_clusters ORDER BY name`
+	query := `SELECT id, name, description, tags, created_at, updated_at FROM tag_groups ORDER BY name`
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
@@ -902,7 +902,7 @@ func (r *TagGroupRepo) List(ctx context.Context) ([]types.TagGroup, error) {
 
 // DeleteAll implements ITagGroupRepository.DeleteAll
 func (r *TagGroupRepo) DeleteAll(ctx context.Context) error {
-	query := `DELETE FROM tag_clusters`
+	query := `DELETE FROM tag_groups`
 	_, err := r.db.ExecContext(ctx, query)
 	if err != nil {
 		return fmt.Errorf("delete all tag groups: %w", err)
@@ -912,7 +912,7 @@ func (r *TagGroupRepo) DeleteAll(ctx context.Context) error {
 
 // GetCount implements ITagGroupRepository.GetCount
 func (r *TagGroupRepo) GetCount(ctx context.Context) (int, error) {
-	query := `SELECT COUNT(*) FROM tag_clusters`
+	query := `SELECT COUNT(*) FROM tag_groups`
 
 	var count int
 	err := r.db.QueryRowContext(ctx, query).Scan(&count)

@@ -57,7 +57,7 @@ func (h *Handler) HotDocSource(c *gin.Context) {
 	c.JSON(status, body)
 }
 
-// ColdDocSource handles GET /cold/doc_source — locate query terms in cold docs via memory index; returns context snippets (no tag filter).
+// ColdDocSource handles GET /cold/doc_source — hybrid search over cold document chapters; returns full chapter text and optional path (no tag filter).
 func (h *Handler) ColdDocSource(c *gin.Context) {
 	terms := parseCommaSeparated(c.Query("q"))
 	maxRaw := strings.TrimSpace(c.Query(maxResultsQueryParam))

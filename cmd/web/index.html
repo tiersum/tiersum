@@ -4,22 +4,22 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TierSum - Knowledge Base</title>
-    
+
+    <script type="importmap">
+    {
+        "imports": {
+            "vue": "https://unpkg.com/vue@3/dist/vue.esm-browser.js",
+            "vue-router": "https://unpkg.com/vue-router@4/dist/vue-router.esm-browser.js"
+        }
+    }
+    </script>
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
-    
+
     <!-- DaisyUI -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
-    
-    <!-- Vue 3 -->
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    
-    <!-- Vue Router -->
-    <script src="https://unpkg.com/vue-router@4/dist/vue-router.global.js"></script>
-    
-    <!-- Marked.js for Markdown -->
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    
+
     <!-- Tailwind Config -->
     <script>
         tailwind.config = {
@@ -39,7 +39,7 @@
             }
         }
     </script>
-    
+
     <style>
         /* Custom scrollbar */
         ::-webkit-scrollbar {
@@ -56,7 +56,7 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #475569;
         }
-        
+
         /* Line clamp utilities */
         .line-clamp-1 {
             display: -webkit-box;
@@ -76,11 +76,20 @@
             -webkit-box-orient: vertical;
             overflow: hidden;
         }
+
+        .fade-enter-active,
+        .fade-leave-active {
+            transition: opacity 0.15s ease;
+        }
+        .fade-enter-from,
+        .fade-leave-to {
+            opacity: 0;
+        }
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
     <div id="app"></div>
-    
-    <script src="./app.js"></script>
+
+    <script type="module" src="./js/main.js"></script>
 </body>
 </html>

@@ -6,13 +6,13 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/config"
+	"github.com/tiersum/tiersum/internal/service"
 )
 
 // StartPromoteQueueConsumer reads document IDs from PromoteQueue and promotes cold documents
 // that meet the configured query-count threshold. It runs until ctx is cancelled.
-func StartPromoteQueueConsumer(ctx context.Context, promoteJob *PromoteJob, logger *zap.Logger) {
-	if promoteJob == nil || logger == nil {
+func StartPromoteQueueConsumer(ctx context.Context, maintenance service.IDocumentMaintenanceService, logger *zap.Logger) {
+	if maintenance == nil || logger == nil {
 		return
 	}
 	go func() {
@@ -22,7 +22,7 @@ func StartPromoteQueueConsumer(ctx context.Context, promoteJob *PromoteJob, logg
 				return
 			case docID := <-PromoteQueue:
 				runCtx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
-				err := promoteJob.PromoteByDocumentID(runCtx, docID)
+				err := maintenance.PromoteColdDocumentByID(runCtx, docID)
 				cancel()
 				if err != nil {
 					logger.Error("promote queue: promotion failed",
@@ -32,6 +32,5 @@ func StartPromoteQueueConsumer(ctx context.Context, promoteJob *PromoteJob, logg
 			}
 		}
 	}()
-	logger.Info("promote queue consumer started",
-		zap.Int("cold_promotion_threshold", config.ColdPromotionThreshold()))
+	logger.Info("promote queue consumer started")
 }
