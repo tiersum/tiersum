@@ -3,7 +3,9 @@
 # MiniLM without a system-wide install. Run from any directory.
 set -euo pipefail
 
-VERSION="${ONNXRUNTIME_VERSION:-1.19.2}"
+# Must match the ONNX shared library expected by github.com/yalue/onnxruntime_go (see go.mod).
+# Too old a runtime yields init errors like: Error setting ORT API base: 2 (GetApi returned NULL).
+VERSION="${ONNXRUNTIME_VERSION:-1.24.1}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="${ROOT}/third_party/onnxruntime"
 MODE="${1:-host}"
