@@ -4,12 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TierSum - Knowledge Base</title>
+    <base href="/" />
 
+    <!-- Vendored ESM (served from this app): works offline and in restricted previews where external CDNs fail. -->
     <script type="importmap">
     {
         "imports": {
-            "vue": "https://unpkg.com/vue@3/dist/vue.esm-browser.js",
-            "vue-router": "https://unpkg.com/vue-router@4/dist/vue-router.esm-browser.js"
+            "vue": "/js/vendor/vue.esm-browser.prod.js",
+            "@vue/devtools-api": "/js/vendor/vue-devtools-api.esm.js",
+            "vue-router": "/js/vendor/vue-router.esm-browser.js"
         }
     }
     </script>
@@ -88,8 +91,13 @@
     </style>
 </head>
 <body class="bg-slate-950 text-slate-100 min-h-screen">
-    <div id="app"></div>
+    <div id="app">
+        <div id="app-boot" style="padding:2rem;font-family:system-ui,sans-serif;background:#020617;color:#e2e8f0;min-height:100vh;">
+            <p style="margin:0 0 0.5rem 0"><strong>TierSum</strong> is loading…</p>
+            <p style="margin:0;font-size:0.875rem;opacity:0.85">If this never disappears, open DevTools → Console / Network (check <code>/js/main.js</code> and <code>/js/vendor/*.js</code> return 200).</p>
+        </div>
+    </div>
 
-    <script type="module" src="./js/main.js"></script>
+    <script type="module" src="/js/main.js"></script>
 </body>
 </html>

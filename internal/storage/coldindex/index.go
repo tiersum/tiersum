@@ -617,6 +617,57 @@ func (idx *Index) mergeHybridResults(bm25Results, vectorResults []scoredChapter,
 	return results
 }
 
+func coldChapterDisplayTitle(docID, path, fallbackTitle string) string {
+	rel := strings.TrimPrefix(path, docID+"/")
+	if rel == "" {
+		if strings.TrimSpace(fallbackTitle) != "" {
+			return fallbackTitle
+		}
+		return "Document"
+	}
+	return strings.ReplaceAll(rel, "/", " · ")
+}
+
+// MarkdownChapters implements storage.IColdIndex: same splitter and token budget as cold ingest.
+func (idx *Index) MarkdownChapters(docID, title, markdown string) []types.DocumentMarkdownChapter {
+	idx.mu.RLock()
+	splitter := idx.coldSplitter
+	maxTok := idx.coldChapterMaxTokens
+	idx.mu.RUnlock()
+	if maxTok <= 0 {
+		maxTok = types.DefaultColdChapterMaxTokens
+	}
+	if splitter == nil {
+		splitter = DefaultColdChapterSplitter()
+	}
+	parts := splitter.Split(docID, title, markdown, maxTok)
+	out := make([]types.DocumentMarkdownChapter, 0, len(parts))
+	for _, p := range parts {
+		text := strings.TrimSpace(p.Text)
+		if text == "" {
+			continue
+		}
+		out = append(out, types.DocumentMarkdownChapter{
+			Path:    p.Path,
+			Title:   coldChapterDisplayTitle(docID, p.Path, title),
+			Content: text,
+		})
+	}
+	if len(out) == 0 {
+		md := strings.TrimSpace(markdown)
+		if md == "" {
+			return nil
+		}
+		p := docID + "/body"
+		return []types.DocumentMarkdownChapter{{
+			Path:    p,
+			Title:   coldChapterDisplayTitle(docID, p, title),
+			Content: md,
+		}}
+	}
+	return out
+}
+
 // RemoveDocument removes all chapters for a cold document from the index.
 func (idx *Index) RemoveDocument(docID string) error {
 	idx.mu.Lock()

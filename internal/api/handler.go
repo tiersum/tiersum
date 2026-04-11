@@ -84,6 +84,9 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	// Quota endpoint
 	router.GET("/quota", h.GetQuota)
 
+	// Monitoring snapshot (JSON) for UI dashboards
+	router.GET("/monitoring", h.GetMonitoring)
+
 	// Prometheus metrics endpoint
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 }
@@ -154,5 +157,11 @@ func (h *Handler) GetDocumentSummaries(c *gin.Context) {
 // GetQuota returns the current quota status
 func (h *Handler) GetQuota(c *gin.Context) {
 	status, body := h.ExecuteGetQuota()
+	c.JSON(status, body)
+}
+
+// GetMonitoring returns a JSON snapshot for the monitoring UI.
+func (h *Handler) GetMonitoring(c *gin.Context) {
+	status, body := h.ExecuteMonitoring(c.Request.Context())
 	c.JSON(status, body)
 }

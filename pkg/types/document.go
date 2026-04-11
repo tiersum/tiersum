@@ -58,39 +58,73 @@ type Summary struct {
 
 // ChapterInfo represents a chapter/section in a document
 type ChapterInfo struct {
-	Title       string `json:"title"`       // Chapter title
-	Level       int    `json:"level"`       // Header level (1=#, 2=##, 3=###)
-	Summary     string `json:"summary"`     // Chapter summary
-	Content     string `json:"content"`     // Chapter original content
+	Title       string `json:"title"`        // Chapter title
+	Level       int    `json:"level"`        // Header level (1=#, 2=##, 3=###)
+	Summary     string `json:"summary"`      // Chapter summary
+	Content     string `json:"content"`      // Chapter original content
 	StartOffset int    `json:"start_offset"` // Start position in document
 	EndOffset   int    `json:"end_offset"`   // End position in document
 }
 
 // DocumentAnalysisResult holds LLM analysis results for a document
 type DocumentAnalysisResult struct {
-	Summary  string        `json:"summary"`   // Document-level summary
-	Tags     []string      `json:"tags"`      // Generated tags (max 10)
-	Chapters []ChapterInfo `json:"chapters"`  // List of chapters with summaries
+	Summary  string        `json:"summary"`  // Document-level summary
+	Tags     []string      `json:"tags"`     // Generated tags (max 10)
+	Chapters []ChapterInfo `json:"chapters"` // List of chapters with summaries
 }
 
 // TagGroup represents a group of tags (Level 1 categorization)
 type TagGroup struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`        // Group name/category
-	Description string   `json:"description"` // Group description
-	Tags        []string `json:"tags"`        // Tags in this group
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`        // Group name/category
+	Description string    `json:"description"` // Group description
+	Tags        []string  `json:"tags"`        // Tags in this group
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Tag represents a global tag with its metadata
 type Tag struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`        // Tag name
-	GroupID   string    `json:"group_id"`  // Which group it belongs to (Level 1)
-	DocumentCount int     `json:"document_count"` // Number of documents with this tag
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID            string    `json:"id"`
+	Name          string    `json:"name"`           // Tag name
+	GroupID       string    `json:"group_id"`       // Which group it belongs to (Level 1)
+	DocumentCount int       `json:"document_count"` // Number of documents with this tag
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// DocumentIngestMode selects how the platform chooses hot vs cold on ingest.
+const (
+	DocumentIngestModeAuto = "auto"
+	DocumentIngestModeHot  = "hot"
+	DocumentIngestModeCold = "cold"
+)
+
+// NormalizeDocumentIngestMode returns auto, hot, or cold (unknown values become auto).
+func NormalizeDocumentIngestMode(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case DocumentIngestModeHot, DocumentIngestModeCold:
+		return strings.ToLower(strings.TrimSpace(s))
+	default:
+		return DocumentIngestModeAuto
+	}
+}
+
+// DocumentMarkdownChapter is one path-addressable slice of document markdown
+// (cold splitter semantics) for document-detail chapter navigation when DB has no chapter-tier summaries.
+type DocumentMarkdownChapter struct {
+	Path    string `json:"path"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
+// HotIngestWork is queued after a hot document is persisted when LLM analysis
+// and hierarchical indexing run asynchronously (see job.HotIngestQueue).
+type HotIngestWork struct {
+	DocID string
+	// PrebuiltTags is non-empty when the client supplied tags that must be merged
+	// with tags returned from AnalyzeDocument.
+	PrebuiltTags []string
 }
 
 // CreateDocumentRequest represents a request to create a document
@@ -99,7 +133,9 @@ type CreateDocumentRequest struct {
 	Content string   `json:"content" binding:"required"`
 	Format  string   `json:"format" binding:"required,oneof=markdown md"`
 	Tags    []string `json:"tags,omitempty"`
-	// ForceHot forces full LLM analysis regardless of heuristics
+	// IngestMode: auto = platform rules (length, quota, prebuilt summary); hot = always hot; cold = always cold.
+	IngestMode string `json:"ingest_mode,omitempty" binding:"omitempty,oneof=auto hot cold AUTO HOT COLD"`
+	// ForceHot is deprecated: use ingest_mode "hot". When ingest_mode is empty and ForceHot is true, behavior is hot.
 	ForceHot bool `json:"force_hot,omitempty"`
 	// Summary is pre-generated document summary (from external agent)
 	Summary string `json:"summary,omitempty"`
@@ -107,6 +143,17 @@ type CreateDocumentRequest struct {
 	Chapters []ChapterInfo `json:"chapters,omitempty"`
 	// Embedding is pre-computed vector embedding (from external agent)
 	Embedding []float32 `json:"embedding,omitempty"`
+}
+
+// EffectiveIngestMode resolves ingest tier: non-empty ingest_mode wins (case-insensitive); else legacy force_hot; else auto.
+func (r CreateDocumentRequest) EffectiveIngestMode() string {
+	if strings.TrimSpace(r.IngestMode) != "" {
+		return NormalizeDocumentIngestMode(r.IngestMode)
+	}
+	if r.ForceHot {
+		return DocumentIngestModeHot
+	}
+	return DocumentIngestModeAuto
 }
 
 // ExtractKeywords extracts keywords from content using simple regex patterns

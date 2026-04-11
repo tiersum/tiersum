@@ -403,15 +403,13 @@ func TestFeature(t *testing.T) {
 - `**cold**` - Minimal processing, indexed in cold index (BM25 + vector search)
 - `**warming**` - Being promoted from cold to hot (async process)
 
-### Hot Document Criteria
+### Hot vs cold on ingest (`ingest_mode`)
 
-A document becomes hot when:
+Request body `ingest_mode` (default **auto** when omitted; legacy `force_hot=true` equals **hot**):
 
-1. Quota available (default 100/hour)
-2. AND one of:
-  - `force_hot=true` in request
-  - Has pre-built summary/chapters
-  - Content length > 5000 characters
+- **`hot`** — always use the hot ingest path (async LLM + summaries when needed).
+- **`cold`** — always use the cold ingest path (no internal LLM on ingest).
+- **`auto`** — hot if pre-built summary+chapters exist, else if hourly quota allows and content length > threshold (default 5000 chars), else cold.
 
 ### Cold Document Flow
 
@@ -479,6 +477,7 @@ The **embedded Vue UI** (`cmd/web/js/`) uses a subset of these routes; see **`cm
 | GET    | `/api/v1/cold/doc_source`         | Cold chapter hits via cold index (`q` comma-separated terms, `max_results`; JSON includes `path` per chapter) |
 | POST   | `/api/v1/tags/group`              | Trigger tag grouping                                                                  |
 | GET    | `/api/v1/quota`                   | Check quota status                                                                    |
+| GET    | `/api/v1/monitoring`              | JSON monitoring snapshot (version, document counts, cold index size, quota)         |
 | GET    | `/api/v1/metrics`                 | Prometheus metrics                                                                    |
 | GET    | `/health`                         | Health check                                                                          |
 

@@ -2,11 +2,13 @@ package svcimpl
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/storage"
+	"github.com/tiersum/tiersum/internal/storage/coldindex"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -150,6 +152,18 @@ func (m *MockDocumentRepository) UpdateHotScore(ctx context.Context, docID strin
 	defer m.mu.Unlock()
 	if doc, ok := m.docs[docID]; ok {
 		doc.HotScore = score
+	}
+	return nil
+}
+
+func (m *MockDocumentRepository) UpdateTags(ctx context.Context, docID string, tags []string) error {
+	if m.err != nil {
+		return m.err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if doc, ok := m.docs[docID]; ok {
+		doc.Tags = append([]string(nil), tags...)
 	}
 	return nil
 }
@@ -541,6 +555,41 @@ func (m *MockColdIndex) ApproxEntries() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.docs)
+}
+
+func (m *MockColdIndex) MarkdownChapters(docID, title, markdown string) []types.DocumentMarkdownChapter {
+	parts := coldindex.SplitMarkdown(docID, title, markdown, types.DefaultColdChapterMaxTokens)
+	out := make([]types.DocumentMarkdownChapter, 0, len(parts))
+	for _, p := range parts {
+		text := strings.TrimSpace(p.Text)
+		if text == "" {
+			continue
+		}
+		rel := strings.TrimPrefix(p.Path, docID+"/")
+		disp := rel
+		if disp == "" {
+			disp = title
+		}
+		disp = strings.ReplaceAll(disp, "/", " · ")
+		out = append(out, types.DocumentMarkdownChapter{
+			Path:    p.Path,
+			Title:   disp,
+			Content: text,
+		})
+	}
+	if len(out) == 0 {
+		md := strings.TrimSpace(markdown)
+		if md == "" {
+			return nil
+		}
+		path := docID + "/body"
+		return []types.DocumentMarkdownChapter{{
+			Path:    path,
+			Title:   title,
+			Content: md,
+		}}
+	}
+	return out
 }
 
 func (m *MockColdIndex) RebuildFromDocuments(ctx context.Context, docs []types.Document) error {

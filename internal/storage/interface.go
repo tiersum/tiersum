@@ -26,6 +26,8 @@ type IDocumentRepository interface {
 	UpdateStatus(ctx context.Context, docID string, status types.DocumentStatus) error
 	// UpdateHotScore updates the hot score for a document
 	UpdateHotScore(ctx context.Context, docID string, score float64) error
+	// UpdateTags updates document tags (e.g. after async LLM analysis).
+	UpdateTags(ctx context.Context, docID string, tags []string) error
 	// ListAll returns all documents for hot score calculation
 	ListAll(ctx context.Context, limit int) ([]types.Document, error)
 }
@@ -100,6 +102,8 @@ type IColdIndex interface {
 	ApproxEntries() int
 	// RebuildFromDocuments replaces the entire index from the given documents (typically all cold docs).
 	RebuildFromDocuments(ctx context.Context, docs []types.Document) error
+	// MarkdownChapters splits markdown like cold ingest for document-detail chapter UI.
+	MarkdownChapters(docID, title, markdown string) []types.DocumentMarkdownChapter
 	Close() error
 }
 

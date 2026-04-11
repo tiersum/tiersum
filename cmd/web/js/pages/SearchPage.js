@@ -103,6 +103,15 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
             if (s === 'cold') return 'badge-info';
             if (s === 'warming') return 'badge-secondary';
             return 'badge-ghost';
+        },
+
+        /** Open document detail with optional chapter path (matches API chapter `path`). */
+        goToDocumentFromSearch(result) {
+            const docId = result?.id;
+            if (!docId) return;
+            const path = (result.path && String(result.path).trim()) || '';
+            const query = path ? { path } : {};
+            this.$router.push({ path: `/docs/${docId}`, query });
         }
     },
     template: `
@@ -208,7 +217,7 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                         <p>No references found</p>
                                     </div>
                                     <div v-else>
-                                        <div v-for="(result, index) in results" :key="result.id"
+                                        <div v-for="(result, index) in results" :key="(result.path || result.id || '') + '-' + index"
                                              :id="'ref-' + index"
                                              :class="['card bg-slate-800/30 border transition-all cursor-pointer',
                                                       highlightedRef === index ? 'border-blue-500 ring-2 ring-blue-500/50' : 'border-slate-700 hover:border-slate-600']"
@@ -230,7 +239,7 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                                 <p class="text-sm text-slate-400 line-clamp-4">{{ result.content?.substring(0, 300) }}{{ result.content?.length > 300 ? '...' : '' }}</p>
                                                 <div class="flex justify-between items-center mt-3 pt-2 border-t border-slate-700/50">
                                                     <span class="text-xs text-slate-600 truncate max-w-[150px]">{{ result.path }}</span>
-                                                    <button type="button" @click.stop="$router.push('/docs/' + result.id)" class="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                                                    <button type="button" @click.stop="goToDocumentFromSearch(result)" class="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">
                                                         View <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                                                     </button>
                                                 </div>

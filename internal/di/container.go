@@ -23,8 +23,9 @@ import (
 // Dependencies holds all application dependencies
 type Dependencies struct {
 	// Service Layer interfaces
-	DocumentService service.IDocumentService
-	QueryService    service.IQueryService
+	DocumentService    service.IDocumentService
+	HotIngestProcessor service.IHotIngestProcessor
+	QueryService       service.IQueryService
 
 	// Tag Grouping Service
 	TagGroupService service.ITagGroupService
@@ -97,6 +98,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 		coldIndex,
 		quotaManager,
 		logger,
+		job.HotIngestQueue,
 	)
 
 	// 8. API Layer — retrieval facade so HTTP handlers do not import storage interfaces
@@ -113,6 +115,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 
 	return &Dependencies{
 		DocumentService:     docService,
+		HotIngestProcessor:  docService,
 		QueryService:        queryService,
 		TagGroupService:     tagGroupSvc,
 		RESTHandler:         restHandler,

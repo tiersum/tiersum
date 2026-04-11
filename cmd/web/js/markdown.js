@@ -1,4 +1,4 @@
-import { marked } from 'https://cdn.jsdelivr.net/npm/marked@11.2.0/+esm';
+import { marked } from './vendor/marked.esm.js';
 
 export function parseMarkdown(content) {
     if (!content) return '';

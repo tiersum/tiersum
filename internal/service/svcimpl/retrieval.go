@@ -3,9 +3,11 @@ package svcimpl
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
+	"github.com/tiersum/tiersum/internal/storage/coldindex"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -58,6 +60,54 @@ func (s *RetrievalSvc) ListSummariesForDocument(ctx context.Context, documentID 
 // ListChapterSummariesForDocument returns chapter-tier summaries for a document (including source rows; callers filter as needed).
 func (s *RetrievalSvc) ListChapterSummariesForDocument(ctx context.Context, documentID string) ([]types.Summary, error) {
 	return s.summaryRepo.QueryByTierAndPrefix(ctx, types.TierChapter, documentID+"/")
+}
+
+func markdownChapterTitle(docID, path, fallback string) string {
+	rel := strings.TrimPrefix(path, docID+"/")
+	if rel == "" {
+		if strings.TrimSpace(fallback) != "" {
+			return fallback
+		}
+		return "Document"
+	}
+	return strings.ReplaceAll(rel, "/", " · ")
+}
+
+// MarkdownChaptersForDocument implements service.IRetrievalService.
+func (s *RetrievalSvc) MarkdownChaptersForDocument(ctx context.Context, doc *types.Document) ([]types.DocumentMarkdownChapter, error) {
+	_ = ctx
+	if doc == nil {
+		return nil, nil
+	}
+	if s.coldIndex != nil {
+		return s.coldIndex.MarkdownChapters(doc.ID, doc.Title, doc.Content), nil
+	}
+	parts := coldindex.SplitMarkdown(doc.ID, doc.Title, doc.Content, types.DefaultColdChapterMaxTokens)
+	out := make([]types.DocumentMarkdownChapter, 0, len(parts))
+	for _, p := range parts {
+		text := strings.TrimSpace(p.Text)
+		if text == "" {
+			continue
+		}
+		out = append(out, types.DocumentMarkdownChapter{
+			Path:    p.Path,
+			Title:   markdownChapterTitle(doc.ID, p.Path, doc.Title),
+			Content: text,
+		})
+	}
+	if len(out) == 0 {
+		md := strings.TrimSpace(doc.Content)
+		if md == "" {
+			return nil, nil
+		}
+		path := doc.ID + "/body"
+		return []types.DocumentMarkdownChapter{{
+			Path:    path,
+			Title:   markdownChapterTitle(doc.ID, path, doc.Title),
+			Content: md,
+		}}, nil
+	}
+	return out, nil
 }
 
 // HotDocumentsWithDocSummaries returns hot/warming document metadata and matching document-tier summaries.
@@ -114,6 +164,14 @@ func (s *RetrievalSvc) SearchColdByQuery(ctx context.Context, query string, limi
 		}
 	}
 	return out, nil
+}
+
+// ApproxColdIndexEntries implements service.IRetrievalService.
+func (s *RetrievalSvc) ApproxColdIndexEntries() int {
+	if s.coldIndex == nil {
+		return 0
+	}
+	return s.coldIndex.ApproxEntries()
 }
 
 var _ service.IRetrievalService = (*RetrievalSvc)(nil)

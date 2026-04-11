@@ -1,0 +1,36 @@
+package job
+
+import (
+	"context"
+	"time"
+
+	"go.uber.org/zap"
+
+	"github.com/tiersum/tiersum/internal/service"
+)
+
+// StartHotIngestQueueConsumer reads HotIngestQueue and runs LLM analysis plus hierarchical indexing.
+// It runs until ctx is cancelled.
+func StartHotIngestQueueConsumer(ctx context.Context, proc service.IHotIngestProcessor, logger *zap.Logger) {
+	if proc == nil || logger == nil {
+		return
+	}
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case work := <-HotIngestQueue:
+				runCtx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+				err := proc.ProcessHotIngestWork(runCtx, work)
+				cancel()
+				if err != nil {
+					logger.Error("hot ingest queue: processing failed",
+						zap.String("doc_id", work.DocID),
+						zap.Error(err))
+				}
+			}
+		}
+	}()
+	logger.Info("hot ingest queue consumer started")
+}

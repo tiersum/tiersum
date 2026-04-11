@@ -313,6 +313,25 @@ func (r *DocumentRepo) UpdateHotScore(ctx context.Context, docID string, score f
 	return nil
 }
 
+// UpdateTags updates document tags and updated_at.
+func (r *DocumentRepo) UpdateTags(ctx context.Context, docID string, tags []string) error {
+	now := time.Now()
+	query := `UPDATE documents SET tags = ?, updated_at = ? WHERE id = ?`
+	if r.driver == "postgres" {
+		query = `UPDATE documents SET tags = $1, updated_at = $2 WHERE id = $3`
+	}
+
+	_, err := r.db.ExecContext(ctx, query, formatStringArray(tags), now, docID)
+	if err != nil {
+		return fmt.Errorf("update document tags: %w", err)
+	}
+
+	if r.cache != nil {
+		r.cache.Set("doc:"+docID, nil)
+	}
+	return nil
+}
+
 // ListByStatus retrieves documents by status with optional limit
 func (r *DocumentRepo) ListByStatus(ctx context.Context, status types.DocumentStatus, limit int) ([]types.Document, error) {
 	if limit <= 0 {

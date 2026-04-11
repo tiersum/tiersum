@@ -66,7 +66,7 @@ TierSum 用两层策略平衡 **LLM 成本** 与 **检索效果**：
 - ✅ 持久化在数据库，带分层摘要  
 - ⚡ 受 **配额** 限制（默认约 100 次/小时，见配置）  
 
-**成为热文档的常见条件**（与实现一致）：有可用配额 **且**（`force_hot` **或** 已有预置摘要 **或** 正文长度大于配置阈值，如 5000 字符）。
+**入库时热/冷**（`ingest_mode`）：`hot` 强制热路径；`cold` 强制冷路径；`auto`（默认）为已有预置 summary+chapters 则热，否则在配额允许且正文长度大于阈值（如 5000 字符）时为热，否则冷。旧字段 `force_hot=true` 等价于 `ingest_mode: hot`。
 
 ### 冷文档（轻量存储）
 - ✅ 最小化处理，不做完整 LLM 分析  
@@ -214,7 +214,7 @@ curl -X POST http://localhost:8080/api/v1/documents \
     "title": "Kubernetes Architecture",
     "content": "# Kubernetes Architecture\n\n## Control Plane...",
     "format": "markdown",
-    "force_hot": true
+    "ingest_mode": "hot"
   }'
 
 # 渐进式查询（推荐）：同时覆盖热/冷路径上的结果

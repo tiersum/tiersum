@@ -74,7 +74,8 @@ func (s *MCPServer) registerTools() {
 		mcp.WithString("tags", mcp.Description("Optional: JSON array string e.g. [\"a\",\"b\"]")),
 		mcp.WithString("summary", mcp.Description("Optional pre-built document summary")),
 		mcp.WithString("chapters", mcp.Description("Optional JSON array of ChapterInfo")),
-		mcp.WithBoolean("force_hot", mcp.Description("Force hot processing")),
+		mcp.WithString("ingest_mode", mcp.Description("auto (default) | hot | cold — hot/cold tier on ingest"), mcp.Enum("auto", "hot", "cold")),
+		mcp.WithBoolean("force_hot", mcp.Description("Deprecated: use ingest_mode=hot")),
 		mcp.WithString("embedding", mcp.Description("Optional JSON array of numbers (float32 embedding)")),
 	), s.handleAPIv1DocumentsPost)
 
@@ -279,6 +280,9 @@ func (s *MCPServer) handleAPIv1DocumentsPost(ctx context.Context, request mcp.Ca
 	}
 	if summary := argString(args, "summary"); summary != "" {
 		req.Summary = summary
+	}
+	if im := strings.TrimSpace(argString(args, "ingest_mode")); im != "" {
+		req.IngestMode = im
 	}
 	if forceHot, ok := args["force_hot"].(bool); ok {
 		req.ForceHot = forceHot

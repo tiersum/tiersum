@@ -9,7 +9,7 @@ export const DocumentCreatePage = {
                 content: '',
                 format: 'markdown',
                 tags: [],
-                force_hot: false
+                ingest_mode: 'auto'
             },
             tagInput: '',
             submitting: false,
@@ -39,8 +39,9 @@ export const DocumentCreatePage = {
                     format: this.newDoc.format || 'markdown',
                     tags: this.newDoc.tags
                 };
-                if (this.newDoc.force_hot) {
-                    payload.force_hot = true;
+                const mode = (this.newDoc.ingest_mode || 'auto').toLowerCase();
+                if (mode === 'hot' || mode === 'cold') {
+                    payload.ingest_mode = mode;
                 }
                 const created = await apiClient.createDocument(payload);
                 const id = created?.id || created?.ID;
@@ -141,9 +142,13 @@ export const DocumentCreatePage = {
                         <h1 class="text-2xl sm:text-3xl font-bold text-slate-100">New document</h1>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
-                        <label class="label cursor-pointer gap-2 py-0">
-                            <input type="checkbox" v-model="newDoc.force_hot" class="checkbox checkbox-sm checkbox-primary" />
-                            <span class="label-text text-slate-400 text-sm">Force hot (use quota, full LLM)</span>
+                        <label class="label cursor-pointer gap-2 py-0 flex-nowrap">
+                            <span class="label-text text-slate-400 text-sm whitespace-nowrap">Ingest</span>
+                            <select v-model="newDoc.ingest_mode" class="select select-bordered select-sm bg-slate-800/80 border-slate-700 text-slate-100 min-w-[11rem]">
+                                <option value="auto">Auto (platform)</option>
+                                <option value="hot">Hot (full analysis)</option>
+                                <option value="cold">Cold (minimal)</option>
+                            </select>
                         </label>
                         <button type="button"
                             @click="submitDocument"
@@ -187,9 +192,14 @@ export const DocumentCreatePage = {
                                     @dragleave="onContentDragLeave"
                                     @drop.capture.prevent="onContentDrop"
                                 >
-                                    <div class="label py-0 flex flex-wrap items-center justify-between gap-2">
-                                        <span class="label-text text-slate-300">Content (Markdown)</span>
-                                        <div class="flex items-center gap-2">
+                                    <div class="label py-0 flex flex-wrap items-start justify-between gap-x-4 gap-y-2 shrink-0">
+                                        <div class="min-w-0 flex-1">
+                                            <span class="label-text text-slate-300">Content (Markdown)</span>
+                                            <p class="text-xs text-slate-500 mt-1 mb-0 max-w-xl leading-snug">
+                                                <strong class="text-slate-400 font-medium">Choose file</strong> or drag a <code class="text-slate-400">.md</code> onto the editor below — same as typing; preview updates on the right.
+                                            </p>
+                                        </div>
+                                        <div class="flex items-center gap-2 shrink-0">
                                             <input
                                                 ref="markdownFile"
                                                 type="file"
@@ -205,12 +215,9 @@ export const DocumentCreatePage = {
                                             </button>
                                         </div>
                                     </div>
-                                    <p class="text-xs text-slate-500 mb-2">
-                                        Choose a file or <strong class="text-slate-400 font-medium">drag a .md file here</strong>; content loads into the editor and the preview updates like typed text.
-                                    </p>
                                     <textarea v-model="newDoc.content"
                                         placeholder="# Heading — write Markdown here…"
-                                        class="textarea textarea-bordered flex-1 min-h-[320px] w-full bg-slate-800/80 border-slate-700 text-slate-100 font-mono text-sm leading-relaxed resize-y"></textarea>
+                                        class="textarea textarea-bordered flex-1 min-h-[280px] w-full bg-slate-800/80 border-slate-700 text-slate-100 font-mono text-sm leading-relaxed resize-y"></textarea>
                                 </div>
                             </div>
                         </div>

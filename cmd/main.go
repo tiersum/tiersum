@@ -196,9 +196,11 @@ func registerMCPRoutes(r *gin.Engine, deps *ServerDeps) {
 func registerStaticRoutes(r *gin.Engine, deps *ServerDeps) {
 	deps.Logger.Info("Registering static file routes with embedded files")
 
-	// Use embedded static files via NoRoute handler
-	// Must be registered after all API routes
-	r.NoRoute(StaticFileServer())
+	h := StaticFileServer()
+	// Explicit root + SPA fallback: some setups only hit NoRoute for unknown paths, not for "/".
+	r.GET("/", h)
+	r.HEAD("/", h)
+	r.NoRoute(h)
 }
 
 // StaticFileServer returns a gin handler for serving embedded static files.
@@ -322,6 +324,7 @@ func runServer(cmd *cobra.Command, args []string) {
 	promoteCtx, promoteCancel := context.WithCancel(context.Background())
 	defer promoteCancel()
 	job.StartPromoteQueueConsumer(promoteCtx, deps.DI.DocumentMaintenance, deps.Logger)
+	job.StartHotIngestQueueConsumer(promoteCtx, deps.DI.HotIngestProcessor, deps.Logger)
 
 	// Setup and start server
 	router := setupRouter(deps)

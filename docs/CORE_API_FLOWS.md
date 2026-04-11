@@ -3,7 +3,15 @@
 This document traces **non-trivial** REST endpoints: anything beyond simple list/get of stored rows. It follows the call chain from `internal/api` into `internal/service/svcimpl` and related storage.
 
 **Simple CRUD / pass-through (not detailed here)**  
-`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/documents/:id/summaries`, `GET /api/v1/documents/:id/chapters`, `GET /api/v1/tags/groups`, `GET /api/v1/quota`, `GET /api/v1/metrics`, `GET /health` — mostly read from DB or Prometheus without multi-step domain logic.
+`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/documents/:id/summaries`, `GET /api/v1/tags/groups`, `GET /api/v1/quota`, `GET /api/v1/metrics`, `GET /health` — mostly read from DB or Prometheus without multi-step domain logic.
+
+`GET /api/v1/documents/:id/chapters` is detailed below (markdown fallback when DB has no chapter-tier rows).
+
+---
+
+## 0. `GET /api/v1/documents/:id/chapters` — sections for detail UI
+
+**Handler:** `ExecuteGetDocumentChapters` → `**ListChapterSummariesForDocument**` (chapter tier, skip `IsSource`). If the result is empty, **`Retrieval.MarkdownChaptersForDocument`** → **`IColdIndex.MarkdownChapters`** (same splitter and `coldChapterMaxTokens` as cold ingest), or `**coldindex.SplitMarkdown**` when no index is wired — so cold documents (and hot documents before summaries exist) still get `path` / `title` / `summary` (section body) for chapter navigation.
 
 ---
 
@@ -13,11 +21,11 @@ This document traces **non-trivial** REST endpoints: anything beyond simple list
 
 ### 1.1 Hot vs cold decision (`shouldBeHot`)
 
-1. `**force_hot`** → always hot.
-2. Else if **prebuilt summary and chapters** (`req.Summary != ""` and `len(req.Chapters) > 0`) → hot (external agent supplied structure).
-3. Else **quota**: `QuotaManager.CheckAndConsume()`; if it fails → **cold**.
-4. Else if `**len(content) > HotContentThreshold()`** (config, default 5000) → hot.
-5. Otherwise → **cold**.
+Resolved mode: `**req.EffectiveIngestMode()**` (`ingest_mode` JSON field: `auto` | `hot` | `cold`; legacy `force_hot=true` maps to `hot`).
+
+1. **`hot`** → always hot.
+2. **`cold`** → always cold.
+3. **`auto`** → if **prebuilt summary and chapters** (`req.Summary != ""` and `len(req.Chapters) > 0`) → hot; else **quota** `QuotaManager.CheckAndConsume()` — if it fails → cold; else if `**len(content) > HotContentThreshold()`** (config, default 5000) → hot; else cold.
 
 ### 1.2 Hot path
 

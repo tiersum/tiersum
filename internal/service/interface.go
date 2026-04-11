@@ -35,16 +35,26 @@ type IDocumentMaintenanceService interface {
 	RecalculateDocumentHotScores(ctx context.Context) error
 }
 
+// IHotIngestProcessor completes deferred LLM analysis and indexing for hot ingests.
+// Invoked by the hot-ingest queue consumer (internal/job).
+type IHotIngestProcessor interface {
+	ProcessHotIngestWork(ctx context.Context, work types.HotIngestWork) error
+}
+
 // IRetrievalService exposes read operations used only by the HTTP/MCP API layer.
 // It composes storage so handlers do not depend on repository or cold-index interfaces.
 type IRetrievalService interface {
 	ListTags(ctx context.Context, groupIDs []string, byGroupLimit int, listAllCap int) ([]types.Tag, error)
 	ListSummariesForDocument(ctx context.Context, documentID string) ([]types.Summary, error)
 	ListChapterSummariesForDocument(ctx context.Context, documentID string) ([]types.Summary, error)
+	// MarkdownChaptersForDocument returns markdown-split sections for detail UI when DB chapter summaries are absent.
+	MarkdownChaptersForDocument(ctx context.Context, doc *types.Document) ([]types.DocumentMarkdownChapter, error)
 	HotDocumentsWithDocSummaries(ctx context.Context, tags []string, limit int) ([]types.Document, []types.Summary, error)
 	ChapterSummariesByDocumentIDs(ctx context.Context, docIDs []string) (map[string][]types.Summary, error)
 	ListSourcesByChapterPaths(ctx context.Context, paths []string) ([]types.Summary, error)
 	SearchColdByQuery(ctx context.Context, query string, limit int) ([]types.ColdSearchHit, error)
+	// ApproxColdIndexEntries returns the cold index size hint (chapter rows), or 0 if unavailable.
+	ApproxColdIndexEntries() int
 }
 
 // ITagGroupService defines tag grouping business logic

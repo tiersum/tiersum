@@ -27,6 +27,23 @@ export const apiClient = {
         }
     },
 
+    /** Plain-text GET (e.g. Prometheus exposition at /api/v1/metrics). */
+    async requestText(endpoint, options = {}) {
+        const url = `${this.baseURL}${endpoint}`;
+        const response = await fetch(url, {
+            headers: {
+                Accept: 'text/plain; version=0.0.4, */*',
+                ...options.headers
+            },
+            ...options
+        });
+        if (!response.ok) {
+            const t = await response.text().catch(() => '');
+            throw new Error(t || response.statusText || `HTTP ${response.status}`);
+        }
+        return await response.text();
+    },
+
     getDocuments: () => apiClient.request('/api/v1/documents').then(r => r.documents || []),
     getDocument: (id) => apiClient.request(`/api/v1/documents/${id}`),
     getDocumentSummaries: (id) => apiClient.request(`/api/v1/documents/${id}/summaries`).then(r => r.summaries || []),
@@ -41,4 +58,7 @@ export const apiClient = {
     getTags: () => apiClient.request('/api/v1/tags').then(r => r.tags || []),
     getTagGroups: () => apiClient.request('/api/v1/tags/groups').then(r => r.groups || []),
     triggerTagGrouping: () => apiClient.request('/api/v1/tags/group', { method: 'POST' }),
+
+    getMonitoring: () => apiClient.request('/api/v1/monitoring'),
+    getMetricsText: () => apiClient.requestText('/api/v1/metrics'),
 };

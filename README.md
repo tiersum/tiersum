@@ -66,7 +66,7 @@ TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 - ✅ Stored in database with tiered summaries
 - ⚡ Requires quota (100/hour default)
 
-**Criteria**: Quota available AND (force_hot OR has prebuilt summaries OR content > 5000 chars)
+**Criteria (ingest_mode `auto`)**: prebuilt summary+chapters OR (quota available AND content > 5000 chars). Override with `ingest_mode`: `hot` or `cold`.
 
 ### Cold Documents (Efficient Storage)
 - ✅ Minimal processing, no LLM analysis
@@ -212,7 +212,7 @@ curl -X POST http://localhost:8080/api/v1/documents \
     "title": "Kubernetes Architecture",
     "content": "# Kubernetes Architecture\n\n## Control Plane...",
     "format": "markdown",
-    "force_hot": true  # Force full LLM analysis
+    "ingest_mode": "hot"   # optional: auto (default) | hot | cold
   }'
 
 # Progressive query (recommended) - searches both hot and cold docs

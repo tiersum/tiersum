@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -145,6 +146,20 @@ func (m *mockRetrieval) ListChapterSummariesForDocument(ctx context.Context, doc
 	return nil, m.err
 }
 
+func (m *mockRetrieval) MarkdownChaptersForDocument(ctx context.Context, doc *types.Document) ([]types.DocumentMarkdownChapter, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if doc == nil || strings.TrimSpace(doc.Content) == "" {
+		return nil, nil
+	}
+	return []types.DocumentMarkdownChapter{{
+		Path:    doc.ID + "/body",
+		Title:   doc.Title,
+		Content: doc.Content,
+	}}, nil
+}
+
 func (m *mockRetrieval) HotDocumentsWithDocSummaries(ctx context.Context, tags []string, limit int) ([]types.Document, []types.Summary, error) {
 	return nil, nil, m.err
 }
@@ -162,6 +177,10 @@ func (m *mockRetrieval) ListSourcesByChapterPaths(ctx context.Context, paths []s
 
 func (m *mockRetrieval) SearchColdByQuery(ctx context.Context, query string, limit int) ([]types.ColdSearchHit, error) {
 	return nil, m.err
+}
+
+func (m *mockRetrieval) ApproxColdIndexEntries() int {
+	return 0
 }
 
 func setupTestHandler() (*Handler, *gin.Engine) {
@@ -206,6 +225,40 @@ func TestCreateDocument(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "Test Document", resp.Title)
 	assert.NotEmpty(t, resp.ID)
+}
+
+func TestGetMonitoring(t *testing.T) {
+	_, router := setupTestHandler()
+
+	w := httptest.NewRecorder()
+	httpReq, _ := http.NewRequest("GET", "/api/v1/monitoring", nil)
+	router.ServeHTTP(w, httpReq)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+	var body map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &body)
+	require.NoError(t, err)
+	assert.Contains(t, body, "server")
+	assert.Contains(t, body, "documents")
+	assert.Contains(t, body, "quota")
+	assert.Contains(t, body, "cold_index")
+}
+
+func TestCreateDocument_InvalidIngestMode(t *testing.T) {
+	_, router := setupTestHandler()
+
+	req := types.CreateDocumentRequest{
+		Title:      "Bad",
+		Content:    "c",
+		Format:     "markdown",
+		IngestMode: "warm",
+	}
+	body, _ := json.Marshal(req)
+	w := httptest.NewRecorder()
+	httpReq, _ := http.NewRequest("POST", "/api/v1/documents", bytes.NewBuffer(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, httpReq)
+	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestProgressiveQuery(t *testing.T) {

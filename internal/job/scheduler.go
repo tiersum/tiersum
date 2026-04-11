@@ -7,11 +7,16 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+
+	"github.com/tiersum/tiersum/pkg/types"
 )
 
 // PromoteQueue is a buffered channel for document promotion requests
 // When a cold document is accessed 3+ times, its ID is sent to this queue
 var PromoteQueue = make(chan string, 100)
+
+// HotIngestQueue carries hot documents that need LLM analysis and indexing after the row is persisted.
+var HotIngestQueue = make(chan types.HotIngestWork, 100)
 
 // Scheduler manages and executes scheduled jobs
 type Scheduler struct {

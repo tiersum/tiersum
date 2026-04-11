@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -95,6 +96,19 @@ func (h *Handler) ExecuteGetDocumentChapters(ctx context.Context, docID string) 
 			"title":   title,
 			"summary": s.Content,
 		})
+	}
+	if len(out) == 0 {
+		fallback, ferr := h.Retrieval.MarkdownChaptersForDocument(ctx, doc)
+		if ferr != nil {
+			h.Logger.Warn("markdown chapters fallback failed", zap.String("id", docID), zap.Error(ferr))
+		}
+		for _, c := range fallback {
+			out = append(out, gin.H{
+				"path":    c.Path,
+				"title":   c.Title,
+				"summary": c.Content,
+			})
+		}
 	}
 	return http.StatusOK, gin.H{"document_id": docID, "chapters": out}
 }
@@ -304,6 +318,63 @@ func (h *Handler) ExecuteColdDocSource(ctx context.Context, terms []string, maxR
 		items = append(items, entry)
 	}
 	return http.StatusOK, gin.H{"items": items}
+}
+
+// ExecuteMonitoring matches GET /api/v1/monitoring — JSON snapshot for dashboards (not Prometheus format).
+func (h *Handler) ExecuteMonitoring(ctx context.Context) (int, any) {
+	docCounts := map[string]int{
+		"total":   0,
+		"hot":     0,
+		"cold":    0,
+		"warming": 0,
+	}
+	docs, err := h.DocService.List(ctx)
+	if err != nil {
+		h.Logger.Warn("monitoring: list documents", zap.Error(err))
+	} else {
+		for _, d := range docs {
+			docCounts["total"]++
+			switch d.Status {
+			case types.DocStatusHot:
+				docCounts["hot"]++
+			case types.DocStatusCold:
+				docCounts["cold"]++
+			case types.DocStatusWarming:
+				docCounts["warming"]++
+			}
+		}
+	}
+
+	var quota any
+	if h.Quota == nil {
+		quota = gin.H{"used": 0, "total": 100, "reset_at": nil}
+	} else {
+		used, total, resetAt := h.Quota.GetQuota()
+		var resetStr any
+		if !resetAt.IsZero() {
+			resetStr = resetAt.UTC().Format(time.RFC3339)
+		} else {
+			resetStr = nil
+		}
+		quota = gin.H{"used": used, "total": total, "reset_at": resetStr}
+	}
+
+	coldApprox := 0
+	if h.Retrieval != nil {
+		coldApprox = h.Retrieval.ApproxColdIndexEntries()
+	}
+
+	return http.StatusOK, gin.H{
+		"server": gin.H{
+			"version": moduleVersion(),
+		},
+		"documents": docCounts,
+		"cold_index": gin.H{
+			"approx_chapters": coldApprox,
+		},
+		"quota":                   quota,
+		"prometheus_metrics_path": "/api/v1/metrics",
+	}
 }
 
 // ExecuteGetQuota matches GET /api/v1/quota.

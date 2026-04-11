@@ -17,17 +17,14 @@ export const DocumentDetailPage = {
         };
     },
     computed: {
-        isCold() {
-            return this.doc?.status === 'cold';
-        },
         docSummaryRecord() {
             return this.summaries.find(s => s.tier === 'document');
         },
         docSummaryText() {
             return (this.docSummaryRecord?.content || '').trim();
         },
-        showSummaryTab() {
-            if (!this.doc || this.isCold) return false;
+        /** True when chapter nav has more than a single implicit placeholder (or has overview). */
+        hasChapterSidebar() {
             return this.docSummaryText.length > 0 || (this.chapters && this.chapters.length > 0);
         },
         activeChapter() {
@@ -39,7 +36,7 @@ export const DocumentDetailPage = {
                 return this.docSummaryText || '_No document-level summary._';
             }
             const ch = this.activeChapter;
-            return (ch?.summary || '').trim() || '_No summary for this section._';
+            return (ch?.summary || '').trim() || '_No content for this section._';
         }
     },
     watch: {
@@ -47,6 +44,11 @@ export const DocumentDetailPage = {
             immediate: true,
             handler() {
                 this.load();
+            }
+        },
+        '$route.query.path'() {
+            if (this.doc && !this.loading) {
+                this.applyRouteChapterSelection();
             }
         }
     },
@@ -68,17 +70,7 @@ export const DocumentDetailPage = {
                 this.summaries = summaries;
                 this.chapters = chapters;
                 this.applyDefaultView();
-                if (this.showSummaryTab) {
-                    if (this.docSummaryText) {
-                        this.selectedNav = 'overview';
-                    } else if (this.chapters.length) {
-                        this.selectedNav = this.chapters[0].path;
-                    } else {
-                        this.selectedNav = 'overview';
-                    }
-                } else {
-                    this.selectedNav = 'overview';
-                }
+                this.applyRouteChapterSelection();
             } catch (e) {
                 this.loadError = e.message || String(e);
             } finally {
@@ -86,15 +78,86 @@ export const DocumentDetailPage = {
             }
         },
         applyDefaultView() {
-            if (this.isCold) {
-                this.viewMode = 'source';
-                return;
-            }
-            if (!this.showSummaryTab) {
-                this.viewMode = 'source';
-                return;
-            }
             this.viewMode = 'summary';
+        },
+
+        /** Pick section from `?path=` (full chapter path as in search / API) or sensible default. */
+        applyRouteChapterSelection() {
+            const raw = this.$route.query.path;
+            if (raw === undefined || raw === null || raw === '') {
+                this.setDefaultChapterNav();
+                return;
+            }
+            const want = (Array.isArray(raw) ? raw[0] : String(raw)).trim();
+            if (!want) {
+                this.setDefaultChapterNav();
+                return;
+            }
+            let decoded = want;
+            try {
+                decoded = decodeURIComponent(want);
+            } catch {
+                /* keep want */
+            }
+            decoded = decoded.trim();
+            this.viewMode = 'summary';
+
+            if (decoded === 'overview') {
+                if (this.docSummaryText) {
+                    this.selectedNav = 'overview';
+                } else {
+                    this.setDefaultChapterNav();
+                }
+                return;
+            }
+
+            const norm = (p) => String(p || '').replace(/\\/g, '/').trim();
+            const dWant = norm(decoded);
+
+            const exact = this.chapters.find((c) => norm(c.path) === dWant);
+            if (exact) {
+                this.selectedNav = exact.path;
+                return;
+            }
+
+            const docId = this.id || '';
+            if (docId && dWant.startsWith(`${docId}/`)) {
+                const rel = dWant.slice(docId.length + 1);
+                const byRel = this.chapters.find((c) => {
+                    const p = norm(c.path);
+                    const suffix = p.startsWith(`${docId}/`) ? p.slice(docId.length + 1) : p;
+                    return suffix === rel;
+                });
+                if (byRel) {
+                    this.selectedNav = byRel.path;
+                    return;
+                }
+            }
+
+            const wantLast = dWant.split('/').filter(Boolean).pop();
+            if (wantLast) {
+                const byLast = this.chapters.find((c) => {
+                    const p = norm(c.path);
+                    const last = p.split('/').filter(Boolean).pop();
+                    return last === wantLast || norm(c.title) === wantLast;
+                });
+                if (byLast) {
+                    this.selectedNav = byLast.path;
+                    return;
+                }
+            }
+
+            this.setDefaultChapterNav();
+        },
+
+        setDefaultChapterNav() {
+            if (this.docSummaryText) {
+                this.selectedNav = 'overview';
+            } else if (this.chapters.length) {
+                this.selectedNav = this.chapters[0].path;
+            } else {
+                this.selectedNav = 'overview';
+            }
         },
         renderMd(text) {
             return parseMarkdownOrError(text, '<p class="text-red-400">Failed to render markdown.</p>');
@@ -103,7 +166,6 @@ export const DocumentDetailPage = {
             this.selectedNav = key;
         },
         setViewMode(mode) {
-            if (mode === 'summary' && (this.isCold || !this.showSummaryTab)) return;
             this.viewMode = mode;
         },
         goBack() {
@@ -141,15 +203,12 @@ export const DocumentDetailPage = {
                                 <span v-if="doc.tags?.length" class="text-slate-500">{{ doc.tags.join(', ') }}</span>
                             </div>
                         </div>
-                        <div v-if="isCold" class="shrink-0">
-                            <span class="badge badge-lg badge-info">Cold document — full text</span>
-                        </div>
-                        <div v-else-if="showSummaryTab" class="shrink-0 join">
+                        <div class="shrink-0 join">
                             <button type="button"
                                 class="btn btn-sm join-item"
                                 :class="viewMode === 'summary' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
                                 @click="setViewMode('summary')">
-                                Summary
+                                Chapters
                             </button>
                             <button type="button"
                                 class="btn btn-sm join-item"
@@ -160,20 +219,11 @@ export const DocumentDetailPage = {
                         </div>
                     </div>
 
-                    <div v-if="isCold" class="card bg-slate-900/50 border border-slate-800">
-                        <div class="card-body">
-                            <h2 class="text-lg font-semibold text-slate-200 mb-4">Original</h2>
-                            <div class="prose prose-invert max-w-none prose-headings:text-slate-100 prose-p:text-slate-300 border-t border-slate-800 pt-4">
-                                <div v-html="renderMd(doc.content || '')"></div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div v-else-if="viewMode === 'summary' && showSummaryTab" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                        <aside class="lg:col-span-3">
+                    <div v-if="viewMode === 'summary'" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                        <aside v-if="hasChapterSidebar" class="lg:col-span-3">
                             <div class="card bg-slate-900/50 border border-slate-800 lg:sticky lg:top-24">
                                 <div class="card-body p-4">
-                                    <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Chapters</h2>
+                                    <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Sections</h2>
                                     <nav class="flex flex-col gap-1">
                                         <button
                                             v-if="docSummaryText"
@@ -193,15 +243,14 @@ export const DocumentDetailPage = {
                                             {{ ch.title || ch.path }}
                                         </button>
                                     </nav>
-                                    <p v-if="!docSummaryText && chapters.length === 0" class="text-sm text-slate-500 mt-2">No structured summary yet.</p>
                                 </div>
                             </div>
                         </aside>
-                        <div class="lg:col-span-9">
+                        <div :class="hasChapterSidebar ? 'lg:col-span-9' : 'lg:col-span-12'">
                             <div class="card bg-slate-900/50 border border-slate-800 min-h-[320px]">
                                 <div class="card-body">
                                     <h2 class="text-lg font-semibold text-slate-200 mb-2">
-                                        {{ selectedNav === 'overview' ? 'Document summary' : (activeChapter?.title || 'Chapter') }}
+                                        {{ selectedNav === 'overview' ? 'Document summary' : (activeChapter?.title || 'Section') }}
                                     </h2>
                                     <div class="prose prose-invert max-w-none prose-headings:text-slate-100 prose-p:text-slate-300 border-t border-slate-800 pt-4">
                                         <div v-html="renderMd(summaryBodyMarkdown)"></div>
