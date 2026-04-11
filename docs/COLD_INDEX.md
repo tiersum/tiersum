@@ -1,6 +1,6 @@
 # Cold document index: algorithms and design
 
-This document describes the **core algorithms** for cold-document **chapter extraction**, **dual indexing** (BM25 + dense vectors), and **hybrid retrieval**. It complements the endpoint-oriented notes in [CORE_API_FLOWS.md](CORE_API_FLOWS.md). When in doubt, **source code is authoritative** (`internal/storage/memory/`).
+This document describes the **core algorithms** for cold-document **chapter extraction**, **dual indexing** (BM25 + dense vectors), and **hybrid retrieval**. It complements the endpoint-oriented notes in [CORE_API_FLOWS.md](CORE_API_FLOWS.md). When in doubt, **source code is authoritative** (`internal/storage/coldindex/`).
 
 **中文版：** [COLD_INDEX_zh.md](COLD_INDEX_zh.md)
 
@@ -8,7 +8,7 @@ This document describes the **core algorithms** for cold-document **chapter extr
 
 ## 1. Role and contracts
 
-- **Cold documents** are stored in the DB with `status = cold` and ingested into an in-memory **`storage.IColdIndex`** implementation (`memory.Index`).
+- **Cold documents** are stored in the DB with `status = cold` and ingested into an in-memory **`storage.IColdIndex`** implementation (`coldindex.Index`).
 - The index exposes **documents + plain-text search** only; ranking details are internal. See `internal/storage/interface.go` (`IColdIndex`, `ColdIndexHit`).
 - **No full LLM analysis** on the cold ingest path; optional **text embeddings** (MiniLM or simple fallback) feed the vector side of search.
 
@@ -16,7 +16,7 @@ This document describes the **core algorithms** for cold-document **chapter extr
 
 ## 2. Chapter extraction (markdown → cold chapters)
 
-**Primary code:** `internal/storage/memory/chapter_split.go`, `chapter_split_stride.go`, splitter tests under `internal/storage/memory/*_test.go`.
+**Primary code:** `internal/storage/coldindex/chapter_split.go`, `chapter_split_stride.go`, splitter tests under `internal/storage/coldindex/*_test.go`.
 
 ### 2.1 Parse tree
 
@@ -55,7 +55,7 @@ Used when a single logical body still exceeds **`maxTokens`** after tree logic.
 
 ## 3. Dual indexing (per chapter row)
 
-**Primary code:** `internal/storage/memory/index.go`, `inverted_bleve.go`, `vector_hnsw.go`.
+**Primary code:** `internal/storage/coldindex/index.go`, `inverted_bleve.go`, `vector_hnsw.go`.
 
 ### 3.1 Row model
 
@@ -72,7 +72,7 @@ Each indexed unit is one **cold chapter** (not whole document):
 ### 3.3 HNSW (vector)
 
 - **Graph key** = same chapter path string; **vector** = embedding of chapter body (same dimension as `types.ColdEmbeddingVectorDimension`).
-- **Cosine** distance; **`M`** / **`EfSearch`** from `memory_index` config (`NewIndex` + HNSW tuning).
+- **Cosine** distance; **`M`** / **`EfSearch`** from defaults in `NewIndex` (not yet viper-driven).
 
 ### 3.4 `AddDocument` pipeline
 
@@ -133,8 +133,8 @@ Each indexed unit is one **cold chapter** (not whole document):
 | `cold_index.search.branch_recall_multiplier` | `recall = topK * multiplier` before floor/ceiling |
 | `cold_index.search.branch_recall_floor` | Minimum branch recall |
 | `cold_index.search.branch_recall_ceiling` | Maximum branch recall |
-| `memory_index.embedding.*` | Cold text embedder (MiniLM / simple / auto) and ONNX paths |
-| `memory_index.hnsw_*` | HNSW graph parameters |
+| `cold_index.embedding.*` | Cold text embedder (MiniLM / simple / auto) and ONNX paths |
+| *(no viper keys yet)* | HNSW `M` / `EfSearch` use defaults in `internal/storage/coldindex/index.go` |
 
 See `configs/config.example.yaml`.
 
@@ -144,9 +144,9 @@ See `configs/config.example.yaml`.
 
 | Asset | Purpose |
 |-------|---------|
-| `internal/storage/memory/testdata/chapter_split_boundaries/*.input.md` + `*.golden.json` | Golden **boundary** cases (no parent / parent / nested + sliding); run `TestChapterSplitBoundaryGolden`; regenerate with `UPDATE_CHAPTER_SPLIT_GOLDEN=1` |
-| `internal/storage/memory/chapter_split_sliding_test.go` | Sliding overlap and stride override |
-| `internal/storage/memory/index_chapter_test.go` | Index add / merge key / stub splitter |
+| `internal/storage/coldindex/testdata/chapter_split_boundaries/*.input.md` + `*.golden.json` | Golden **boundary** cases (no parent / parent / nested + sliding); run `TestChapterSplitBoundaryGolden`; regenerate with `UPDATE_CHAPTER_SPLIT_GOLDEN=1` |
+| `internal/storage/coldindex/chapter_split_sliding_test.go` | Sliding overlap and stride override |
+| `internal/storage/coldindex/index_chapter_test.go` | Index add / merge key / stub splitter |
 | `TestSplitMarkdown_KafkaZkEtcdFixtures_IO` | Optional bulk IO under `testdata/split_io_out/` (skipped if <10 `.md` in `testdata/`) |
 
 ---
@@ -172,4 +172,4 @@ See `configs/config.example.yaml`.
 
 ---
 
-*Last updated to match cold-index behavior in `internal/storage/memory`; treat code as the source of truth if this document drifts.*
+*Last updated to match cold-index behavior in `internal/storage/coldindex`; treat code as the source of truth if this document drifts.*

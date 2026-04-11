@@ -1,4 +1,4 @@
-package memory
+package coldindex
 
 import (
 	"github.com/blevesearch/bleve/v2"

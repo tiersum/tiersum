@@ -1,5 +1,5 @@
 # TierSum Configuration
-# Copy from config.example.yaml and modify as needed
+# Structure matches configs/config.example.yaml; adjust values for your environment.
 
 server:
   port: 8080
@@ -42,27 +42,41 @@ summarization:
   workers: 4
   batch_size: 10
 
-# Storage configuration
 storage:
   database:
-    # Driver: sqlite3 (default) or postgres
     driver: sqlite3
-    # For SQLite: file path
-    # For PostgreSQL: connection string
     dsn: ./data/tiersum.db
-    # PostgreSQL specific settings (ignored for SQLite)
     max_connections: 20
     min_connections: 5
 
-  # Local cache settings
   cache:
     ttl: 1h
     max_size: 10000
+
+quota:
+  per_hour: 100
+
+# Same shape as config.example.yaml (cold_index.embedding.* is read by the server).
+cold_index:
+  markdown:
+    chapter_max_tokens: 512
+    sliding_stride_tokens: 100
+  search:
+    branch_recall_multiplier: 2
+    branch_recall_floor: 20
+    branch_recall_ceiling: 200
+  embedding:
+    provider: auto
+    # Apple Silicon (arm64). Intel Mac: third_party/onnxruntime/darwin_amd64/lib/libonnxruntime.dylib
+    onnx_runtime_path: third_party/onnxruntime/darwin_arm64/lib/libonnxruntime.dylib
+    minilm_model_path: third_party/minilm/model.onnx
+    minilm_tokenizer_path: ""
 
 mcp:
   enabled: true
   transport: sse
   path: /mcp/sse
+  base_url: ""
   allowed_tools: []
 
 documents:
@@ -74,6 +88,9 @@ documents:
     enabled: true
     max_chunk_size: 10000
     overlap: 200
+  tiering:
+    hot_content_threshold: 5000
+    cold_promotion_threshold: 3
 
 logging:
   level: info
@@ -88,6 +105,7 @@ security:
   token_expiry: 24h
 
 features:
-  incremental_updates: true
+  incremental_updates: false
   auto_convert: false
   web_ui: false
+  cold_doc_search: true

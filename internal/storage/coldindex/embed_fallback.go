@@ -1,16 +1,16 @@
-package memory
+package coldindex
 
 import (
 	"context"
 
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/storage/memory/coldvec"
+	"github.com/tiersum/tiersum/internal/storage/coldindex/coldvec"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
 // FallbackColdTextEmbedding returns a vector of length types.ColdEmbeddingVectorDimension.
-// On nil embedder, error, or wrong length, it uses the deterministic hash projection (memory/coldvec).
+// On nil embedder, error, or wrong length, it uses the deterministic hash projection (coldvec).
 func FallbackColdTextEmbedding(ctx context.Context, logger *zap.Logger, emb IColdTextEmbedder, text string) []float32 {
 	if emb == nil {
 		return coldvec.SimpleHashEmbedding(text, types.ColdEmbeddingVectorDimension)

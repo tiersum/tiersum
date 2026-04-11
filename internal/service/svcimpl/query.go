@@ -196,7 +196,7 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 	return results, steps, nil
 }
 
-// queryColdPath performs the cold document query path (in-memory cold index).
+// queryColdPath performs the cold document query path (cold index search).
 func (s *QuerySvc) queryColdPath(ctx context.Context, req types.ProgressiveQueryRequest) ([]types.QueryItem, types.ProgressiveQueryStep, error) {
 	start := time.Now()
 
@@ -711,7 +711,7 @@ func (s *QuerySvc) queryAndFilterChapters(ctx context.Context, query string, doc
 }
 
 // createColdDocumentChapter returns the full cold document body as one chapter (no keyword snippet).
-// Progressive cold hits come from the memory index with per-chapter paths; this path is for hot-path chapter filtering only.
+// Progressive cold hits come from the cold index with per-chapter paths; this path is for hot-path chapter filtering only.
 func (s *QuerySvc) createColdDocumentChapter(doc types.Document, query string) *types.Summary {
 	_ = query
 	return &types.Summary{

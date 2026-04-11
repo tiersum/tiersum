@@ -1,9 +1,9 @@
-package memory
+package coldindex
 
 import (
 	"context"
 
-	"github.com/tiersum/tiersum/internal/storage/memory/coldvec"
+	"github.com/tiersum/tiersum/internal/storage/coldindex/coldvec"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 

@@ -66,7 +66,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 	router.GET("/tags/groups", h.ListTagGroups)
 	router.POST("/tags/group", h.TriggerTagGroup)
 
-	// Hot / cold retrieval (summaries and sources; cold uses memory index, not tags)
+	// Hot / cold retrieval (summaries and sources; cold uses cold index, not tags)
 	hot := router.Group("/hot")
 	{
 		hot.GET("/doc_summaries", h.HotDocSummaries)

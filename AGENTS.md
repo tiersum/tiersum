@@ -122,7 +122,7 @@ internal/
       migrator.go            # Schema migration manager
     cache/                   # Cache implementation
       cache.go               # Cache implements ICache
-    memory/                  # Cold in-memory index: chapter split, BM25 (Bleve), vectors (HNSW), cold text embed
+    coldindex/               # Cold document index: chapter split, BM25 (Bleve), vectors (HNSW), cold text embedders
       index.go               # storage.IColdIndex impl (documents + text Search); SetTextEmbedder optional for internal vectors
       chapter_split.go       # IColdChapterSplitter, MarkdownSplitter, IColdTextEmbedder contract
       coldvec/               # Deterministic hash embedding fallback (no imports from service/api)
@@ -304,8 +304,7 @@ llm:
 | `llm`               | OpenAI/Anthropic/Local provider settings       |
 | `storage.database`  | SQLite (default) or PostgreSQL                 |
 | `quota`             | Hot document rate limiting (default: 100/hour) |
-| `cold_index`        | Cold markdown chapter split (`markdown.chapter_max_tokens`, `markdown.sliding_stride_tokens`) and hybrid branch recall (`search.branch_recall_*`) |
-| `memory_index`      | Cold embedding provider (`embedding`: `auto` \| `simple` \| `minilm`) and HNSW numeric params (`hnsw_*`) |
+| `cold_index`        | Cold index: markdown chapter split (`markdown.*`), hybrid search pool (`search.branch_recall_*`), vector-branch embedder (`embedding.*`) |
 | `documents.tiering` | Hot/cold thresholds                            |
 | `mcp`               | MCP protocol settings                          |
 
@@ -401,7 +400,7 @@ func TestFeature(t *testing.T) {
 ### Document Status
 
 - `**hot**` - Full LLM analysis, tagged, indexed with summaries (requires quota)
-- `**cold**` - Minimal processing, stored in memory index with BM25 + vector search
+- `**cold**` - Minimal processing, indexed in cold index (BM25 + vector search)
 - `**warming**` - Being promoted from cold to hot (async process)
 
 ### Hot Document Criteria
@@ -419,11 +418,11 @@ A document becomes hot when:
 ```
 Ingest (cold)
     ↓
-Text embedding (memory_index.embedding: disk MiniLM via `minilm_model_path` / `fetch-minilm` + ONNX Runtime, else simple hash when MiniLM unavailable)
+Text embedding (`cold_index.embedding`: disk MiniLM via `minilm_model_path` / `fetch-minilm` + ONNX Runtime, else simple hash when MiniLM unavailable)
     ↓
-Markdown chapter split (`memory.IColdChapterSplitter` in `internal/storage/memory`, token budget `cold_index.markdown.chapter_max_tokens`)
+Markdown chapter split (`coldindex.IColdChapterSplitter` in `internal/storage/coldindex`, token budget `cold_index.markdown.chapter_max_tokens`)
     ↓
-Add to Memory Index (Bleve + HNSW) — one row per cold chapter (`document_id` + `path`)
+Add to cold index (Bleve + HNSW) — one row per cold chapter (`document_id` + `path`)
     ↓
 Query via BM25 + Vector hybrid search
     ↓
@@ -477,7 +476,7 @@ The **embedded Vue UI** (`cmd/web/js/`) uses a subset of these routes; see **`cm
 | GET    | `/api/v1/hot/doc_summaries`       | Hot/warming docs matching `tags`; document-level summary only (`tags`, `max_results`) |
 | GET    | `/api/v1/hot/doc_chapters`        | Chapter summaries for `doc_ids` (comma-separated, `max_results` caps doc count)       |
 | GET    | `/api/v1/hot/doc_source`          | Original text for `chapter_paths` (comma-separated, `max_results`)                    |
-| GET    | `/api/v1/cold/doc_source`         | Cold chapter hits via memory index (`q` comma-separated terms, `max_results`; JSON includes `path` per chapter) |
+| GET    | `/api/v1/cold/doc_source`         | Cold chapter hits via cold index (`q` comma-separated terms, `max_results`; JSON includes `path` per chapter) |
 | POST   | `/api/v1/tags/group`              | Trigger tag grouping                                                                  |
 | GET    | `/api/v1/quota`                   | Check quota status                                                                    |
 | GET    | `/api/v1/metrics`                 | Prometheus metrics                                                                    |
@@ -579,8 +578,8 @@ Default setup uses SQLite with volume-mounted data directory.
 | `internal/service/svcimpl`         | Service implementations                                         |
 | `internal/storage/interface.go`    | Storage interfaces (I-prefix)                                   |
 | `internal/storage/db`              | Repository implementations                                      |
-| `internal/storage/memory/index.go` | BM25 + Vector hybrid index over cold **chapters** (`storage.IColdIndex`) |
-| `internal/storage/memory/chapter_split.go` | `memory.IColdChapterSplitter`, `memory.IColdTextEmbedder`, default markdown tree / token merge |
+| `internal/storage/coldindex/index.go` | BM25 + Vector hybrid index over cold **chapters** (`storage.IColdIndex`) |
+| `internal/storage/coldindex/chapter_split.go` | `coldindex.IColdChapterSplitter`, `coldindex.IColdTextEmbedder`, default markdown tree / token merge |
 | `internal/di/container.go`         | Dependency injection / composition root                         |
 | `internal/service/svcimpl/retrieval.go` | `IRetrievalService`: API-only read facade over repos + cold index |
 | `internal/client/llm/factory.go`   | LLM provider factory (dynamic selection)                        |
@@ -595,8 +594,8 @@ Default setup uses SQLite with volume-mounted data directory.
 | `docs/CORE_API_FLOWS.md`           | Core REST API algorithms and call flows (non-trivial endpoints) |
 | `docs/COLD_INDEX.md`               | Cold index **core algorithms** (English): chapter extraction, Bleve+HNSW, hybrid merge, config |
 | `docs/COLD_INDEX_zh.md`            | 同上，**中文**设计说明 |
-| `internal/storage/memory/embed_*.go` | MiniLM / simple cold embeddings; `memory.NewTextEmbedderFromViper`, `memory.FallbackColdTextEmbedding` |
-| `internal/storage/memory/coldvec/`   | Deterministic hash embedding (cold index fallback)                 |
+| `internal/storage/coldindex/embed_*.go` | MiniLM / simple cold embeddings; `coldindex.NewTextEmbedderFromViper`, `coldindex.FallbackColdTextEmbedding` |
+| `internal/storage/coldindex/coldvec/`   | Deterministic hash embedding (cold index fallback)                 |
 | `third_party/minilm/README.md`     | Fetching MiniLM `model.onnx` + `tokenizer.json` (gitignored)       |
 | `third_party/onnxruntime/README.md`| Vendoring ONNX Runtime libs (gitignored)                            |
 
@@ -625,12 +624,12 @@ Default setup uses SQLite with volume-mounted data directory.
 
 **Cold document search not working:**
 
-- Check memory index loaded on startup (see startup logs)
+- Check cold index loaded on startup (see startup logs)
 - Verify documents have `status: cold` in database
 
 **MiniLM / cold semantic embeddings not loading:**
 
 - Run `make fetch-onnxruntime` and `make fetch-minilm` from repo root (or use Docker image, which bundles both)
-- Ensure `memory_index.embedding.minilm_model_path` and `onnx_runtime_path` match your OS (defaults in `configs/config.example.yaml`; paths resolve against process working directory)
+- Ensure `cold_index.embedding.minilm_model_path` and `onnx_runtime_path` match your OS (defaults in `configs/config.example.yaml`; paths resolve against process working directory)
 - With `provider: auto`, a failed MiniLM init falls back to simple hash embeddings (check logs for the message)
 

@@ -75,7 +75,7 @@ TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 - ✅ Automatic promotion after 3+ queries
 - ⚡ No quota consumption
 
-**Storage**: In-memory index with 384-dim embeddings
+**Storage**: Cold index (in-process) with 384-dim embeddings for the vector branch
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -170,14 +170,14 @@ storage:
 
 ### Cold embeddings (MiniLM + ONNX Runtime)
 
-Semantic vectors for the **cold** memory index use **all-MiniLM-L6-v2** ONNX files on disk plus the **ONNX Runtime** shared library (nothing is `go:embed`’d for the neural model). Defaults in `configs/config.example.yaml` point at `third_party/...` after:
+Semantic vectors for the **cold** index use **all-MiniLM-L6-v2** ONNX files on disk plus the **ONNX Runtime** shared library (nothing is `go:embed`’d for the neural model). Defaults in `configs/config.example.yaml` point at `third_party/...` after:
 
 ```bash
 make fetch-onnxruntime   # ONNX .so / .dylib per platform
 make fetch-minilm        # model.onnx + tokenizer.json from Hugging Face
 ```
 
-Large artifacts are **gitignored**; run the commands above locally or in CI. The **Dockerfile** runs the same **`make fetch-onnxruntime`** and **`make fetch-minilm`** inside the image (same scripts and default versions as on your machine), then sets `onnx_runtime_path` in the baked `config.yaml` to the matching `third_party/onnxruntime/linux_*` library. If MiniLM fails to load and `memory_index.embedding.provider` is `auto`, TierSum falls back to simple hash embeddings.
+Large artifacts are **gitignored**; run the commands above locally or in CI. The **Dockerfile** runs the same **`make fetch-onnxruntime`** and **`make fetch-minilm`** inside the image (same scripts and default versions as on your machine), then sets `onnx_runtime_path` in the baked `config.yaml` to the matching `third_party/onnxruntime/linux_*` library. If MiniLM fails to load and `cold_index.embedding.provider` is `auto`, TierSum falls back to simple hash embeddings.
 
 See [third_party/onnxruntime/README.md](third_party/onnxruntime/README.md) and [third_party/minilm/README.md](third_party/minilm/README.md).
 
@@ -408,8 +408,8 @@ db/
 │   │   │   └── migrator.go     # Migrations
 │   │   ├── cache/
 │   │   │   └── cache.go        # In-memory cache
-│   │   └── memory/
-│   │       └── index.go        # BM25 + HNSW index
+│   │   └── coldindex/          # Cold doc chapter index (Bleve + HNSW + embedders)
+│   │       └── index.go        # storage.IColdIndex
 │   ├── client/                 # Layer 4: External dependencies
 │   │   ├── interface.go
 │   │   └── llm/

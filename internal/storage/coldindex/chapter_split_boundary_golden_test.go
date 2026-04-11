@@ -1,4 +1,4 @@
-package memory
+package coldindex
 
 import (
 	"encoding/json"
@@ -11,12 +11,13 @@ import (
 )
 
 // Boundary golden fixtures live under testdata/chapter_split_boundaries/:
-//   <stem>.input.md  — markdown input
-//   <stem>.golden.json — expected SplitMarkdown output (same shape as split fixture IO)
+//
+//	<stem>.input.md  — markdown input
+//	<stem>.golden.json — expected SplitMarkdown output (same shape as split fixture IO)
 //
 // Regenerate goldens after intentional splitter changes:
 //
-//	UPDATE_CHAPTER_SPLIT_GOLDEN=1 go test ./internal/storage/memory/ -run TestChapterSplitBoundaryGolden -count=1
+//	UPDATE_CHAPTER_SPLIT_GOLDEN=1 go test ./internal/storage/coldindex/ -run TestChapterSplitBoundaryGolden -count=1
 func TestChapterSplitBoundaryGolden(t *testing.T) {
 	t.Cleanup(func() { SetColdMarkdownSlidingStrideTokens(0) })
 	SetColdMarkdownSlidingStrideTokens(64)

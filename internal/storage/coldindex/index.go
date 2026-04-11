@@ -1,7 +1,7 @@
-// Package memory provides in-memory indexing for cold documents
-// Uses bleve for BM25 text search and hnsw for vector similarity search
-// Supports Chinese text segmentation using gojieba
-package memory
+// Package coldindex implements the cold-document retrieval index: chapter splitting,
+// Bleve BM25 text search, and HNSW vector search (with optional Chinese segmentation via gojieba).
+// The index is held in process memory; persistence of documents is the database layer (storage.IColdIndex).
+package coldindex
 
 import (
 	"context"
@@ -21,7 +21,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/storage"
-	"github.com/tiersum/tiersum/internal/storage/memory/coldvec"
+	"github.com/tiersum/tiersum/internal/storage/coldindex/coldvec"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -66,7 +66,7 @@ type hnswConfig struct {
 	EfSearch int
 }
 
-// Index provides in-memory BM25 + Vector hybrid search for cold documents.
+// Index provides BM25 + vector hybrid search for cold document chapters (Bleve + HNSW).
 // It composes an inverted (Bleve) index and a vector (HNSW) index over chapters from IColdChapterSplitter.
 type Index struct {
 	mu                     sync.RWMutex
@@ -142,7 +142,7 @@ func (t *GojiebaTokenizer) Close() {
 	}
 }
 
-// NewIndex creates a new in-memory index with Chinese text segmentation support
+// NewIndex creates a new cold index with Chinese text segmentation support
 func NewIndex(logger *zap.Logger) (*Index, error) {
 	// Create bleve index mapping with Chinese tokenizer
 	mapping, err := createIndexMapping()
@@ -150,7 +150,7 @@ func NewIndex(logger *zap.Logger) (*Index, error) {
 		return nil, fmt.Errorf("failed to create index mapping: %w", err)
 	}
 
-	// Create in-memory bleve index
+	// Create Bleve inverted index
 	bleveIdx, err := bleve.NewMemOnly(mapping)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create bleve index: %w", err)
@@ -642,7 +642,7 @@ func (idx *Index) Close() error {
 // This is called on startup to load all cold documents
 func (idx *Index) RebuildFromDocuments(ctx context.Context, docs []types.Document) error {
 	start := time.Now()
-	idx.logger.Info("Rebuilding memory index", zap.Int("document_count", len(docs)))
+	idx.logger.Info("Rebuilding cold index", zap.Int("document_count", len(docs)))
 
 	idx.mu.Lock()
 	savedMaxTok := idx.coldChapterMaxTokens
@@ -721,7 +721,7 @@ func (idx *Index) RebuildFromDocuments(ctx context.Context, docs []types.Documen
 	return nil
 }
 
-// GenerateSimpleEmbedding generates a simple embedding for a document (hash projection, memory/coldvec).
+// GenerateSimpleEmbedding generates a simple embedding for a document (hash projection via coldvec).
 func GenerateSimpleEmbedding(content string) []float32 {
 	return coldvec.SimpleHashEmbedding(content, types.ColdEmbeddingVectorDimension)
 }

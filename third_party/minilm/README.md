@@ -24,7 +24,7 @@ Override the Hugging Face repo with `MINILM_HF_REPO=owner/name` if you mirror th
 In `configs/config.yaml`:
 
 ```yaml
-memory_index:
+cold_index:
   embedding:
     provider: auto
     onnx_runtime_path: third_party/onnxruntime/darwin_arm64/lib/libonnxruntime.dylib   # example

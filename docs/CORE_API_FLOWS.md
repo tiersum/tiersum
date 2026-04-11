@@ -32,7 +32,7 @@ This document traces **non-trivial** REST endpoints: anything beyond simple list
 ### 1.3 Cold path
 
 - `status = cold`, empty tags.  
-- `**DocumentSvc**` (cold): `**coldIndex.AddDocument(ctx, doc)**` (`storage.IColdIndex`): implementation splits markdown (`**cold_index.markdown.chapter_max_tokens**` / optional `**memory.Index.SetColdChapterSplitter**`) and indexes content; optional `**memory.Index.SetTextEmbedder**` at startup supplies the same embedding stack as `memory_index.embedding`.  
+- `**DocumentSvc**` (cold): `**coldIndex.AddDocument(ctx, doc)**` (`storage.IColdIndex`): implementation splits markdown (`**cold_index.markdown.chapter_max_tokens**` / optional `**coldindex.Index.SetColdChapterSplitter**`) and indexes content; optional `**coldindex.Index.SetTextEmbedder**` at startup supplies the same embedding stack as `cold_index.embedding`.  
 - If a leaf body still exceeds the token budget, it is split with **sliding windows**: each window is up to the token budget wide; the next window starts **`cold_index.markdown.sliding_stride_tokens`** later (default **100** tokens, same rune/token estimate), so overlap ≈ budget − stride. Paths are parent heading path + **`1`**, **`2`**, …; with no heading path, synthetic **`__root__`** is used (e.g. `docId/__root__/1`).  
 - Persist document via `**DocRepo.Create**`.
 
@@ -54,7 +54,7 @@ Two goroutines run concurrently:
 | Path     | Purpose                                               |
 | -------- | ----------------------------------------------------- |
 | **Hot**  | Tag → document → chapter narrowing with LLM (and DB). |
-| **Cold** | Memory index hybrid search over cold documents.       |
+| **Cold** | Cold index hybrid search over cold documents.       |
 
 
 Results are **merged** (`mergeHotAndColdResults`): hot entries win by document id; duplicate ids boost relevance; sort by relevance; cap at `max_results`.
@@ -80,7 +80,7 @@ Results are **merged** (`mergeHotAndColdResults`): hot entries win by document i
 
 ### 2.3 Cold path (`queryColdPath`)
 
-- If no memory index → empty step.  
+- If no cold index → empty step.  
 - `**QuerySvc**`: `**coldIndex.Search(ctx, question, max_results/2)**` — the index applies optional semantic ranking internally when a text embedder was wired at startup (see §5).  
 - Map each hit to a `**QueryItem**`: `path` and `content` come from the cold index hit (`ColdIndexHit` fields); legacy empty path falls back to `docId/full`. `status=cold`.
 
@@ -123,10 +123,10 @@ Scheduled `**TagGroupJob**` runs the same service on an interval.
 
 **Design (algorithms, indexing, merge, config):** [COLD_INDEX.md](COLD_INDEX.md) · [COLD_INDEX_zh.md](COLD_INDEX_zh.md)（中文）
 
-**Handler:** `ExecuteColdDocSource` → `**IRetrievalService.SearchColdByQuery**` → `**IColdIndex.Search**` (`internal/storage/memory/index.go`).
+**Handler:** `ExecuteColdDocSource` → `**IRetrievalService.SearchColdByQuery**` → `**IColdIndex.Search**` (`internal/storage/coldindex/index.go`).
 
 1. Parse `**q`** as comma-separated terms → single query string.
-2. `**SearchColdByQuery**` maps `**ColdIndexHit**` rows to `**types.ColdSearchHit**` for the HTTP layer. Under the hood, `**IColdIndex.Search(ctx, queryText, topK)**` — if `**memory.Index.SetTextEmbedder**` was called at startup (`cmd/main.go` after `**NewTextEmbedderFromViper**`), the index may rank using additional signals internally; otherwise search is text-only.
+2. `**SearchColdByQuery**` maps `**ColdIndexHit**` rows to `**types.ColdSearchHit**` for the HTTP layer. Under the hood, `**IColdIndex.Search(ctx, queryText, topK)**` — if `**coldindex.Index.SetTextEmbedder**` was called at startup (`cmd/main.go` after `**NewTextEmbedderFromViper**`), the index may rank using additional signals internally; otherwise search is text-only.
 3. Inside `**Search**`, the implementation may merge lexical and optional semantic indexes:
   - Each branch retrieves more candidates than the final **topK** (pool size from **cold_index.search**: `branch_recall_multiplier`, `branch_recall_floor`, `branch_recall_ceiling`), then merge so overlap can surface in the final cut.  
   - Text index branch — each hit is one **cold chapter**; `context` is the **full** chapter text (no keyword windowing).
@@ -156,9 +156,9 @@ No LLM; included because behavior differs from a single-table dump when `group_i
 | Progressive query         | `internal/service/svcimpl/query.go`, `progressive_answer.go`                           |
 | Summaries persistence     | `internal/service/svcimpl/indexer.go`, `internal/storage/db/repository.go`             |
 | Tag grouping              | `internal/service/svcimpl/tag_grouping.go`                                             |
-| Memory index              | `internal/storage/memory/index.go`                                                     |
+| Cold index (Bleve + HNSW)   | `internal/storage/coldindex/index.go`                                                     |
 | Cold index algorithms     | [COLD_INDEX.md](COLD_INDEX.md), [COLD_INDEX_zh.md](COLD_INDEX_zh.md)                    |
-| Cold embeddings           | `memory.NewTextEmbedderFromViper` + `**memory.Index.SetTextEmbedder**` in `cmd/main.go`; `**storage.IColdIndex**` exposes only documents + text `**Search**` / `**ColdIndexHit**` |
+| Cold embeddings           | `coldindex.NewTextEmbedderFromViper` + `**coldindex.Index.SetTextEmbedder**` in `cmd/main.go`; `**storage.IColdIndex**` exposes only documents + text `**Search**` / `**ColdIndexHit**` |
 | Promotion side effect     | `job.PromoteQueue` → `IDocumentMaintenanceService.PromoteColdDocumentByID`; sweep in `svcimpl/document_maintenance.go` |
 
 

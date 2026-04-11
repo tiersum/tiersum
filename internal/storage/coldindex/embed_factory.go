@@ -1,4 +1,4 @@
-package memory
+package coldindex
 
 import (
 	"fmt"
@@ -26,17 +26,17 @@ func resolveEmbeddingFilePath(p string) string {
 	return filepath.Clean(filepath.Join(wd, p))
 }
 
-// NewTextEmbedderFromViper builds an IColdTextEmbedder from memory_index.embedding.* settings.
+// NewTextEmbedderFromViper builds an IColdTextEmbedder from cold_index.embedding.* viper keys.
 //
 // provider:
 //   - "" or "auto" (default): try all-MiniLM-L6-v2 + ONNX Runtime; on init failure use simple hash embedding.
 //   - "simple": legacy hash/n-gram projection only (no ONNX).
 //   - "minilm" or "all-minilm-l6-v2": MiniLM only; startup error if ONNX/model cannot load.
 func NewTextEmbedderFromViper(logger *zap.Logger) (IColdTextEmbedder, error) {
-	p := strings.ToLower(strings.TrimSpace(viper.GetString("memory_index.embedding.provider")))
-	rt := resolveEmbeddingFilePath(viper.GetString("memory_index.embedding.onnx_runtime_path"))
-	modelPath := resolveEmbeddingFilePath(viper.GetString("memory_index.embedding.minilm_model_path"))
-	tokPath := resolveEmbeddingFilePath(viper.GetString("memory_index.embedding.minilm_tokenizer_path"))
+	p := strings.ToLower(strings.TrimSpace(viper.GetString("cold_index.embedding.provider")))
+	rt := resolveEmbeddingFilePath(viper.GetString("cold_index.embedding.onnx_runtime_path"))
+	modelPath := resolveEmbeddingFilePath(viper.GetString("cold_index.embedding.minilm_model_path"))
+	tokPath := resolveEmbeddingFilePath(viper.GetString("cold_index.embedding.minilm_tokenizer_path"))
 
 	tryMiniLM := func() (IColdTextEmbedder, error) {
 		return NewMiniLM(rt, modelPath, tokPath)
@@ -70,7 +70,7 @@ func NewTextEmbedderFromViper(logger *zap.Logger) (IColdTextEmbedder, error) {
 		}
 		return e, nil
 	default:
-		return nil, fmt.Errorf("unknown memory_index.embedding.provider %q (use auto, simple, or minilm)", p)
+		return nil, fmt.Errorf("unknown cold_index.embedding.provider %q (use auto, simple, or minilm)", p)
 	}
 }
 

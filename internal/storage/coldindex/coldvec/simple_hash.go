@@ -1,4 +1,4 @@
-// Package coldvec provides deterministic cold-document text embeddings used by the memory index
+// Package coldvec provides deterministic cold-document text embeddings used by the cold index (HNSW branch fallback).
 // (hash projection fallback when no neural embedder is configured).
 package coldvec
 

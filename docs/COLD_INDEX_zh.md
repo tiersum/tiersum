@@ -1,6 +1,6 @@
 # 冷文档索引：算法与设计
 
-本文说明冷文档 **章节抽取**、**双路索引**（BM25 + 稠密向量）与 **混合检索** 的核心算法，与偏重接口调用链的 [CORE_API_FLOWS.md](CORE_API_FLOWS.md)（英文）互为补充。若有出入，以 **`internal/storage/memory/`** 中的 **源码为准**。
+本文说明冷文档 **章节抽取**、**双路索引**（BM25 + 稠密向量）与 **混合检索** 的核心算法，与偏重接口调用链的 [CORE_API_FLOWS.md](CORE_API_FLOWS.md)（英文）互为补充。若有出入，以 **`internal/storage/coldindex/`** 中的 **源码为准**。
 
 英文版：[COLD_INDEX.md](COLD_INDEX.md)
 
@@ -8,7 +8,7 @@
 
 ## 1. 职责与契约
 
-- **冷文档**在数据库中 `status = cold`，并写入内存中的 **`storage.IColdIndex`** 实现（`memory.Index`）。
+- **冷文档**在数据库中 `status = cold`，并写入内存中的 **`storage.IColdIndex`** 实现（`coldindex.Index`）。
 - 索引对外只暴露 **文档 + 纯文本检索**；具体排序策略为实现细节。契约见 `internal/storage/interface.go`（`IColdIndex`、`ColdIndexHit`）。
 - 冷入库路径 **不做完整 LLM 分析**；可选 **文本向量**（MiniLM 或简单回退）仅服务于检索中的向量分支。
 
@@ -16,7 +16,7 @@
 
 ## 2. 章节抽取（Markdown → 冷章节）
 
-**主要代码：** `internal/storage/memory/chapter_split.go`、`chapter_split_stride.go`，以及 `internal/storage/memory/*_test.go` 中的切分相关测试。
+**主要代码：** `internal/storage/coldindex/chapter_split.go`、`chapter_split_stride.go`，以及 `internal/storage/coldindex/*_test.go` 中的切分相关测试。
 
 ### 2.1 解析树
 
@@ -55,7 +55,7 @@
 
 ## 3. 双路索引（按「章」建库）
 
-**主要代码：** `internal/storage/memory/index.go`、`inverted_bleve.go`、`vector_hnsw.go`。
+**主要代码：** `internal/storage/coldindex/index.go`、`inverted_bleve.go`、`vector_hnsw.go`。
 
 ### 3.1 行模型
 
@@ -72,7 +72,7 @@
 ### 3.3 HNSW（向量）
 
 - **图节点键** = 与 Bleve 相同的章节路径字符串；**向量** = 该章正文的嵌入，维度为 **`types.ColdEmbeddingVectorDimension`**。
-- **余弦**距离；**`M`**、**`EfSearch`** 等来自 `memory_index` 配置（`NewIndex` 与 HNSW 调参）。
+- **余弦**距离；**`M`**、**`EfSearch`** 等目前为 `NewIndex` 内默认值（尚未走 viper）。
 
 ### 3.4 `AddDocument` 流水线
 
@@ -133,8 +133,8 @@
 | `cold_index.search.branch_recall_multiplier` | 分支召回：`recall = topK * multiplier`，再受 floor/ceiling 约束 |
 | `cold_index.search.branch_recall_floor` | 分支召回下限 |
 | `cold_index.search.branch_recall_ceiling` | 分支召回上限 |
-| `memory_index.embedding.*` | 冷文本 embedder（MiniLM / simple / auto）及 ONNX 等路径 |
-| `memory_index.hnsw_*` | HNSW 图参数 |
+| `cold_index.embedding.*` | 冷文本 embedder（MiniLM / simple / auto）及 ONNX 等路径 |
+| *（尚无 viper 项）* | HNSW 的 `M` / `EfSearch` 等目前为 `internal/storage/coldindex/index.go` 中的默认值 |
 
 完整示例见 `configs/config.example.yaml`。
 
@@ -144,9 +144,9 @@
 
 | 资产 | 用途 |
 |------|------|
-| `internal/storage/memory/testdata/chapter_split_boundaries/*.input.md` 与 `*.golden.json` | **边界** golden：无父标题 / 单级标题 / 嵌套标题 + 滑动切分；运行 `TestChapterSplitBoundaryGolden`；更新 golden：`UPDATE_CHAPTER_SPLIT_GOLDEN=1` |
-| `internal/storage/memory/chapter_split_sliding_test.go` | 滑动重叠与步长覆盖 |
-| `internal/storage/memory/index_chapter_test.go` | 索引写入、合并键、桩切分器 |
+| `internal/storage/coldindex/testdata/chapter_split_boundaries/*.input.md` 与 `*.golden.json` | **边界** golden：无父标题 / 单级标题 / 嵌套标题 + 滑动切分；运行 `TestChapterSplitBoundaryGolden`；更新 golden：`UPDATE_CHAPTER_SPLIT_GOLDEN=1` |
+| `internal/storage/coldindex/chapter_split_sliding_test.go` | 滑动重叠与步长覆盖 |
+| `internal/storage/coldindex/index_chapter_test.go` | 索引写入、合并键、桩切分器 |
 | `TestSplitMarkdown_KafkaZkEtcdFixtures_IO` | 可选大批量 IO（`testdata/split_io_out/`）；若 `testdata/` 下不足 10 个 `.md` 则 **跳过** |
 
 ---
@@ -172,4 +172,4 @@
 
 ---
 
-*本文与 `internal/storage/memory` 中冷索引行为对齐；若文档滞后，请以代码为准。*
+*本文与 `internal/storage/coldindex` 中冷索引行为对齐；若文档滞后，请以代码为准。*

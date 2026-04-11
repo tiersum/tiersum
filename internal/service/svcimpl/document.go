@@ -180,10 +180,10 @@ func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentReques
 		doc.Status = types.DocStatusCold
 		doc.Tags = []string{} // Cold documents have no tags
 
-		// Add to cold in-memory index
+		// Add to cold index (Bleve + HNSW)
 		if s.coldIndex != nil {
 			if err := s.coldIndex.AddDocument(ctx, doc); err != nil {
-				s.logger.Warn("failed to add cold document to memory index",
+				s.logger.Warn("failed to add cold document to cold index",
 					zap.String("doc_id", doc.ID),
 					zap.Error(err))
 			}

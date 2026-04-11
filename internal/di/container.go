@@ -16,8 +16,8 @@ import (
 	"github.com/tiersum/tiersum/internal/service/svcimpl"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/internal/storage/cache"
+	"github.com/tiersum/tiersum/internal/storage/coldindex"
 	"github.com/tiersum/tiersum/internal/storage/db"
-	"github.com/tiersum/tiersum/internal/storage/memory"
 )
 
 // Dependencies holds all application dependencies
@@ -37,15 +37,15 @@ type Dependencies struct {
 	JobScheduler        *job.Scheduler
 	DocumentMaintenance service.IDocumentMaintenanceService
 
-	// ColdIndex is the concrete cold-document index (memory.Index).
-	ColdIndex *memory.Index
+	// ColdIndex is the concrete cold-document index (coldindex.Index).
+	ColdIndex *coldindex.Index
 
 	// Logger
 	Logger *zap.Logger
 }
 
 // NewDependencies creates all dependencies with proper wiring
-func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *memory.Index, logger *zap.Logger) (*Dependencies, error) {
+func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, logger *zap.Logger) (*Dependencies, error) {
 	// 1. Storage Layer - Cache
 	cacheStore := cache.NewCache(0)
 
@@ -132,14 +132,14 @@ var (
 	_ storage.ITagRepository      = (*db.TagRepo)(nil)
 	_ storage.ITagGroupRepository = (*db.TagGroupRepo)(nil)
 	_ storage.ICache              = (*cache.Cache)(nil)
-	_ storage.IColdIndex          = (*memory.Index)(nil)
+	_ storage.IColdIndex          = (*coldindex.Index)(nil)
 
 	// Service Layer
-	_ service.IDocumentService = (*svcimpl.DocumentSvc)(nil)
-	_ service.IQueryService    = (*svcimpl.QuerySvc)(nil)
-	_ service.ITagGroupService = (*svcimpl.TagGroupSvc)(nil)
-	_ service.IIndexer         = (*svcimpl.IndexerSvc)(nil)
-	_ service.ISummarizer       = (*svcimpl.SummarizerSvc)(nil)
+	_ service.IDocumentService            = (*svcimpl.DocumentSvc)(nil)
+	_ service.IQueryService               = (*svcimpl.QuerySvc)(nil)
+	_ service.ITagGroupService            = (*svcimpl.TagGroupSvc)(nil)
+	_ service.IIndexer                    = (*svcimpl.IndexerSvc)(nil)
+	_ service.ISummarizer                 = (*svcimpl.SummarizerSvc)(nil)
 	_ service.IRetrievalService           = (*svcimpl.RetrievalSvc)(nil)
 	_ service.IDocumentMaintenanceService = (*svcimpl.DocumentMaintenanceSvc)(nil)
 

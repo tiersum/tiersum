@@ -1,4 +1,4 @@
-package memory
+package coldindex
 
 // defaultColdMarkdownSlidingStrideTokens is the default step (in estimated tokens) between
 // consecutive sliding-window starts when splitting an oversized leaf (same 4-runes/token heuristic as maxTokens).

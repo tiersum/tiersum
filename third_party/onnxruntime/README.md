@@ -30,7 +30,7 @@ In `configs/config.yaml`, point at the library for your platform (run from repo 
 
 Alternatively set `ONNXRUNTIME_LIB_PATH` to the same file path.
 
-`memory_index.embedding.provider: auto` will use MiniLM when this library loads; otherwise it falls back to simple embeddings.
+`cold_index.embedding.provider: auto` will use MiniLM when this library loads; otherwise it falls back to simple embeddings.
 
 ## Git
 

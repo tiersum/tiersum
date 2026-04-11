@@ -85,4 +85,4 @@ else
 fi
 
 echo "${VERSION}" > "${DEST}/VERSION"
-echo "Done. Set memory_index.embedding.onnx_runtime_path (see third_party/onnxruntime/README.md)."
+echo "Done. Set cold_index.embedding.onnx_runtime_path (see third_party/onnxruntime/README.md)."

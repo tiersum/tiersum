@@ -25,4 +25,4 @@ curl_minilm "${RESOLVE}/onnx/model.onnx" "${DEST}/model.onnx"
 curl_minilm "${RESOLVE}/tokenizer.json" "${DEST}/tokenizer.json"
 
 ls -lh "${DEST}/model.onnx" "${DEST}/tokenizer.json"
-echo "Done. Set memory_index.embedding.minilm_model_path (see third_party/minilm/README.md)."
+echo "Done. Set cold_index.embedding.minilm_model_path (see third_party/minilm/README.md)."

@@ -1,4 +1,4 @@
-package memory
+package coldindex
 
 import (
 	"context"
@@ -16,12 +16,12 @@ type ColdChapter struct {
 	Text string
 }
 
-// IColdChapterSplitter splits cold document markdown into token-budgeted chapters for the cold memory index.
+// IColdChapterSplitter splits cold document markdown into token-budgeted chapters for the cold index.
 type IColdChapterSplitter interface {
 	Split(docID, docTitle, markdown string, maxTokens int) []ColdChapter
 }
 
-// IColdTextEmbedder produces dense vectors for cold text; memory.Index uses it internally when set via SetTextEmbedder.
+// IColdTextEmbedder produces dense vectors for cold text; Index uses it internally when set via SetTextEmbedder.
 // Successful Embed results must have length types.ColdEmbeddingVectorDimension.
 type IColdTextEmbedder interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
