@@ -22,6 +22,9 @@ import (
 
 // Dependencies holds all application dependencies
 type Dependencies struct {
+	// OtelSpans persists OpenTelemetry spans (progressive debug + optional HTTP tracing).
+	OtelSpans storage.IOtelSpanRepository
+
 	// Service Layer interfaces
 	DocumentService    service.IDocumentService
 	HotIngestProcessor service.IHotIngestProcessor
@@ -55,10 +58,11 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 
 	// 3. Client Layer - LLM
 	factory := llm.NewProviderFactory(logger)
-	llmProvider, err := factory.CreateProvider()
+	baseLLM, err := factory.CreateProvider()
 	if err != nil {
 		return nil, err
 	}
+	llmProvider := svcimpl.NewOTelContextLLM(baseLLM)
 
 	// 4. Quota Manager - for hot/cold document processing control
 	quotaPerHour := viper.GetInt("quota.per_hour")
@@ -103,7 +107,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 
 	// 8. API Layer — retrieval facade so HTTP handlers do not import storage interfaces
 	retrievalSvc := svcimpl.NewRetrievalSvc(uow.Tags, uow.Summaries, uow.Documents, coldIndex)
-	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, retrievalSvc, quotaManager, logger)
+	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, retrievalSvc, quotaManager, uow.OtelSpans, logger)
 	mcpServer := api.NewMCPServer(restHandler, logger)
 
 	// 9. Job Layer — jobs depend only on service.* contracts
@@ -114,6 +118,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 	jobScheduler.Register(job.NewHotScoreJob(docMaintenance))
 
 	return &Dependencies{
+		OtelSpans:           uow.OtelSpans,
 		DocumentService:     docService,
 		HotIngestProcessor:  docService,
 		QueryService:        queryService,

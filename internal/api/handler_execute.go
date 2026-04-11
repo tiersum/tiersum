@@ -413,3 +413,39 @@ func (h *Handler) ExecuteGetQuota() (int, any) {
 		"reset_at": resetAt,
 	}
 }
+
+// ExecuteListTraces matches GET /api/v1/traces.
+func (h *Handler) ExecuteListTraces(ctx context.Context, limit, offset int) (int, any) {
+	if h.OtelSpans == nil {
+		return http.StatusOK, gin.H{"traces": []types.OtelTraceSummary{}}
+	}
+	tr, err := h.OtelSpans.ListTraceSummaries(ctx, limit, offset)
+	if err != nil {
+		h.Logger.Error("list traces failed", zap.Error(err))
+		return http.StatusInternalServerError, gin.H{"error": "failed to list traces"}
+	}
+	if tr == nil {
+		tr = []types.OtelTraceSummary{}
+	}
+	return http.StatusOK, gin.H{"traces": tr}
+}
+
+// ExecuteGetTrace matches GET /api/v1/traces/:trace_id.
+func (h *Handler) ExecuteGetTrace(ctx context.Context, traceID string) (int, any) {
+	traceID = strings.TrimSpace(traceID)
+	if traceID == "" {
+		return http.StatusBadRequest, gin.H{"error": "trace_id is required"}
+	}
+	if h.OtelSpans == nil {
+		return http.StatusNotFound, gin.H{"error": "trace store not configured"}
+	}
+	spans, err := h.OtelSpans.ListSpansByTraceID(ctx, traceID)
+	if err != nil {
+		h.Logger.Error("get trace failed", zap.String("trace_id", traceID), zap.Error(err))
+		return http.StatusInternalServerError, gin.H{"error": "failed to load trace"}
+	}
+	if len(spans) == 0 {
+		return http.StatusNotFound, gin.H{"error": "trace not found"}
+	}
+	return http.StatusOK, gin.H{"trace_id": traceID, "spans": spans}
+}

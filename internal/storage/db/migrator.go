@@ -96,6 +96,49 @@ func (m *Migrator) MigrateUpSimple() error {
 	return m.MigrateUp(ctx)
 }
 
+// EnsureOtelSpansTable creates the otel_spans table and indexes when missing.
+// It is independent of schema_migrations: MigrateUp may skip version 8 if version
+// tracking is ahead of applied DDL, or fail before reaching v8 while the server
+// still runs ("continuing anyway").
+func (m *Migrator) EnsureOtelSpansTable(ctx context.Context) error {
+	ok, err := m.tableExists(ctx, "otel_spans")
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	schema := GetSchemaForDriver(m.driver, 8)
+	if schema == "" {
+		return fmt.Errorf("ensure otel_spans: no schema for driver %q at version 8", m.driver)
+	}
+	_, err = m.db.ExecContext(ctx, schema)
+	return err
+}
+
+func (m *Migrator) tableExists(ctx context.Context, name string) (bool, error) {
+	if m.driver == "postgres" || m.driver == "postgresql" {
+		var n int
+		err := m.db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = $1`,
+			name,
+		).Scan(&n)
+		if err != nil {
+			return false, err
+		}
+		return n > 0, nil
+	}
+	var n int
+	err := m.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`,
+		name,
+	).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
 // EnsureMigrationsTable creates the migrations tracking table
 func (m *Migrator) EnsureMigrationsTable(ctx context.Context) error {
 	var query string

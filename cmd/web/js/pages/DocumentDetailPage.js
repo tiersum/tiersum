@@ -203,7 +203,7 @@ export const DocumentDetailPage = {
                                 <span v-if="doc.tags?.length" class="text-slate-500">{{ doc.tags.join(', ') }}</span>
                             </div>
                             <p class="text-xs text-slate-500 font-mono break-all mt-2 max-w-3xl" :title="doc.id">
-                                <span class="text-slate-600">文档 ID</span>
+                                <span class="text-slate-600">Document ID</span>
                                 {{ doc.id }}
                             </p>
                         </div>

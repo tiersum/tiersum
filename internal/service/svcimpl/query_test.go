@@ -4,12 +4,19 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/client"
 	"github.com/tiersum/tiersum/internal/storage"
+	"github.com/tiersum/tiersum/internal/telemetry"
 	"github.com/tiersum/tiersum/pkg/types"
+
+	"go.opentelemetry.io/otel"
 )
 
 func TestQuerySvc_ProgressiveQuery_EmptyTags(t *testing.T) {
@@ -858,4 +865,116 @@ func TestQuerySvc_ProgressiveQuery_AnswerFromLLM(t *testing.T) {
 	resp, err := svc.ProgressiveQuery(ctx, req)
 	require.NoError(t, err)
 	assert.Equal(t, "Synthetic answer with [^1^].", resp.Answer)
+}
+
+func progressiveQueryTestFixture(ctx context.Context) (
+	docRepo *MockDocumentRepository,
+	summaryRepo *MockSummaryRepository,
+	tagRepo *MockTagRepository,
+	groupRepo *MockTagGroupRepository,
+	summarizer *MockSummarizer,
+	coldIndex *MockColdIndex,
+	wrapped client.ILLMProvider,
+) {
+	docRepo = NewMockDocumentRepository()
+	summaryRepo = NewMockSummaryRepository()
+	tagRepo = NewMockTagRepository()
+	groupRepo = NewMockTagGroupRepository()
+	summarizer = NewMockSummarizer()
+	coldIndex = NewMockColdIndex()
+	inner := NewMockLLMProvider()
+	inner.SetResponse("Synthetic answer with [^1^].")
+	wrapped = NewOTelContextLLM(inner)
+
+	tagRepo.Create(ctx, &types.Tag{ID: "tag1", Name: "golang", GroupID: "group1"})
+	docRepo.Create(ctx, &types.Document{
+		ID: "doc1", Title: "Go Programming", Tags: []string{"golang"}, Status: types.DocStatusHot,
+	})
+	summaryRepo.Create(ctx, &types.Summary{
+		ID: "sum1", DocumentID: "doc1", Tier: types.TierChapter, Path: "doc1/chapter1", Content: "Go",
+	})
+	summarizer.SetTagFilterResults([]types.TagFilterResult{{Tag: "golang", Relevance: 0.9}})
+	summarizer.SetFilterResults([]types.LLMFilterResult{
+		{ID: "doc1", Relevance: 0.95}, {ID: "doc1/chapter1", Relevance: 0.9},
+	})
+	return
+}
+
+func TestQuerySvc_ProgressiveQuery_TraceIDEmptyWithoutRecordingSpan(t *testing.T) {
+	ctx := context.Background()
+	docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped := progressiveQueryTestFixture(ctx)
+	svc := NewQuerySvc(docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped, testLogger())
+	resp, err := svc.ProgressiveQuery(ctx, types.ProgressiveQueryRequest{Question: "go programming", MaxResults: 10})
+	require.NoError(t, err)
+	assert.Empty(t, resp.TraceID)
+}
+
+func TestQuerySvc_ProgressiveQuery_TraceIDEmptyWhenServerDisallows(t *testing.T) {
+	prev := viper.GetBool("query.allow_progressive_debug")
+	viper.Set("query.allow_progressive_debug", false)
+	t.Cleanup(func() { viper.Set("query.allow_progressive_debug", prev) })
+
+	ctx := context.Background()
+	docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped := progressiveQueryTestFixture(ctx)
+	svc := NewQuerySvc(docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped, testLogger())
+	resp, err := svc.ProgressiveQuery(ctx, types.ProgressiveQueryRequest{
+		Question: "go programming", MaxResults: 10,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, resp.TraceID)
+}
+
+func recordingTraceContext(t *testing.T) context.Context {
+	t.Helper()
+	tr := otel.Tracer("github.com/tiersum/tiersum/query_test")
+	ctx, sp := tr.Start(context.Background(), "test_parent")
+	t.Cleanup(func() { sp.End() })
+	return ctx
+}
+
+func TestQuerySvc_ProgressiveQuery_OtelSpansPersistedWhenTraceRecording(t *testing.T) {
+	prevAllow := viper.GetBool("query.allow_progressive_debug")
+	prevEn := viper.GetBool("telemetry.enabled")
+	prevPersist := viper.GetBool("telemetry.persist_to_db")
+	prevRatio := viper.GetFloat64("telemetry.sample_ratio")
+	viper.Set("query.allow_progressive_debug", true)
+	viper.Set("telemetry.enabled", true)
+	viper.Set("telemetry.persist_to_db", true)
+	viper.Set("telemetry.sample_ratio", 1.0)
+	t.Cleanup(func() {
+		viper.Set("query.allow_progressive_debug", prevAllow)
+		viper.Set("telemetry.enabled", prevEn)
+		viper.Set("telemetry.persist_to_db", prevPersist)
+		viper.Set("telemetry.sample_ratio", prevRatio)
+	})
+
+	mockTrace := NewMockOtelSpanRepository()
+	shutdown := telemetry.InitGlobalTracer(mockTrace, zap.NewNop())
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = shutdown(ctx)
+	})
+
+	ctx := recordingTraceContext(t)
+	docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped := progressiveQueryTestFixture(ctx)
+	svc := NewQuerySvc(docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped, testLogger())
+	resp, err := svc.ProgressiveQuery(ctx, types.ProgressiveQueryRequest{
+		Question: "go programming", MaxResults: 10,
+	})
+	require.NoError(t, err)
+	require.NotEmpty(t, resp.TraceID)
+	flushCtx, flushCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	require.NoError(t, telemetry.FlushSpans(flushCtx))
+	flushCancel()
+	require.NotEmpty(t, mockTrace.Rows)
+	for _, r := range mockTrace.Rows {
+		assert.Equal(t, resp.TraceID, r.TraceID)
+	}
+	var names []string
+	for _, r := range mockTrace.Rows {
+		names = append(names, r.Name)
+	}
+	assert.Contains(t, names, "progressive_query")
+	assert.Contains(t, names, "llm.Generate")
 }

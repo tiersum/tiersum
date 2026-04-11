@@ -7,6 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
@@ -16,6 +19,8 @@ import (
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
+
+	"go.opentelemetry.io/otel"
 )
 
 // L2TagThreshold is the threshold for adaptive L1/L2 filtering
@@ -74,7 +79,13 @@ func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQu
 		Steps:    []types.ProgressiveQueryStep{},
 	}
 
-	// Run hot path and cold path concurrently
+	var traceIDStr string
+	if s := trace.SpanFromContext(ctx); s.SpanContext().IsValid() && s.IsRecording() {
+		traceIDStr = s.SpanContext().TraceID().String()
+	}
+
+	wantTrace := progressiveTraceRequested(ctx)
+
 	type hotResult struct {
 		results []types.QueryItem
 		steps   []types.ProgressiveQueryStep
@@ -89,47 +100,104 @@ func (s *QuerySvc) ProgressiveQuery(ctx context.Context, req types.ProgressiveQu
 	hotChan := make(chan hotResult, 1)
 	coldChan := make(chan coldResult, 1)
 
-	// Hot path: Tag-based progressive query
-	go func() {
-		results, steps, err := s.queryHotPath(ctx, req)
-		hotChan <- hotResult{results: results, steps: steps, err: err}
-	}()
+	rootCtx := ctx
+	var tracer trace.Tracer
 
-	// Cold path: BM25 + vector search
-	go func() {
-		results, step, err := s.queryColdPath(ctx, req)
-		coldChan <- coldResult{results: results, step: step, err: err}
-	}()
+	if wantTrace {
+		tracer = otel.Tracer(progressiveTracerScope)
+		var rootSpan trace.Span
+		rootCtx, rootSpan = tracer.Start(ctx, "progressive_query",
+			trace.WithAttributes(attribute.String("tier.request.question", truncateTraceStr(req.Question, 512))))
+		rootCtx = WithProgressiveDebugTracer(rootCtx, tracer)
+		defer rootSpan.End()
 
-	// Collect results
+		go func() {
+			hCtx, hotSpan := tracer.Start(rootCtx, "hot_path")
+			defer hotSpan.End()
+			hCtx = WithProgressiveDebugTracer(hCtx, tracer)
+			results, steps, err := s.queryHotPath(hCtx, req)
+			if err != nil {
+				hotSpan.RecordError(err)
+				hotSpan.SetStatus(codes.Error, err.Error())
+			}
+			hotChan <- hotResult{results: results, steps: steps, err: err}
+		}()
+
+		go func() {
+			cCtx, coldSpan := tracer.Start(rootCtx, "cold_path")
+			defer coldSpan.End()
+			cCtx = WithProgressiveDebugTracer(cCtx, tracer)
+			results, step, err := s.queryColdPath(cCtx, req)
+			if err != nil {
+				coldSpan.RecordError(err)
+				coldSpan.SetStatus(codes.Error, err.Error())
+			}
+			coldChan <- coldResult{results: results, step: step, err: err}
+		}()
+	} else {
+		go func() {
+			results, steps, err := s.queryHotPath(ctx, req)
+			hotChan <- hotResult{results: results, steps: steps, err: err}
+		}()
+		go func() {
+			results, step, err := s.queryColdPath(ctx, req)
+			coldChan <- coldResult{results: results, step: step, err: err}
+		}()
+	}
+
 	hotRes := <-hotChan
 	coldRes := <-coldChan
 
-	// Process hot path results
 	if hotRes.err != nil {
 		s.logger.Error("hot path query failed", zap.Error(hotRes.err))
 	} else {
 		response.Steps = append(response.Steps, hotRes.steps...)
 	}
 
-	// Process cold path results
 	if coldRes.err != nil {
 		s.logger.Error("cold path query failed", zap.Error(coldRes.err))
 	} else {
 		response.Steps = append(response.Steps, coldRes.step)
 	}
 
-	// Merge results from both paths
 	mergedResults := s.mergeHotAndColdResults(hotRes.results, coldRes.results, req.MaxResults)
 	response.Results = mergedResults
-	response.Answer = s.generateProgressiveAnswer(ctx, req.Question, mergedResults)
+
+	if wantTrace {
+		_, mergeSpan := tracer.Start(rootCtx, "merge_results", trace.WithAttributes(
+			attribute.Int("tier.request.merge_inputs.hot_items", len(hotRes.results)),
+			attribute.Int("tier.request.merge_inputs.cold_items", len(coldRes.results)),
+			attribute.Int("tier.response.merged_items", len(mergedResults)),
+		))
+		mergeSpan.End()
+
+		ansCtx, ansSpan := tracer.Start(rootCtx, "synthesize_answer", trace.WithAttributes(
+			attribute.String("tier.request.question", truncateTraceStr(req.Question, traceMaxReqBytes)),
+			attribute.Int("tier.request.reference_items", len(mergedResults)),
+		))
+		ansCtx = trace.ContextWithSpan(ansCtx, ansSpan)
+		ansCtx = WithProgressiveDebugTracer(ansCtx, tracer)
+		response.Answer = s.generateProgressiveAnswer(ansCtx, req.Question, mergedResults)
+		if response.Answer != "" {
+			ansSpan.SetAttributes(attribute.String("tier.response.answer", truncateTraceStr(response.Answer, traceMaxRespBytes)))
+		}
+		ansSpan.End()
+	} else {
+		response.Answer = s.generateProgressiveAnswer(ctx, req.Question, mergedResults)
+	}
+
+	if traceIDStr != "" {
+		response.TraceID = traceIDStr
+	}
 
 	s.logger.Info("progressive query completed",
 		zap.String("question", req.Question),
 		zap.Int("hot_results", len(hotRes.results)),
 		zap.Int("cold_results", len(coldRes.results)),
 		zap.Int("total_results", len(mergedResults)),
-		zap.Bool("has_answer", response.Answer != ""))
+		zap.Bool("has_answer", response.Answer != ""),
+		zap.String("otel_trace_id", traceIDStr),
+	)
 
 	return response, nil
 }
@@ -141,7 +209,18 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 
 	// Step 1: Get L1 tag groups and filter to get relevant L2 tags
 	step1Start := time.Now()
-	l2Tags, err := s.filterL2Tags(ctx, req.Question)
+	var l2Tags []string
+	err := withOptionalSpan(ctx, "filter_l2_tags", func(c context.Context, sp trace.Span) error {
+		var e error
+		l2Tags, e = s.filterL2Tags(c, req.Question)
+		if sp != nil && e == nil {
+			sp.SetAttributes(
+				attribute.String("tier.request.question", truncateTraceStr(req.Question, traceMaxReqBytes)),
+				attribute.Int("tier.response.l2_tags_count", len(l2Tags)),
+			)
+		}
+		return e
+	})
 	if err != nil {
 		s.logger.Error("failed to filter L2 tags", zap.Error(err))
 		return nil, nil, fmt.Errorf("filter L2 tags: %w", err)
@@ -155,7 +234,19 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 
 	// Step 2: Query documents by L2 tags and filter
 	step2Start := time.Now()
-	docs, err := s.queryAndFilterDocuments(ctx, req.Question, l2Tags, req.MaxResults)
+	var docs []types.Document
+	err = withOptionalSpan(ctx, "query_and_filter_documents", func(c context.Context, sp trace.Span) error {
+		var e error
+		docs, e = s.queryAndFilterDocuments(c, req.Question, l2Tags, req.MaxResults)
+		if sp != nil && e == nil {
+			sp.SetAttributes(
+				attribute.String("tier.request.question", truncateTraceStr(req.Question, traceMaxReqBytes)),
+				attribute.Int("tier.request.max_results", req.MaxResults),
+				attribute.Int("tier.response.documents_count", len(docs)),
+			)
+		}
+		return e
+	})
 	if err != nil {
 		s.logger.Error("failed to query documents", zap.Error(err))
 		return nil, nil, fmt.Errorf("query documents: %w", err)
@@ -172,7 +263,18 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 
 	// Step 3: Query chapters by docs and filter
 	step3Start := time.Now()
-	chapters, err := s.queryAndFilterChapters(ctx, req.Question, docs)
+	var chapters []types.Summary
+	err = withOptionalSpan(ctx, "query_and_filter_chapters", func(c context.Context, sp trace.Span) error {
+		var e error
+		chapters, e = s.queryAndFilterChapters(c, req.Question, docs)
+		if sp != nil && e == nil {
+			sp.SetAttributes(
+				attribute.String("tier.request.question", truncateTraceStr(req.Question, traceMaxReqBytes)),
+				attribute.Int("tier.response.chapters_count", len(chapters)),
+			)
+		}
+		return e
+	})
 	if err != nil {
 		s.logger.Error("failed to query chapters", zap.Error(err))
 		return nil, nil, fmt.Errorf("query chapters: %w", err)
@@ -201,6 +303,16 @@ func (s *QuerySvc) queryColdPath(ctx context.Context, req types.ProgressiveQuery
 	start := time.Now()
 
 	if s.coldIndex == nil {
+		_ = withOptionalSpan(ctx, "cold_index_search", func(_ context.Context, sp trace.Span) error {
+			if sp != nil {
+				sp.SetAttributes(
+					attribute.String("tier.request.question", truncateTraceStr(req.Question, traceMaxReqBytes)),
+					attribute.Bool("tier.response.cold_index_skipped", true),
+					attribute.String("tier.response.cold_index_skip_reason", "no_index"),
+				)
+			}
+			return nil
+		})
 		return nil, types.ProgressiveQueryStep{
 			Step:     "cold_docs",
 			Input:    req.Question,
@@ -209,7 +321,21 @@ func (s *QuerySvc) queryColdPath(ctx context.Context, req types.ProgressiveQuery
 		}, nil
 	}
 
-	searchResults, err := s.coldIndex.Search(ctx, req.Question, req.MaxResults/2)
+	var searchResults []storage.ColdIndexHit
+	err := withOptionalSpan(ctx, "cold_index_search", func(c context.Context, sp trace.Span) error {
+		if sp != nil {
+			sp.SetAttributes(
+				attribute.String("tier.request.question", truncateTraceStr(req.Question, traceMaxReqBytes)),
+				attribute.Int("tier.request.cold_search_max_results", req.MaxResults/2),
+			)
+		}
+		var e error
+		searchResults, e = s.coldIndex.Search(c, req.Question, req.MaxResults/2)
+		if sp != nil && e == nil {
+			sp.SetAttributes(attribute.Int("tier.response.cold_index_hits", len(searchResults)))
+		}
+		return e
+	})
 	if err != nil {
 		return nil, types.ProgressiveQueryStep{}, fmt.Errorf("cold index search failed: %w", err)
 	}

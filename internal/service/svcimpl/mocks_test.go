@@ -843,6 +843,34 @@ func (m *MockQuotaManager) GetRemaining() int {
 	return 0
 }
 
+// MockOtelSpanRepository records inserted spans for tests.
+type MockOtelSpanRepository struct {
+	mu   sync.Mutex
+	Rows []*storage.OtelSpanRow
+}
+
+func NewMockOtelSpanRepository() *MockOtelSpanRepository {
+	return &MockOtelSpanRepository{}
+}
+
+func (m *MockOtelSpanRepository) InsertSpan(ctx context.Context, row *storage.OtelSpanRow) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if row != nil {
+		cp := *row
+		m.Rows = append(m.Rows, &cp)
+	}
+	return nil
+}
+
+func (m *MockOtelSpanRepository) ListTraceSummaries(ctx context.Context, limit, offset int) ([]types.OtelTraceSummary, error) {
+	return nil, nil
+}
+
+func (m *MockOtelSpanRepository) ListSpansByTraceID(ctx context.Context, traceID string) ([]types.OtelSpanDTO, error) {
+	return nil, nil
+}
+
 // testLogger returns a no-op logger for testing
 func testLogger() *zap.Logger {
 	return zap.NewNop()

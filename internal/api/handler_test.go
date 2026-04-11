@@ -193,11 +193,12 @@ func setupTestHandler() (*Handler, *gin.Engine) {
 		TagGroupService: &mockTagGroupService{},
 		Retrieval:       &mockRetrieval{},
 		Quota:           nil,
+		OtelSpans:       nil,
 		Logger:          zap.NewNop(),
 	}
 
 	api := router.Group("/api/v1")
-	handler.RegisterRoutes(api)
+	handler.RegisterRoutes(api, nil)
 
 	return handler, router
 }

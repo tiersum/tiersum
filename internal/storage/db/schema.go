@@ -47,6 +47,12 @@ var SchemaVersions = []SchemaVersion{
 		SQLite:   sqliteSchemaV7,
 		Postgres: postgresSchemaV7,
 	},
+	{
+		Version:  8,
+		Name:     "OpenTelemetry spans for progressive-query debug traces",
+		SQLite:   sqliteSchemaV8,
+		Postgres: postgresSchemaV8,
+	},
 }
 
 // SchemaVersion represents a single schema migration
@@ -423,6 +429,48 @@ CREATE INDEX IF NOT EXISTS idx_documents_status_created ON documents(status, cre
 -- Optional: Create IVFFlat index for vector similarity search if pgvector extension is available
 -- Note: This requires the pgvector extension to be installed
 -- CREATE INDEX IF NOT EXISTS idx_documents_embedding ON documents USING ivfflat (embedding vector_cosine_ops);
+`
+
+// sqliteSchemaV8 stores exported OpenTelemetry spans (progressive query debug only).
+const sqliteSchemaV8 = `
+CREATE TABLE IF NOT EXISTS otel_spans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trace_id TEXT NOT NULL,
+    span_id TEXT NOT NULL,
+    parent_span_id TEXT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    start_time_unix_nano INTEGER NOT NULL,
+    end_time_unix_nano INTEGER NOT NULL,
+    status_code TEXT NOT NULL,
+    status_message TEXT,
+    attributes_json TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(trace_id, span_id)
+);
+CREATE INDEX IF NOT EXISTS idx_otel_spans_trace_id ON otel_spans(trace_id);
+CREATE INDEX IF NOT EXISTS idx_otel_spans_created_at ON otel_spans(created_at);
+`
+
+// postgresSchemaV8 stores exported OpenTelemetry spans.
+const postgresSchemaV8 = `
+CREATE TABLE IF NOT EXISTS otel_spans (
+    id BIGSERIAL PRIMARY KEY,
+    trace_id VARCHAR(32) NOT NULL,
+    span_id VARCHAR(16) NOT NULL,
+    parent_span_id VARCHAR(16),
+    name TEXT NOT NULL,
+    kind VARCHAR(32) NOT NULL,
+    start_time_unix_nano BIGINT NOT NULL,
+    end_time_unix_nano BIGINT NOT NULL,
+    status_code VARCHAR(16) NOT NULL,
+    status_message TEXT,
+    attributes_json TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(trace_id, span_id)
+);
+CREATE INDEX IF NOT EXISTS idx_otel_spans_trace_id ON otel_spans(trace_id);
+CREATE INDEX IF NOT EXISTS idx_otel_spans_created_at ON otel_spans(created_at);
 `
 
 // GetSchemaForDriver returns schema for specific driver and version

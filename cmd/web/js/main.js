@@ -7,7 +7,7 @@ import { DocumentCreatePage } from './pages/DocumentCreatePage.js';
 import { DocumentsPage } from './pages/DocumentsPage.js';
 import { DocumentDetailPage } from './pages/DocumentDetailPage.js';
 import { TagsPage } from './pages/TagsPage.js';
-import { MonitoringPage } from './pages/MonitoringPage.js';
+import { ObservabilityPage } from './pages/ObservabilityPage.js';
 
 const routes = [
     { path: '/', component: SearchPage },
@@ -15,7 +15,8 @@ const routes = [
     { path: '/docs/new', component: DocumentCreatePage },
     { path: '/docs/:id', component: DocumentDetailPage, props: true },
     { path: '/tags', component: TagsPage },
-    { path: '/monitoring', component: MonitoringPage }
+    { path: '/observability', component: ObservabilityPage },
+    { path: '/monitoring', redirect: '/observability' }
 ];
 
 const router = createRouter({

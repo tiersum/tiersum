@@ -16,8 +16,11 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/telemetry"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -99,9 +102,11 @@ func (s *MCPServer) registerTools() {
 	), s.handleAPIv1DocumentsSummariesGet)
 
 	s.mcp.AddTool(mcp.NewTool("api_v1_query_progressive_post",
-		mcp.WithDescription(descPrefix+"POST /api/v1/query/progressive"),
+		mcp.WithDescription(descPrefix+"POST /api/v1/query/progressive — tracing matches REST: set traceparent / force-sample headers or ?debug_trace=1 on POST /mcp/message; optional tool args traceparent and force_sample when JSON-only clients cannot set HTTP"),
 		mcp.WithString("question", mcp.Required(), mcp.Description("User question")),
 		mcp.WithNumber("max_results", mcp.Description("1–100; omit or 0 for default 100")),
+		mcp.WithString("traceparent", mcp.Description("Optional W3C traceparent (same as HTTP traceparent header)")),
+		mcp.WithBoolean("force_sample", mcp.Description("Optional: same as REST telemetry.force_sample (e.g. debug_trace query on /mcp/message); used when there is no recording parent span from the HTTP request")),
 	), s.handleAPIv1QueryProgressivePost)
 
 	s.mcp.AddTool(mcp.NewTool("api_v1_tags_get",
@@ -211,6 +216,36 @@ func argFloat(args map[string]any, key string) (float64, bool) {
 		return f, err == nil
 	default:
 		return 0, false
+	}
+}
+
+// argBool parses optional boolean tool arguments (bool, number, or common string forms).
+func argBool(args map[string]any, key string) (value bool, ok bool) {
+	raw, exists := args[key]
+	if !exists || raw == nil {
+		return false, false
+	}
+	switch v := raw.(type) {
+	case bool:
+		return v, true
+	case string:
+		s := strings.ToLower(strings.TrimSpace(v))
+		if s == "true" || s == "1" || s == "yes" {
+			return true, true
+		}
+		if s == "false" || s == "0" || s == "no" {
+			return false, true
+		}
+		return false, false
+	case float64:
+		return v != 0, true
+	case int:
+		return v != 0, true
+	case json.Number:
+		f, err := v.Float64()
+		return f != 0, err == nil
+	default:
+		return false, false
 	}
 }
 
@@ -344,7 +379,26 @@ func (s *MCPServer) handleAPIv1QueryProgressivePost(ctx context.Context, request
 		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "Key: 'ProgressiveQueryRequest.MaxResults' Error:Field validation for 'MaxResults' failed on the 'max' tag"})
 	}
 	req := types.ProgressiveQueryRequest{Question: q, MaxResults: mr}
-	status, body := s.api.ExecuteProgressiveQuery(ctx, req)
+
+	runCtx := ctx
+	if tp := strings.TrimSpace(argString(args, "traceparent")); tp != "" {
+		runCtx = telemetry.ContextFromTraceparent(runCtx, tp)
+	}
+	if fs, ok := argBool(args, "force_sample"); ok && fs {
+		runCtx = telemetry.ContextWithForceSample(runCtx, true)
+	}
+	// When Gin tracing did not attach a recording span (e.g. JSON-only force_sample), start a tool root span so progressive child spans can export.
+	if telemetry.GlobalTracerActive() {
+		parent := trace.SpanFromContext(runCtx)
+		if !parent.SpanContext().IsValid() || !parent.IsRecording() {
+			tr := otel.Tracer("github.com/tiersum/tiersum/mcp")
+			var sp trace.Span
+			runCtx, sp = tr.Start(runCtx, "mcp.tool/api_v1_query_progressive_post", trace.WithSpanKind(trace.SpanKindServer))
+			defer sp.End()
+		}
+	}
+
+	status, body := s.api.ExecuteProgressiveQuery(runCtx, req)
 	return mcpJSONResult(status, body)
 }
 

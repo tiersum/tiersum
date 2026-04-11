@@ -18,9 +18,11 @@ const api = {
         return res.json()
     },
 
-    // Progressive Query
-    progressiveQuery: async (question, maxResults = 100) => {
-        const res = await api.fetchAPI('/api/v1/query/progressive', {
+    // Progressive Query (optional ?debug_trace=1 to force-sample the HTTP span, OpenTelemetry-style)
+    progressiveQuery: async (question, maxResults = 100, forceTraceSample = false) => {
+        const path =
+            '/api/v1/query/progressive' + (forceTraceSample ? '?debug_trace=1' : '')
+        const res = await api.fetchAPI(path, {
             method: 'POST',
             body: JSON.stringify({ question, max_results: maxResults }),
         })

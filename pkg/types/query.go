@@ -20,6 +20,8 @@ type ProgressiveQueryResponse struct {
 	Answer  string                 `json:"answer,omitempty"`
 	Steps   []ProgressiveQueryStep `json:"steps"`
 	Results []QueryItem            `json:"results"`
+	// TraceID is the OpenTelemetry trace id (hex) when the incoming request context carries a recording span (same trace as HTTP middleware when sampled).
+	TraceID string `json:"trace_id,omitempty"`
 }
 
 // ProgressiveQueryStep represents query step result

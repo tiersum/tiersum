@@ -10,7 +10,9 @@ export const SearchPage = {
             hasSearched: false,
             aiAnswer: '',
             aiLoading: false,
-            highlightedRef: null
+            highlightedRef: null,
+            traceDebug: false,
+            lastTraceID: null
         };
     },
     computed: {
@@ -27,9 +29,10 @@ export const SearchPage = {
             this.hasSearched = true;
             this.aiAnswer = '';
             this.results = [];
+            this.lastTraceID = null;
 
             try {
-                const response = await apiClient.progressiveQuery(this.query);
+                const response = await apiClient.progressiveQuery(this.query, { trace: this.traceDebug });
                 this.results = (response.results || []).map(r => ({
                     ...r,
                     docStatus: (r.status && String(r.status).trim()) || 'hot'
@@ -39,6 +42,9 @@ export const SearchPage = {
                     this.aiAnswer = serverAnswer;
                 } else {
                     await this.generateAiAnswerFallback();
+                }
+                if (response.trace_id) {
+                    this.lastTraceID = response.trace_id;
                 }
             } catch (error) {
                 console.error('Search failed:', error);
@@ -85,6 +91,14 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
             return parts.length > 1 ? parts.slice(1).join('/') : '';
         },
 
+        /** Short plain-text snippet for reference card body (scrolls inside fixed-height card). */
+        refSnippet(result) {
+            const raw = (result?.content || '').replace(/\s+/g, ' ').trim();
+            if (!raw) return '—';
+            const max = 400;
+            return raw.length > max ? `${raw.slice(0, max)}…` : raw;
+        },
+
         refTierLabel(docStatus) {
             const s = (docStatus || '').toLowerCase();
             if (s === 'hot') return 'Hot';
@@ -104,10 +118,10 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
         /** Progressive query: where `content` text came from (API `content_source`). */
         contentSourceLabel(src) {
             const s = (src || '').toLowerCase();
-            if (s === 'chapter_summary') return '摘要';
-            if (s === 'bm25') return '倒排';
-            if (s === 'vector') return '向量';
-            if (s === 'hybrid') return '混合（倒排+向量）';
+            if (s === 'chapter_summary') return 'Summary';
+            if (s === 'bm25') return 'BM25';
+            if (s === 'vector') return 'Vector';
+            if (s === 'hybrid') return 'Hybrid (BM25+vector)';
             return src || '—';
         },
 
@@ -160,6 +174,20 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                 <span v-else>Search</span>
                             </button>
                         </div>
+                        <div class="mt-3 flex flex-wrap items-center justify-center gap-3 text-sm text-slate-400">
+                            <label class="flex items-center gap-2 cursor-pointer select-none">
+                                <input type="checkbox" v-model="traceDebug" class="checkbox checkbox-sm checkbox-primary" />
+                                <span
+                                    class="text-sm"
+                                    title="Adds ?debug_trace=1 so this request is force-sampled like other traced REST calls. Progressive detail spans are created only when query.allow_progressive_debug is true and the trace is recording. Requires telemetry.enabled."
+                                >Trace sample (OpenTelemetry)</span>
+                            </label>
+                            <router-link
+                                v-if="lastTraceID && hasSearched"
+                                :to="{ path: '/observability', query: { tab: 'traces', trace: lastTraceID } }"
+                                class="btn btn-ghost btn-xs text-cyan-400"
+                            >View trace in Observability</router-link>
+                        </div>
                     </div>
                 </div>
 
@@ -206,7 +234,7 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                     </div>
                                     <span class="badge bg-slate-800 text-slate-300">{{ results.length }} items</span>
                                 </div>
-                                <div class="p-4 overflow-y-auto h-[calc(100%-80px)] space-y-4">
+                                <div class="p-3 overflow-y-auto h-[calc(100%-72px)] flex flex-col gap-3">
                                     <div v-if="loading" class="space-y-4">
                                         <div v-for="i in 3" :key="i" class="p-4 rounded-lg bg-slate-800/50 space-y-3">
                                             <div class="h-5 bg-slate-700 rounded animate-pulse w-3/4"></div>
@@ -223,35 +251,31 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                     <div v-else>
                                         <div v-for="(result, index) in results" :key="(result.path || result.id || '') + '-' + index"
                                              :id="'ref-' + index"
-                                             :class="['card bg-slate-800/30 border transition-all cursor-pointer',
+                                             :class="['rounded-xl border bg-slate-800/30 transition-all cursor-pointer flex flex-col max-h-[248px] overflow-hidden shrink-0',
                                                       highlightedRef === index ? 'border-blue-500 ring-2 ring-blue-500/50' : 'border-slate-700 hover:border-slate-600']"
                                              @click="highlightedRef = index">
-                                            <div class="card-body p-4">
-                                                <div class="flex justify-between items-start mb-2">
-                                                    <div class="flex items-center gap-2">
-                                                        <span :class="['badge badge-sm', refTierBadgeClass(result.docStatus)]">
+                                            <div class="p-3 flex flex-col min-h-0 flex-1 gap-2">
+                                                <div class="flex justify-between items-start gap-2 shrink-0">
+                                                    <div class="flex items-center gap-2 min-w-0">
+                                                        <span :class="['badge badge-sm shrink-0', refTierBadgeClass(result.docStatus)]">
                                                             {{ refTierLabel(result.docStatus) }}
                                                         </span>
-                                                        <span class="text-xs text-slate-500">#{{ index + 1 }}</span>
+                                                        <span class="text-xs text-slate-500 shrink-0">#{{ index + 1 }}</span>
                                                     </div>
-                                                    <span class="badge badge-outline badge-sm">{{ (result.relevance * 100).toFixed(0) }}%</span>
+                                                    <span class="badge badge-outline badge-sm shrink-0">{{ (result.relevance * 100).toFixed(0) }}%</span>
                                                 </div>
-                                                <h3 class="font-semibold text-slate-200 line-clamp-2 mb-1">{{ result.title }}</h3>
-                                                <p class="text-xs text-slate-500 mb-1 font-mono break-all" :title="result.id">
-                                                    文档 ID: {{ result.id }}
-                                                </p>
-                                                <p class="text-xs text-slate-500 mb-2">
-                                                    <span class="text-slate-600">章节内容来源:</span>
-                                                    <span class="text-slate-400">{{ contentSourceLabel(result.content_source) }}</span>
-                                                </p>
-                                                <p class="text-xs text-slate-500 mb-2">
-                                                    路径: {{ extractChapterPath(result.path) || '(整篇)' }}
-                                                </p>
-                                                <p class="text-sm text-slate-400 line-clamp-4">{{ result.content?.substring(0, 300) }}{{ result.content?.length > 300 ? '...' : '' }}</p>
-                                                <div class="flex justify-between items-center mt-3 pt-2 border-t border-slate-700/50">
-                                                    <span class="text-xs text-slate-600 truncate max-w-[200px]" :title="result.path">{{ result.path }}</span>
-                                                    <button type="button" @click.stop="goToDocumentFromSearch(result)" class="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1">
-                                                        View <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                                <h3 class="font-semibold text-slate-200 line-clamp-2 text-sm leading-snug shrink-0">{{ result.title }}</h3>
+                                                <div class="text-[11px] text-slate-500 space-y-0.5 shrink-0 leading-tight">
+                                                    <p class="font-mono truncate" :title="result.id"><span class="text-slate-600">ID</span> {{ result.id }}</p>
+                                                    <p class="truncate"><span class="text-slate-600">Source</span> <span class="text-slate-400">{{ contentSourceLabel(result.content_source) }}</span></p>
+                                                    <p class="truncate" :title="extractChapterPath(result.path) || ''"><span class="text-slate-600">Path</span> {{ extractChapterPath(result.path) || '(whole doc)' }}</p>
+                                                </div>
+                                                <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain text-xs text-slate-400 leading-relaxed border border-slate-700/40 rounded-lg px-2 py-1.5 bg-slate-900/40">
+                                                    {{ refSnippet(result) }}
+                                                </div>
+                                                <div class="flex justify-end items-center shrink-0 pt-1 border-t border-slate-700/50">
+                                                    <button type="button" @click.stop="goToDocumentFromSearch(result)" class="text-xs font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1">
+                                                        Open <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                                                     </button>
                                                 </div>
                                             </div>

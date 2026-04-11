@@ -984,6 +984,7 @@ type UnitOfWork struct {
 	Summaries storage.ISummaryRepository
 	Tags      storage.ITagRepository
 	TagGroups storage.ITagGroupRepository
+	OtelSpans storage.IOtelSpanRepository
 }
 
 // NewUnitOfWork creates a new unit of work
@@ -993,5 +994,6 @@ func NewUnitOfWork(db sqlDB, driver string, cache storage.ICache) *UnitOfWork {
 		Summaries: NewSummaryRepo(db, driver, cache),
 		Tags:      NewTagRepo(db, driver, cache),
 		TagGroups: NewTagGroupRepo(db, driver, cache),
+		OtelSpans: NewOtelSpanRepo(db, driver),
 	}
 }

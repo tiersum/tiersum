@@ -26,6 +26,7 @@ import (
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/storage/coldindex"
 	"github.com/tiersum/tiersum/internal/storage/db"
+	"github.com/tiersum/tiersum/internal/telemetry"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -74,11 +75,12 @@ func expandEnvVars() {
 
 // ServerDeps holds all server dependencies
 type ServerDeps struct {
-	Logger       *zap.Logger
-	SQLDB        *sql.DB
-	ColdIndex    *coldindex.Index
-	TextEmbedder coldindex.IColdTextEmbedder
-	DI           *di.Dependencies
+	Logger         *zap.Logger
+	SQLDB          *sql.DB
+	ColdIndex      *coldindex.Index
+	TextEmbedder   coldindex.IColdTextEmbedder
+	DI             *di.Dependencies
+	TracerShutdown func(context.Context) error
 }
 
 // setupServerDeps initializes all server dependencies
@@ -132,12 +134,15 @@ func setupServerDeps() (*ServerDeps, error) {
 		logger.Fatal("Failed to wire dependencies", zap.Error(err))
 	}
 
+	tracerShutdown := telemetry.InitGlobalTracer(deps.OtelSpans, logger)
+
 	return &ServerDeps{
-		Logger:       logger,
-		SQLDB:        sqlDB,
-		ColdIndex:    coldIndex,
-		TextEmbedder: textEmbedder,
-		DI:           deps,
+		Logger:         logger,
+		SQLDB:          sqlDB,
+		ColdIndex:      coldIndex,
+		TextEmbedder:   textEmbedder,
+		DI:             deps,
+		TracerShutdown: tracerShutdown,
 	}, nil
 }
 
@@ -154,11 +159,14 @@ func setupRouter(deps *ServerDeps) *gin.Engine {
 	// Register health check
 	registerHealthRoute(router, deps)
 
-	// Register API routes
-	registerAPIRoutes(router, deps)
+	var traceMw gin.HandlerFunc
+	if telemetry.GlobalTracerActive() {
+		traceMw = api.NewTracingMiddleware()
+	}
+	registerAPIRoutes(router, deps, traceMw)
 
 	// Register MCP routes
-	registerMCPRoutes(router, deps)
+	registerMCPRoutes(router, deps, traceMw)
 
 	// Register static file routes
 	registerStaticRoutes(router, deps)
@@ -178,17 +186,25 @@ func registerHealthRoute(r *gin.Engine, deps *ServerDeps) {
 }
 
 // registerAPIRoutes registers all API v1 routes
-func registerAPIRoutes(r *gin.Engine, deps *ServerDeps) {
+func registerAPIRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc) {
 	apiV1 := r.Group("/api/v1")
 	apiV1.Use(api.APIKeyAuth(viper.GetString("security.api_key")))
-	deps.DI.RESTHandler.RegisterRoutes(apiV1)
+	deps.DI.RESTHandler.RegisterRoutes(apiV1, traceMw)
 }
 
-// registerMCPRoutes registers MCP protocol routes
-func registerMCPRoutes(r *gin.Engine, deps *ServerDeps) {
-	if viper.GetBool("mcp.enabled") {
-		r.GET("/mcp/sse", deps.DI.MCPServer.SSEHandler())
-		r.POST("/mcp/message", deps.DI.MCPServer.MessageHandler())
+// registerMCPRoutes registers MCP protocol routes (same OpenTelemetry Gin middleware as core REST when enabled).
+func registerMCPRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc) {
+	if !viper.GetBool("mcp.enabled") {
+		return
+	}
+	sse := deps.DI.MCPServer.SSEHandler()
+	msg := deps.DI.MCPServer.MessageHandler()
+	if traceMw != nil {
+		r.GET("/mcp/sse", traceMw, sse)
+		r.POST("/mcp/message", traceMw, msg)
+	} else {
+		r.GET("/mcp/sse", sse)
+		r.POST("/mcp/message", msg)
 	}
 }
 
@@ -312,6 +328,16 @@ func runServer(cmd *cobra.Command, args []string) {
 		log.Fatal(err)
 	}
 	defer deps.SQLDB.Close()
+	defer func() {
+		if deps.TracerShutdown == nil {
+			return
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := deps.TracerShutdown(ctx); err != nil {
+			deps.Logger.Warn("Tracer shutdown", zap.Error(err))
+		}
+	}()
 	defer deps.ColdIndex.Close()
 	if deps.TextEmbedder != nil {
 		defer func() { _ = deps.TextEmbedder.Close() }()
@@ -366,7 +392,12 @@ func initDB() (*sql.DB, error) {
 
 func runMigrations(sqlDB *sql.DB, driver string) error {
 	migrator := db.NewMigrator(sqlDB, driver)
-	return migrator.MigrateUpSimple()
+	ctx := context.Background()
+	migErr := migrator.MigrateUpSimple()
+	if err := migrator.EnsureOtelSpansTable(ctx); err != nil {
+		return fmt.Errorf("ensure otel_spans: %w", err)
+	}
+	return migErr
 }
 
 func loadColdDocuments(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, logger *zap.Logger) error {

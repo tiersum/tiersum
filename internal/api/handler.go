@@ -3,6 +3,8 @@ package api
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
+	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -25,6 +28,7 @@ type Handler struct {
 	TagGroupService service.ITagGroupService
 	Retrieval       service.IRetrievalService
 	Quota           QuotaSnapshot
+	OtelSpans       storage.IOtelSpanRepository
 	Logger          *zap.Logger
 }
 
@@ -35,6 +39,7 @@ func NewHandler(
 	tagGroupService service.ITagGroupService,
 	retrieval service.IRetrievalService,
 	quota QuotaSnapshot,
+	otelSpans storage.IOtelSpanRepository,
 	logger *zap.Logger,
 ) *Handler {
 	return &Handler{
@@ -43,13 +48,16 @@ func NewHandler(
 		TagGroupService: tagGroupService,
 		Retrieval:       retrieval,
 		Quota:           quota,
+		OtelSpans:       otelSpans,
 		Logger:          logger,
 	}
 }
 
-// RegisterRoutes registers all API routes
-func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
-	// Document endpoints
+// RegisterRoutes registers all API routes.
+// When traceMiddleware is non-nil, it wraps core (non-CRUD) endpoints so OpenTelemetry spans
+// are recorded with configurable sampling; CRUD-style and introspection routes stay untraced.
+func (h *Handler) RegisterRoutes(router *gin.RouterGroup, traceMiddleware gin.HandlerFunc) {
+	// Document CRUD
 	docs := router.Group("/documents")
 	{
 		docs.POST("", h.CreateDocument)
@@ -58,37 +66,33 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup) {
 		docs.GET("/:id/chapters", h.GetDocumentChapters)
 	}
 
-	// Query endpoints
-	router.POST("/query/progressive", h.ProgressiveQuery)
-
-	// Tag endpoints
+	// Simple list reads
 	router.GET("/tags", h.ListTags)
 	router.GET("/tags/groups", h.ListTagGroups)
-	router.POST("/tags/group", h.TriggerTagGroup)
+	router.GET("/documents/:id/summaries", h.GetDocumentSummaries)
+	router.GET("/quota", h.GetQuota)
+	router.GET("/monitoring", h.GetMonitoring)
+	router.GET("/traces", h.ListTraces)
+	router.GET("/traces/:trace_id", h.GetTrace)
+	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// Hot / cold retrieval (summaries and sources; cold uses cold index, not tags)
-	hot := router.Group("/hot")
+	core := router
+	if traceMiddleware != nil {
+		core = router.Group("", traceMiddleware)
+	}
+
+	core.POST("/query/progressive", h.ProgressiveQuery)
+	core.POST("/tags/group", h.TriggerTagGroup)
+	hot := core.Group("/hot")
 	{
 		hot.GET("/doc_summaries", h.HotDocSummaries)
 		hot.GET("/doc_chapters", h.HotDocChapters)
 		hot.GET("/doc_source", h.HotDocSource)
 	}
-	cold := router.Group("/cold")
+	cold := core.Group("/cold")
 	{
 		cold.GET("/doc_source", h.ColdDocSource)
 	}
-
-	// Document summaries endpoint
-	router.GET("/documents/:id/summaries", h.GetDocumentSummaries)
-
-	// Quota endpoint
-	router.GET("/quota", h.GetQuota)
-
-	// Monitoring snapshot (JSON) for UI dashboards
-	router.GET("/monitoring", h.GetMonitoring)
-
-	// Prometheus metrics endpoint
-	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 }
 
 // CreateDocument creates a new document
@@ -163,5 +167,30 @@ func (h *Handler) GetQuota(c *gin.Context) {
 // GetMonitoring returns a JSON snapshot for the monitoring UI.
 func (h *Handler) GetMonitoring(c *gin.Context) {
 	status, body := h.ExecuteMonitoring(c.Request.Context())
+	c.JSON(status, body)
+}
+
+// ListTraces returns recent persisted trace summaries (OpenTelemetry export).
+func (h *Handler) ListTraces(c *gin.Context) {
+	limit := 50
+	offset := 0
+	if v := c.Query("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			limit = n
+		}
+	}
+	if v := c.Query("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			offset = n
+		}
+	}
+	status, body := h.ExecuteListTraces(c.Request.Context(), limit, offset)
+	c.JSON(status, body)
+}
+
+// GetTrace returns all spans for one trace id.
+func (h *Handler) GetTrace(c *gin.Context) {
+	tid := strings.TrimSpace(c.Param("trace_id"))
+	status, body := h.ExecuteGetTrace(c.Request.Context(), tid)
 	c.JSON(status, body)
 }

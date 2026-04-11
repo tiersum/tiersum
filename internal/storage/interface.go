@@ -107,6 +107,27 @@ type IColdIndex interface {
 	Close() error
 }
 
+// OtelSpanRow is one span row written by the OpenTelemetry SQL exporter.
+type OtelSpanRow struct {
+	TraceID         string
+	SpanID          string
+	ParentSpanID    string
+	Name            string
+	Kind            string
+	StartUnixNano   int64
+	EndUnixNano     int64
+	StatusCode      string
+	StatusMessage   string
+	AttributesJSON  string
+}
+
+// IOtelSpanRepository persists and reads OpenTelemetry spans (progressive-query debug traces).
+type IOtelSpanRepository interface {
+	InsertSpan(ctx context.Context, row *OtelSpanRow) error
+	ListTraceSummaries(ctx context.Context, limit, offset int) ([]types.OtelTraceSummary, error)
+	ListSpansByTraceID(ctx context.Context, traceID string) ([]types.OtelSpanDTO, error)
+}
+
 // ColdIndexHit is one ranked match from IColdIndex.Search (one cold document chapter).
 // Source is an optional explainability hint for clients (e.g. how the row was surfaced in the implementation); callers must not branch business logic on it.
 type ColdIndexHit struct {

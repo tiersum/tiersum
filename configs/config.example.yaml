@@ -102,7 +102,25 @@ llm:
 
 # Progressive query (POST /api/v1/query/progressive) — synthesized AI answer only (extra LLM call after retrieval).
 # Hot/cold retrieval still uses llm.* above for tag/doc/chapter filters. Smaller values here reduce answer latency.
+# OpenTelemetry: HTTP + in-process spans (including progressive-query detail spans when the trace is sampled and query.allow_progressive_debug is true) share one TracerProvider and persist to otel_spans.
+# Core APIs (query, tag group, hot/cold retrieval) are wrapped; document CRUD, tag lists, quota, monitoring, and /traces are not.
+telemetry:
+  # When false, no global TracerProvider and no HTTP tracing middleware.
+  enabled: false
+  # Export spans to the application database (requires migrations / otel_spans table).
+  persist_to_db: true
+  # Random sampling rate for root HTTP spans (0–1). Child spans follow the parent when sampled.
+  sample_ratio: 0.1
+  # service.name on exported spans
+  service_name: tiersum
+  # Query parameter that forces RecordAndSample for that request (truthy: 1, true, yes, on).
+  force_sample_query_param: debug_trace
+  # Header that forces sampling when set to a truthy value (case-insensitive).
+  force_sample_header: X-TierSum-Debug-Trace
+
 query:
+  # When false, progressive query does not create extra in-process child spans even if the HTTP trace is sampled. Use in locked-down prod to avoid persisting prompts in traces.
+  allow_progressive_debug: true
   # Max completion tokens for the answer (unset: min(llm.*.max_tokens, 900)). Set higher for longer answers.
   progressive_answer_max_tokens: 0
   # How many top references (by relevance) to include in the answer prompt (unset: 12, max 30).
