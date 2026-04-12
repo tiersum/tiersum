@@ -12,12 +12,14 @@ import { InitPage } from './pages/InitPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { AdminPage } from './pages/AdminPage.js';
+import { AdminConfigPage } from './pages/AdminConfigPage.js';
 import { apiClient, isBrowserAdminRole } from './api_client.js';
 
 const routes = [
     { path: '/init', component: InitPage },
     { path: '/login', component: LoginPage },
     { path: '/settings', component: SettingsPage },
+    { path: '/admin/config', component: AdminConfigPage },
     { path: '/admin', component: AdminPage },
     { path: '/', component: SearchPage },
     { path: '/docs', component: DocumentsPage },

@@ -102,7 +102,8 @@ export const AdminPage = {
     },
     template: `
         <div class="max-w-5xl mx-auto px-4 py-8">
-            <h1 class="text-2xl font-bold text-slate-100 mb-4">Administration</h1>
+            <h1 class="text-2xl font-bold text-slate-100 mb-2">Users & API keys</h1>
+            <p class="text-slate-500 text-sm mb-6">Users, browser sessions across tenants, and service API keys.</p>
             <p v-if="loading" class="text-slate-400">Loading…</p>
             <p v-else-if="err" class="text-red-400">{{ err }}</p>
             <div v-else>
@@ -110,7 +111,7 @@ export const AdminPage = {
                     <p class="text-amber-200 font-semibold text-sm">New secret (copy now, shown once)</p>
                     <pre class="mt-2 text-xs text-emerald-300 whitespace-pre-wrap break-all">{{ lastSecret }}</pre>
                 </div>
-                <div class="tabs tabs-boxed bg-slate-900/80 mb-4">
+                <div class="tabs tabs-boxed bg-slate-900/80 mb-4 flex flex-wrap gap-y-1">
                     <a :class="['tab', tab==='users' && 'tab-active']" @click.prevent="tab='users'">Users</a>
                     <a :class="['tab', tab==='devices' && 'tab-active']" @click.prevent="tab='devices'">Devices</a>
                     <a :class="['tab', tab==='keys' && 'tab-active']" @click.prevent="tab='keys'">API keys</a>

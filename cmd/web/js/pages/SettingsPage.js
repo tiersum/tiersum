@@ -65,7 +65,7 @@ export const SettingsPage = {
     template: `
         <div class="max-w-3xl mx-auto px-4 py-8">
             <h1 class="text-2xl font-bold text-slate-100 mb-4">Devices</h1>
-            <p v-if="isAdmin && !loading && !err" class="text-slate-400 text-sm mb-2">Administrator view: all browser sessions for every user.</p>
+            <p v-if="isAdmin && !loading && !err" class="text-slate-400 text-sm mb-2">Admin: all browser sessions for every user.</p>
             <p v-if="loading" class="text-slate-400">Loading…</p>
             <p v-else-if="err" class="text-red-400">{{ err }}</p>
             <div v-else class="space-y-4">

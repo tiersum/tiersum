@@ -157,6 +157,10 @@ export const apiClient = {
         return this.request('/bff/v1/admin/devices');
     },
 
+    adminConfigSnapshot() {
+        return this.request('/bff/v1/admin/config/snapshot');
+    },
+
     getDocuments: () => apiClient.request('/bff/v1/documents').then((r) => r.documents || []),
     getDocument: (id) => apiClient.request(`/bff/v1/documents/${id}`),
     getDocumentSummaries: (id) => apiClient.request(`/bff/v1/documents/${id}/summaries`).then((r) => r.summaries || []),
@@ -192,6 +196,16 @@ export const apiClient = {
 
     getMonitoring: () => apiClient.request('/bff/v1/monitoring'),
     getMetricsText: () => apiClient.requestText('/metrics'),
+
+    /** Cold hybrid search: `q` comma-separated keywords; `max_results` 1–500 (server clamps). */
+    getColdDocSource(q, maxResults) {
+        const params = new URLSearchParams();
+        params.set('q', String(q || '').trim());
+        if (maxResults != null && maxResults > 0) {
+            params.set('max_results', String(Math.min(500, maxResults)));
+        }
+        return apiClient.request(`/bff/v1/cold/doc_source?${params.toString()}`);
+    },
 
     listTraces: (params = {}) => {
         const q = new URLSearchParams();

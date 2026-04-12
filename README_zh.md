@@ -194,9 +194,62 @@ make run
 
 # 服务就绪后
 # Web UI:   http://localhost:8080/
-# REST API: http://localhost:8080/api/v1
+# REST API: http://localhost:8080/api/v1（初始化后需数据库 API Key，见下文）
+# BFF:      http://localhost:8080/bff/v1（浏览器会话 Cookie）
 # MCP SSE:  http://localhost:8080/mcp/sse
 ```
+
+---
+
+## 权限与访问（用户指南）
+
+TierSum 将身份分为 **浏览器（人）** 与 **程序（脚本 / MCP）**：前者走 **`/bff/v1` + HttpOnly 会话 Cookie**，后者走 **`/api/v1` + 存于数据库的 API Key**。完整设计见 **[docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md)**（英文）；英文 README 中有对应的 **[用户向说明](README.md#access-control-and-permissions-user-guide)**。
+
+### 首次初始化（bootstrap）
+
+1. 浏览器打开站点（如 `http://localhost:8080/`）。若尚未初始化，会进入 **`/init`**。
+2. 填写 **管理员用户名** 并执行初始化。响应中 **仅显示一次**：
+   - **管理员访问令牌**（`ts_u_…`）— 用于网页 **登录**；
+   - **初始 API Key**（如 `tsk_live_…`）— 用于 `curl`、自动化、MCP（请妥善保存，服务器不再明文返回）。
+
+### 浏览器登录
+
+1. 打开 **`/login`**，粘贴 **访问令牌**（管理员或其它由管理员创建的用户令牌）。
+2. 登录成功后，浏览器持有 **`tiersum_session`** Cookie；前端对 **`/bff/v1`** 使用带 Cookie 的请求。
+
+**设备数上限：** 每名用户可绑定的不同浏览器数量有上限（新用户默认见配置 **`auth.browser.default_max_devices`**）。超出时需在 **管理 → 设备与会话** 中退出旧设备，或由 **管理员** 在后台移除会话。
+
+### 界面权限一览
+
+| 区域 | 对象 | 说明 |
+| ---- | ---- | ---- |
+| 搜索、文档、标签 | 任意已登录 **user / admin** | 通过 `/bff/v1` 使用核心产品功能。 |
+| **Management（管理）→ 可观测性**（`/observability`） | 任意已登录 **user / admin** | 监控快照、冷索引探测、存储的链路追踪（登录后顶栏 **Management** 下拉）。 |
+| **Management（管理）→ 设备与会话**（`/settings`） | 所有人 | 管理别名、单设备退出、**退出我的全部设备**。**admin** 在此页可查看 **所有用户** 的浏览器会话。 |
+| **Management（管理）→ 用户与 API 密钥**（`/admin`） | 仅 **`admin` 人角色** | 管理用户与令牌重置、创建/吊销 **API Key**、本页 **Devices** 标签查看全局会话等。 |
+| **Management（管理）→ Configuration**（`/admin/config`） | 仅 **`admin` 人角色** | 只读脱敏生效配置（`GET /bff/v1/admin/config/snapshot`）。 |
+
+### 调用 `/api/v1`（程序通道）
+
+初始化后，请求需带头 **`X-API-Key`** 或 **`Authorization: Bearer`**（密钥来自 Admin 界面或初始化响应）：
+
+```bash
+export TIERSUM_API_KEY='tsk_live_你的密钥'
+
+curl -sS -H "X-API-Key: $TIERSUM_API_KEY" http://localhost:8080/api/v1/documents
+```
+
+**Key 的 scope：** `read`（读与渐进查询）、`write`（含写入文档、触发标签聚类）、`admin`（在路由检查上包含 write 的 superset）。注意：这是 **服务密钥的 scope**，与网页里的 **人角色 admin** 不是同一概念。
+
+### MCP
+
+与 REST 使用 **同一套** 数据库 API Key：环境变量 **`TIERSUM_API_KEY`**，或配置 **`mcp.api_key`**。工具调用时的 scope 规则与 `/api/v1` 一致。
+
+### 运维提示
+
+- **重置用户访问令牌：** 管理后台 **Users → Reset token**（该用户所有浏览器会话失效）。
+- **吊销程序密钥：** **API keys → Revoke**。
+- **`GET /health`、`GET /metrics`：** 根路径，**无需** TierSum API Key。
 
 ---
 
@@ -204,11 +257,16 @@ make run
 
 **核心流程**（录入冷热判定、渐进式查询、标签聚类、热/冷检索、冷文档混合检索等）见 [docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md)（英文技术文档）。
 
+**权限模型：** [docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md)；**使用步骤：** 上文 [权限与访问（用户指南）](#权限与访问用户指南)。
+
 ### REST API
+
+初始化后，所有 `/api/v1` 受保护请求需携带 **`X-API-Key`** 或 **`Authorization: Bearer`**（见上文用户指南）。
 
 ```bash
 # 录入文档（未传 tags 时通常由 LLM 生成）
 curl -X POST http://localhost:8080/api/v1/documents \
+  -H "X-API-Key: $TIERSUM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Kubernetes Architecture",
@@ -219,11 +277,14 @@ curl -X POST http://localhost:8080/api/v1/documents \
 
 # 渐进式查询（推荐）：同时覆盖热/冷路径上的结果
 curl -X POST http://localhost:8080/api/v1/query/progressive \
+  -H "X-API-Key: $TIERSUM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "question": "How does kube-scheduler work?",
     "max_results": 100
   }'
+
+# 以下示例为节省篇幅未重复加 Header；实际调用请对每个 /api/v1 请求加上 -H "X-API-Key: $TIERSUM_API_KEY"。
 
 # 批量检索（热/冷）
 curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_results=100"
@@ -252,7 +313,7 @@ curl "http://localhost:8080/api/v1/quota"
 
 ### MCP 工具（智能体）
 
-MCP 工具名与入参与 **`/api/v1` 下 REST** 语义对齐（实现见 `internal/api/mcp.go`）。成功/失败时返回体为与 REST 相同的 JSON 结构（`metrics` 为 Prometheus 文本）。
+MCP 工具名与入参与 **`/api/v1` 下 REST** 语义对齐（实现见 `internal/api/mcp.go`）。需配置 **`TIERSUM_API_KEY`** 或 **`mcp.api_key`**（与 REST 同一套数据库 API Key 与 scope）。成功/失败时返回体为与 REST 相同的 JSON 结构（`metrics` 为 Prometheus 文本）。
 
 | MCP 工具名 | 对应 REST |
 |------------|-----------|
@@ -314,13 +375,14 @@ TierSum 采用 **五层架构** + **接口与实现分离**（`I*` 接口 + `svc
 └─────────────────────────────────────────────────────────────┘
 ```
 
-📚 **更完整的目录约定、命令与端点说明见 [AGENTS.md](AGENTS.md)。**
+📚 **更完整的目录约定、命令与端点说明见 [AGENTS.md](AGENTS.md)。**  
+🔐 **权限与认证设计（英文）：** [docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md)；**中文使用步骤：** [上文「权限与访问（用户指南）」](#权限与访问用户指南)。
 
 ---
 
 ## Web 界面
 
-基于 **Vue 3 CDN** 的单页应用（与 `cmd/web` 一致）：
+基于 **Vue 3 CDN** 的单页应用（与 `cmd/web` 一致）。**界面与 BFF 路由对应关系**见 [cmd/web/FRONTEND.md](cmd/web/FRONTEND.md)。**登录与设备管理**见 [权限与访问（用户指南）](#权限与访问用户指南)。
 
 ### 查询页（`/#/`）
 - 中央搜索框，调用渐进式查询 API  

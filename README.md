@@ -198,8 +198,8 @@ make run
 
 # Server ready
 # Web UI:   http://localhost:8080/
-# REST API: http://localhost:8080/api/v1   (scripts / integrations; optional API key)
-# BFF:      http://localhost:8080/bff/v1  (embedded UI; separate auth hook)
+# REST API: http://localhost:8080/api/v1   (DB API key after bootstrap; see below)
+# BFF:      http://localhost:8080/bff/v1  (embedded UI; browser session cookie)
 # Health:   http://localhost:8080/health  (liveness JSON; no API key)
 # Metrics:  http://localhost:8080/metrics   (Prometheus scrape; no API key)
 # MCP SSE:  http://localhost:8080/mcp/sse
@@ -207,15 +207,88 @@ make run
 
 ---
 
+## Access control and permissions (user guide)
+
+TierSum uses **two tracks**: the **browser** (embedded UI at `/`, session cookie on `/bff/v1`) and **programs** (REST `/api/v1`, MCP tools) with **database-stored API keys**. Design details: [docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md).
+
+### First launch (bootstrap)
+
+1. Open the web UI (e.g. `http://localhost:8080/`). If the system is not initialized, you are redirected to **`/init`**.
+2. Submit **Initialize** with the desired **admin username**. The response shows, **once**:
+   - **Admin access token** (`ts_u_…`) — human login secret for the browser.
+   - **Initial API key** (`tsk_live_…` or similar) — use for `curl`, scripts, and automation (store safely; it cannot be retrieved again).
+3. After bootstrap, unauthenticated access to protected `/api/v1` and `/bff/v1` is rejected until you log in or send a valid API key.
+
+### Sign in from the browser
+
+1. Go to **`/login`** (or follow the UI after bootstrap).
+2. Paste the **admin access token** (or a token issued for another user by an admin). The UI sends a small **fingerprint** (timezone, optional client signal) with login.
+3. On success, the server sets an **HttpOnly** **`tiersum_session`** cookie. Normal browsing uses **`/bff/v1`** with `credentials: include` (no token in `localStorage`).
+
+**Device limits:** each user has a **maximum number of distinct bound browsers** (`auth.browser.default_max_devices` in config for new users). If the limit is reached, sign out an old device under **Management → Devices & sessions** (`/settings`), or ask an **admin** to remove a session.
+
+### Who can do what in the UI
+
+| Area | Who | What |
+| ---- | --- | ---- |
+| **Search, documents, tags** | Any signed-in **user** or **admin** | Core product features via `/bff/v1`. |
+| **Management → Observability** (`/observability`) | Any signed-in **user** or **admin** | Monitoring snapshot, cold probe, stored traces (top bar after login). |
+| **Management → Devices & sessions** (`/settings`) | Everyone | Rename devices, sign out individual sessions, **Sign out all my devices**. **Admins** additionally see **every user’s** browser sessions on this page. |
+| **Management → Users & API keys** (`/admin`) | **`admin` role only** | Create users, reset user tokens, list/create/revoke **API keys**, view **all devices** (Devices tab on this page), see key usage snapshot. |
+| **Management → Configuration** (`/admin/config`) | **`admin` role only** | Read-only redacted effective config (`GET /bff/v1/admin/config/snapshot`). |
+
+### Calling `/api/v1` from scripts (program track)
+
+After bootstrap, every protected request needs a **key** created in the Admin UI (or the bootstrap payload):
+
+```bash
+export TIERSUM_API_KEY='tsk_live_...'   # example; use your real key
+
+curl -sS -H "X-API-Key: $TIERSUM_API_KEY" http://localhost:8080/api/v1/documents
+# or
+curl -sS -H "Authorization: Bearer $TIERSUM_API_KEY" http://localhost:8080/api/v1/documents
+```
+
+**Scopes (on the key):**
+
+- **`read`** — typical GETs and `POST /api/v1/query/progressive`.
+- **`write`** — includes **document ingest** (`POST /documents`) and **tag regroup** (`POST /tags/group`).
+- **`admin`** — superset of `write` for route checks (still a **service** credential; not the same as human **admin** role in the UI).
+
+Wrong or missing key → **401** `invalid_key`; insufficient scope → **403** `insufficient_scope` with `required` scope.
+
+### MCP (agents)
+
+Configure the same **database API key** as for REST:
+
+- Environment **`TIERSUM_API_KEY`**, or
+- Config **`mcp.api_key`** (optional duplicate of the key string)
+
+MCP tools use the **same scope rules** as `/api/v1`. `/mcp/*` is **not** covered by the browser session cookie.
+
+### Operators and troubleshooting
+
+- **Reset a user’s password (access token):** Admin UI → **Users** → **Reset token** (invalidates all that user’s browser sessions).
+- **Revoke automation access:** Admin UI → **API keys** → **Revoke**.
+- **Cannot call API after restore / new DB:** Run migrations and complete **`/init`** again for that database file.
+- **Health / metrics:** `GET /health` and `GET /metrics` stay **public** (no TierSum API key).
+
+---
+
 ## API Usage
 
 **Core flows** (ingest tiering, progressive query, tag grouping, hot/cold retrieval, hybrid cold search): see [docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md).
 
+**Auth design:** [docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md).
+
 ### REST API
+
+After bootstrap, add **`X-API-Key`** or **`Authorization: Bearer`** on `/api/v1` requests (see [Access control and permissions (user guide)](#access-control-and-permissions-user-guide)).
 
 ```bash
 # Ingest document (auto-tags via LLM if not provided)
 curl -X POST http://localhost:8080/api/v1/documents \
+  -H "X-API-Key: $TIERSUM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "title": "Kubernetes Architecture",
@@ -226,11 +299,14 @@ curl -X POST http://localhost:8080/api/v1/documents \
 
 # Progressive query (recommended) - searches both hot and cold docs
 curl -X POST http://localhost:8080/api/v1/query/progressive \
+  -H "X-API-Key: $TIERSUM_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "question": "How does kube-scheduler work?",
     "max_results": 100
   }'
+
+# Remaining examples: add -H "X-API-Key: $TIERSUM_API_KEY" to each /api/v1 request.
 
 # Batch retrieval (hot / cold)
 curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_results=100"
@@ -259,7 +335,7 @@ curl "http://localhost:8080/api/v1/quota"
 
 ### MCP Tools (for Agents)
 
-MCP tool names and JSON bodies align with the REST API under `/api/v1` (see `internal/api/mcp.go`).
+MCP tool names and JSON bodies align with the REST API under `/api/v1` (see `internal/api/mcp.go`). Supply a valid **database API key** via **`TIERSUM_API_KEY`** or **`mcp.api_key`** in config (same scopes as REST; see [user guide](#access-control-and-permissions-user-guide)).
 
 
 | Tool                             | REST equivalent                                        |
@@ -323,13 +399,14 @@ TierSum uses a **5-Layer Architecture** with Interface+Impl Pattern:
 └─────────────────────────────────────────────────────────────┘
 ```
 
-📚 **See [AGENTS.md](AGENTS.md) for architecture, layout, and conventions.**
+📚 **See [AGENTS.md](AGENTS.md) for architecture, layout, and conventions.**  
+🔐 **Auth and permissions (design):** [docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md)
 
 ---
 
 ## Web UI
 
-TierSum includes a modern Vue 3 CDN-based frontend with the following features. **Which screen calls which REST endpoint** is documented in **[cmd/web/FRONTEND.md](cmd/web/FRONTEND.md)** (“Web UI ↔ REST API”).
+TierSum includes a modern Vue 3 CDN-based frontend with the following features. **Which screen calls which REST endpoint** is documented in **[cmd/web/FRONTEND.md](cmd/web/FRONTEND.md)** (“Web UI ↔ REST API”). **Sign-in, admin, and devices:** [Access control and permissions (user guide)](#access-control-and-permissions-user-guide).
 
 ### Query Page (`/#/`)
 
@@ -350,6 +427,14 @@ TierSum includes a modern Vue 3 CDN-based frontend with the following features. 
 - Left panel: L1 Tag Groups (categories)
 - Right panel: L2 Tags (filtered by selected group; document counts from API)
 - Regroup button triggers `POST /api/v1/tags/group`
+
+### Observability (`/#/observability`)
+
+Reachable from the top bar **Management → Observability** after sign-in (same URL as before; `/monitoring` still redirects here).
+
+- **Monitoring** tab (`?tab=monitoring`): health, runtime, document counts, cold index stats, Prometheus text preview (same data as `GET /bff/v1/monitoring` and `/metrics`).
+- **Cold probe** tab (`?tab=cold`): calls `GET /bff/v1/cold/doc_source` with keywords and `max_results` to inspect hybrid cold hits (`path`, `score`, `source`, full chapter text) without running progressive query.
+- **Traces** tab (`?tab=traces`): stored OpenTelemetry traces for progressive-query debugging.
 
 ### Tech Stack
 

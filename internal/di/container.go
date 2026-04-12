@@ -41,6 +41,9 @@ type Dependencies struct {
 	// Auth (dual-track: program + browser)
 	AuthService service.IAuthService
 
+	// AdminConfigView serves redacted viper snapshots for browser admins.
+	AdminConfigView service.IAdminConfigViewService
+
 	// Job Layer
 	JobScheduler        *job.Scheduler
 	DocumentMaintenance service.IDocumentMaintenanceService
@@ -124,6 +127,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 		uow.APIKeyAudit,
 		logger,
 	)
+	adminConfigView := svcimpl.NewAdminConfigViewSvc()
 	retrievalSvc := svcimpl.NewRetrievalSvc(uow.Tags, uow.Summaries, uow.Documents, coldIndex)
 	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, retrievalSvc, quotaManager, uow.OtelSpans, logger, serverVersion)
 	mcpServer := api.NewMCPServer(restHandler, authSvc, logger)
@@ -144,6 +148,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 		RESTHandler:         restHandler,
 		MCPServer:           mcpServer,
 		AuthService:         authSvc,
+		AdminConfigView:     adminConfigView,
 		JobScheduler:        jobScheduler,
 		DocumentMaintenance: docMaintenance,
 		ColdIndex:           coldIndex,
@@ -171,6 +176,7 @@ var (
 	_ service.IDocumentMaintenanceService = (*svcimpl.DocumentMaintenanceSvc)(nil)
 	_ service.IAuthService                = (*svcimpl.AuthSvc)(nil)
 	_ service.IProgramAuth                = (*svcimpl.AuthSvc)(nil)
+	_ service.IAdminConfigViewService     = (*svcimpl.AdminConfigViewSvc)(nil)
 
 	// Client Layer
 	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)

@@ -99,13 +99,23 @@ deployments/
 internal/
   api/                       # Layer 1: API Layer
     handler.go               # REST handlers (depends on service.* only, no storage repos)
-    auth.go                  # BFFAuth placeholder; ProgramAuthMiddleware (/api/v1); BFFSessionMiddleware (/bff/v1)
+    auth.go                  # BFFAuth noop (reserved); real /bff/v1 gate is BFFSessionMiddleware in main.go
+    auth_bff_handlers.go     # BFF-only JSON: bootstrap, login, /me/*, /admin/*
+    bff_session_middleware.go # Browser session cookie gate for /bff/v1 (public auth paths exempt)
+    program_auth_middleware.go # DB API key + scope gate for /api/v1
+    mcp_gate.go              # MCP tool gate (same IProgramAuth + scopes as REST)
     handler_test.go          # Handler tests
     mcp.go                   # MCP protocol handlers
   service/                   # Layer 2: Service Layer
     interface.go             # I-prefixed service interfaces (includes IRetrievalService for API read paths)
+    auth_iface.go            # IAuthService / IProgramAuth, BrowserPrincipal, API key summaries
+    admin_config_view_iface.go # IAdminConfigViewService — redacted viper snapshot for browser admins
+    errors_auth.go           # Auth-related sentinel errors
     errors.go                # Shared service errors (e.g. cold index unavailable)
     svcimpl/                 # Implementation subpackage
+      auth_service.go        # AuthSvc: bootstrap, sessions, users, API keys, program validation
+      auth_crypto.go         # Token/key generation and hashing helpers
+      admin_config_view.go   # AdminConfigViewSvc: redacted effective config (viper) for GET /admin/config/snapshot
       document.go            # DocumentSvc implements IDocumentService
       retrieval.go           # RetrievalSvc implements IRetrievalService (tags/summaries/hot/cold reads for HTTP)
       query.go               # QuerySvc implements IQueryService
@@ -117,8 +127,10 @@ internal/
       *_test.go              # Unit tests with mocks
   storage/                   # Layer 3: Storage Layer
     interface.go             # I-prefixed storage interfaces
+    auth_entities.go         # Auth row structs (users, sessions, api_keys, …)
     db/                      # Database repository implementations
       repository.go          # DocumentRepo, SummaryRepo, TagRepo, TagGroupRepo
+      auth_repo.go            # system_state, users, browser_sessions, api_keys, audit
       schema.go              # Database schema definitions
       migrator.go            # Schema migration manager
     cache/                   # Cache implementation
@@ -145,6 +157,7 @@ internal/
 pkg/types/                   # Public API types + shared cold-embedding constants
   document.go                # Document, Summary, Tag types
   query.go                   # Query request/response types
+  auth.go                    # AuthRole*, AuthScope*, token expiry mode constants
   cold_embedding.go          # ColdEmbeddingVectorDimension, DefaultColdChapterMaxTokens
 cmd/web/                     # Vue 3 CDN frontend (embedded in binary)
   index.html                 # HTML shell + importmap; loads `js/main.js` (ESM)
@@ -482,7 +495,7 @@ The **embedded Vue UI** (`cmd/web/js/`) calls the same handlers under **`/bff/v1
 | GET    | `/metrics`                        | Prometheus metrics (root path; **not** under `/api/v1`; public) |
 | GET    | `/health`                         | Liveness JSON (root path; **not** under `/api/v1`; public)        |
 
-The same **relative paths** (e.g. `GET /documents`, `POST /query/progressive`) are also mounted under **`/bff/v1`** with **`api.BFFAuth`** (currently a no-op) instead of the optional API-key middleware.
+The same **relative paths** (e.g. `GET /documents`, `POST /query/progressive`) are also mounted under **`/bff/v1`**, authenticated by **`BFFSessionMiddleware`** (HttpOnly session cookie after browser login), not by `/api/v1` API keys.
 
 ### MCP Endpoints
 
@@ -534,7 +547,8 @@ var _ service.IMyService = (*MySvc)(nil)
 
 ## Security Considerations
 
-- **Dual-track auth:** **`/api/v1/*`** and MCP tool calls require **database API keys** (`service.IProgramAuth` / `svcimpl.AuthSvc`): send `X-API-Key` or `Authorization: Bearer` with `tsk_live_*` or `tsk_admin_*` values created in the admin UI (or the bootstrap response). Scopes: `read` (default GET + `POST /query/progressive`), `write` (+ document ingest + tag regroup), `admin` (superset). **`/bff/v1/*`** uses **HttpOnly session cookies** after `POST /bff/v1/auth/login` (`BFFSessionMiddleware`). Until first bootstrap, **`/api/v1`** returns **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`. **`GET /health`** and **`GET /metrics`** stay public at the root. MCP reads **`TIERSUM_API_KEY`** or `mcp.api_key` for the same validation as REST.
+- **Dual-track auth (design):** see **[docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md)**; **operator / user steps:** **[README.md](README.md#access-control-and-permissions-user-guide)**.
+- **Dual-track auth (summary):** **`/api/v1/*`** and MCP tool calls require **database API keys** (`service.IProgramAuth` / `svcimpl.AuthSvc`): send `X-API-Key` or `Authorization: Bearer` with `tsk_live_*` or `tsk_admin_*` values created in the admin UI (or the bootstrap response). Scopes: `read` (default GET + `POST /query/progressive`), `write` (+ document ingest + tag regroup), `admin` (superset). **`/bff/v1/*`** uses **HttpOnly session cookies** after `POST /bff/v1/auth/login` (`BFFSessionMiddleware`). Until first bootstrap, **`/api/v1`** returns **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`. **`GET /health`** and **`GET /metrics`** stay public at the root. MCP reads **`TIERSUM_API_KEY`** or `mcp.api_key` for the same validation as REST.
 - JWT authentication for REST is not implemented (no corresponding config keys).
 - CORS configuration for web UI
 - No sensitive data in logs (use zap logging)
@@ -592,6 +606,7 @@ Default setup uses SQLite with volume-mounted data directory.
 | `db/migrations/`                   | Database migration files                                        |
 | `pkg/types`                        | Public types used across all layers                             |
 | `docs/CORE_API_FLOWS.md`           | Core REST API algorithms and call flows (non-trivial endpoints) |
+| `docs/AUTH_AND_PERMISSIONS.md`     | Dual-track auth design: human vs program, roles, scopes, tables, config |
 | `docs/COLD_INDEX.md`               | Cold index **core algorithms** (English): chapter extraction, Bleve+HNSW, hybrid merge, config |
 | `docs/COLD_INDEX_zh.md`            | 同上，**中文**设计说明 |
 | `internal/storage/coldindex/embed_*.go` | MiniLM / simple cold embeddings; `coldindex.NewTextEmbedderFromViper`, `coldindex.FallbackColdTextEmbedding` |

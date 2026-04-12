@@ -49,7 +49,7 @@ make build
 - **Search** (`/`): Progressive query, server `answer` when available + reference list
 - **Documents** (`/docs`, `/docs/new`, `/docs/:id`): List/filter, full-page create, detail (summaries / chapters / source)
 - **Tags** (`/tags`): L1 groups + L2 tag browsing, trigger regroup
-- **Monitoring** (`/monitoring`): Health, Go runtime (`runtime` version / GOOS / GOARCH / CPU), document counts, quota, Prometheus preview
+- **Management** (top bar dropdown after login, `js/components/AppHeader.js`): **Observability** (`/observability`, `/monitoring` redirects here) — all signed-in roles; **Devices & sessions** (`/settings`) — all roles; **Users & API keys** (`/admin`) — **admin** only; **Configuration** (`/admin/config`) — **admin** only, redacted `GET /bff/v1/admin/config/snapshot`. Observability: **Monitoring** tab (health, runtime, cold index stats, Prometheus preview), **Cold probe** (`GET /bff/v1/cold/doc_source`, `?tab=cold`), **Traces** (`?tab=traces`).
 - **Dark theme**: Slate-style palette
 - **Responsive**: Mobile-friendly layout
 
@@ -60,17 +60,19 @@ make build
 - `/docs/new` — Create document (Markdown + preview)
 - `/docs/:id` — Document detail
 - `/tags` — Tag browser
-- `/monitoring` — Monitoring dashboard
+- `/observability` — Monitoring + cold probe + traces (`/monitoring` redirects here); linked from **Management → Observability** (not a top-level nav button).
 
-Vue Router uses **HTML5 history** mode (`createWebHistory`): `/`, `/docs`, `/tags`, `/monitoring`, etc. The API server serves `index.html` for unknown non-API paths so direct URLs and refresh work.
+Vue Router uses **HTML5 history** mode (`createWebHistory`): `/`, `/docs`, `/tags`, `/observability`, etc. The API server serves `index.html` for unknown non-API paths so direct URLs and refresh work.
 
-**Permission / security UI entry:** After login, the top bar shows a **Security** dropdown (`js/components/AppHeader.js`) → **Devices & sessions** (`/settings`, all signed-in users) and **Users & API keys** (`/admin`, admin role only). Direct URLs: `/settings`, `/admin`.
+**Permission / management UI entry:** After login, the top bar shows a **Management** dropdown (`js/components/AppHeader.js`): **Observability** (`/observability`, every signed-in role), **Devices & sessions** (`/settings`, every role), **Users & API keys** (`/admin`, **admin** only), **Configuration** (`/admin/config`, **admin** only). Direct URLs: `/observability`, `/settings`, `/admin`, `/admin/config`.
 
 ---
 
 ## Web UI ↔ BFF REST
 
-The embedded UI calls **`/bff/v1/*`** (same handlers as programmatic **`/api/v1/*`**, same origin). **Human track:** `fetch` uses **`credentials: 'include'`**; `api.BFFSessionMiddleware` requires an HttpOnly **`tiersum_session`** cookie issued by **`POST /bff/v1/auth/login`** after bootstrap. **Program track:** integrations use **`/api/v1`** with DB-backed API keys (`X-API-Key` or `Authorization: Bearer`). Below: **route / feature** → **HTTP** (request shape and main JSON keys). Endpoints not listed are **not** used by the current UI (`js/`) today (e.g. hot/cold retrieval family).
+The embedded UI calls **`/bff/v1/*`** (same handlers as programmatic **`/api/v1/*`**, same origin). **Human track:** `fetch` uses **`credentials: 'include'`**; `api.BFFSessionMiddleware` requires an HttpOnly **`tiersum_session`** cookie issued by **`POST /bff/v1/auth/login`** after bootstrap. **Program track:** integrations use **`/api/v1`** with DB-backed API keys (`X-API-Key` or `Authorization: Bearer`). Full permission model: **[docs/AUTH_AND_PERMISSIONS.md](../../docs/AUTH_AND_PERMISSIONS.md)**; end-user steps: **[README.md](../../README.md#access-control-and-permissions-user-guide)**.
+
+Below: **route / feature** → **HTTP** (request shape and main JSON keys). Endpoints not listed are **not** used by the current UI (`js/`) today (e.g. hot/cold retrieval family).
 
 | Auth / setup | REST | Notes |
 | --- | --- | --- |
@@ -79,7 +81,7 @@ The embedded UI calls **`/bff/v1/*`** (same handlers as programmatic **`/api/v1/
 | Logout | `POST /bff/v1/auth/logout` | Clears session cookie. |
 | Profile | `GET /bff/v1/me/profile` | `{ user_id, username, role }` for header / guards. |
 | Settings — devices | `GET /bff/v1/me/profile` then `GET /bff/v1/me/devices` **or** (admin role) `GET /bff/v1/admin/devices`; `PATCH/DELETE /bff/v1/me/devices…`; `POST /bff/v1/me/sessions/revoke_all` | Non-admins: own sessions only. Admins: all users’ sessions on the same screen; per-device sign-out still uses `/me/devices/:id`. |
-| Admin | `/bff/v1/admin/*` | Admin role only: users, **`GET /admin/devices`** (all browser sessions), API keys, usage. |
+| Admin | `/bff/v1/admin/*` | Admin role only: users, **`GET /admin/devices`** (all browser sessions), API keys, usage, **`GET /admin/config/snapshot`** (redacted effective config; UI **Management → Configuration** at `/admin/config`). |
 
 
 | UI area                              | REST                                  | Notes                                                                                                                                                                                                                                                                                                     |
@@ -93,14 +95,14 @@ The embedded UI calls **`/bff/v1/*`** (same handlers as programmatic **`/api/v1/
 | **Tags** — L1 groups                 | `GET /bff/v1/tags/groups`             | Response: `{ "groups": [ ... ] }`.                                                                                                                                                                                                                                                                        |
 | **Tags** — L2 list                   | `GET /bff/v1/tags?group_ids=…`        | Response: `{ "tags": [ ... ] }` — each tag includes `group_id`. Tag Browser loads L2 tags **per selected L1** via `group_ids` (and `max_results`) instead of filtering only in the browser.                                                                                                               |
 | **Tags** — regroup                   | `POST /bff/v1/tags/group`             | Response: `{ "message": "..." }`.                                                                                                                                                                                                                                                                         |
-| **Monitoring** — snapshot            | `GET /bff/v1/monitoring`              | JSON: `server.version`, `go` (`version`, `goos`, `goarch`, `compiler`, `num_cpu`, `gomaxprocs` from `runtime`), `documents` (counts by status), `cold_index.approx_chapters`, `cold_index.inverted` (`bleve_doc_count`, `storage_backend`, `text_analyzer`), `cold_index.vector` (`hnsw_nodes`, `vector_dim`, `hnsw_m`, `hnsw_ef_search`, `text_embedder_configured`), `telemetry`, `quota`, `prometheus_metrics_path` (always `/metrics`). Also `GET /health` for `status`, `version`, `cold_doc_count`. |
-| **Monitoring** — Prometheus text   | `GET /metrics`                        | Plain-text exposition (Prometheus scrape path at server root; no API key); loaded in-page as preview.                                                                                                                                                                                                                                                                    |
+| **Observability / Monitoring** — snapshot | `GET /bff/v1/monitoring`              | JSON: `server.version`, `go` (`version`, `goos`, `goarch`, `compiler`, `num_cpu`, `gomaxprocs` from `runtime`), `documents` (counts by status), `cold_index.approx_chapters`, `cold_index.inverted` (`bleve_doc_count`, `storage_backend`, `text_analyzer`), `cold_index.vector` (`hnsw_nodes`, `vector_dim`, `hnsw_m`, `hnsw_ef_search`, `text_embedder_configured`), `telemetry`, `quota`, `prometheus_metrics_path` (always `/metrics`). Also `GET /health` for `status`, `version`, `cold_doc_count`. |
+| **Observability — Cold probe** tab | `GET /bff/v1/cold/doc_source?q=…&max_results=` | Own tab (`?tab=cold`) in `js/pages/ObservabilityPage.js`, sibling to Monitoring and Traces. Query `q`: comma- or space-separated keywords. Response `{ "items": [ { "document_id", "title", "path?", "score", "context", "source?" } ] }` — `source` when present indicates branch (e.g. bm25 / vector / hybrid). **503** if cold index unavailable. |
+| **Observability / Monitoring** — Prometheus text | `GET /metrics`                        | Plain-text exposition (Prometheus scrape path at server root; no API key); loaded in-page as preview.                                                                                                                                                                                                                                                                    |
 
 
 **Not wired in the current UI** (REST exists under both `/bff/v1` and `/api/v1`; use curl/MCP against `/api/v1`, or extend `js/api_client.js` / pages):
 
 - `GET /bff/v1/hot/doc_summaries`, `.../hot/doc_chapters`, `.../hot/doc_source`
-- `GET /bff/v1/cold/doc_source`
 - `GET /bff/v1/quota`, `GET /health`
 
 **Auth:** **`/api/v1`** requires a valid DB API key on every request (scopes `read` \| `write` \| `admin`) unless the system is not yet initialized (**403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`). **`/bff/v1`** document routes require a browser session; public paths are **`/bff/v1/system/status`**, **`/bff/v1/system/bootstrap`**, **`/bff/v1/auth/login`**, **`/bff/v1/auth/logout`**. **`GET /health`** and **`GET /metrics`** at the server root stay public. MCP tools use **`TIERSUM_API_KEY`** (or `mcp.api_key`) with the same scope rules as REST.

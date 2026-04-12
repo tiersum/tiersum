@@ -15,20 +15,31 @@ export const ObservabilityPage = {
             spansLoading: false,
             attrsModalOpen: false,
             attrsModalSpanName: '',
-            attrsModalRows: []
+            attrsModalRows: [],
+            coldQ: '',
+            coldMaxResults: 20,
+            coldLoading: false,
+            coldError: '',
+            coldItems: [],
+            coldRan: false,
+            coldExpanded: {}
         };
     },
     mounted() {
         const q = new URLSearchParams(window.location.search || '');
         const t = (q.get('tab') || '').toLowerCase();
-        if (t === 'traces') this.tab = 'traces';
         const tid = (q.get('trace') || '').trim();
-        if (this.tab === 'traces') {
-            this.loadTraces();
-        }
         if (tid) {
             this.tab = 'traces';
+            this.loadTraces();
             this.openTrace(tid);
+        } else if (t === 'traces') {
+            this.tab = 'traces';
+            this.loadTraces();
+        } else if (t === 'cold') {
+            this.tab = 'cold';
+        } else {
+            this.tab = 'monitoring';
         }
     },
     watch: {
@@ -40,15 +51,27 @@ export const ObservabilityPage = {
         syncFromRoute() {
             const q = new URLSearchParams(this.$route.query || {});
             const t = (q.get('tab') || '').toLowerCase();
-            if (t === 'traces') this.tab = 'traces';
             const tid = (q.get('trace') || '').trim();
             if (tid && tid !== this.selectedTraceId) {
                 this.openTrace(tid);
+                return;
             }
+            if (t === 'traces') this.tab = 'traces';
+            else if (t === 'cold') this.tab = 'cold';
+            else this.tab = 'monitoring';
+        },
+        tabQueryFor(name) {
+            if (name === 'traces') return 'traces';
+            if (name === 'cold') return 'cold';
+            return 'monitoring';
         },
         setTab(name) {
             this.tab = name;
-            this.$router.replace({ query: { ...this.$route.query, tab: name === 'traces' ? 'traces' : 'monitoring' } });
+            const next = { ...this.$route.query, tab: this.tabQueryFor(name) };
+            if (name !== 'traces') {
+                delete next.trace;
+            }
+            this.$router.replace({ query: next });
             if (name === 'traces' && !this.traces.length && !this.tracesLoading) {
                 this.loadTraces();
             }
@@ -141,6 +164,49 @@ export const ObservabilityPage = {
             this.attrsModalSpanName = '';
             this.attrsModalRows = [];
         },
+        normalizeColdKeywords(raw) {
+            return String(raw || '')
+                .split(/[\s,]+/)
+                .map((s) => s.trim())
+                .filter(Boolean)
+                .join(',');
+        },
+        async runColdProbe() {
+            const q = this.normalizeColdKeywords(this.coldQ);
+            if (!q) {
+                this.coldError = 'Enter at least one keyword (spaces or commas).';
+                this.coldItems = [];
+                this.coldRan = true;
+                return;
+            }
+            this.coldLoading = true;
+            this.coldError = '';
+            this.coldItems = [];
+            this.coldExpanded = {};
+            try {
+                const data = await apiClient.getColdDocSource(q, this.coldMaxResults);
+                this.coldItems = data.items || [];
+            } catch (e) {
+                this.coldError = e.message || String(e);
+                this.coldItems = [];
+            } finally {
+                this.coldLoading = false;
+                this.coldRan = true;
+            }
+        },
+        toggleColdExpand(i) {
+            this.coldExpanded = { ...this.coldExpanded, [i]: !this.coldExpanded[i] };
+        },
+        coldContextPreview(text) {
+            const t = String(text || '');
+            if (t.length <= 320) return t;
+            return `${t.slice(0, 320)}…`;
+        },
+        formatColdScore(s) {
+            const n = Number(s);
+            if (!Number.isFinite(n)) return '—';
+            return n.toFixed(4);
+        },
         traceWaterfallRows() {
             if (!this.spans.length) return [];
             let t0 = Infinity;
@@ -214,15 +280,104 @@ export const ObservabilityPage = {
             <main class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <div class="mb-6">
                     <h1 class="text-2xl sm:text-3xl font-bold text-slate-100">Observability</h1>
-                    <p class="text-slate-500 text-sm mt-1">Service monitoring and persisted progressive-query traces (OpenTelemetry).</p>
+                    <p class="text-slate-500 text-sm mt-1">Monitoring, cold-index debugging, and persisted progressive-query traces (OpenTelemetry).</p>
                 </div>
-                <div role="tablist" class="tabs tabs-boxed bg-slate-900/80 border border-slate-800 mb-6 w-fit">
+                <div role="tablist" class="tabs tabs-boxed bg-slate-900/80 border border-slate-800 mb-6 flex flex-wrap gap-y-1 w-full max-w-3xl">
                     <a role="tab" :class="['tab', tab === 'monitoring' ? 'tab-active' : '']" @click.prevent="setTab('monitoring')">Monitoring</a>
+                    <a role="tab" :class="['tab', tab === 'cold' ? 'tab-active' : '']" @click.prevent="setTab('cold')">Cold probe</a>
                     <a role="tab" :class="['tab', tab === 'traces' ? 'tab-active' : '']" @click.prevent="setTab('traces')">Traces</a>
                 </div>
 
                 <div v-if="tab === 'monitoring'">
                     <monitoring-page />
+                </div>
+
+                <div v-if="tab === 'cold'" class="space-y-4">
+                    <div>
+                        <h2 class="text-lg font-semibold text-slate-200">Cold chapter probe</h2>
+                        <p class="text-[10px] font-mono text-slate-500 mt-0.5">GET /bff/v1/cold/doc_source</p>
+                    </div>
+                    <p class="text-sm text-slate-500 leading-relaxed max-w-3xl">
+                        Direct hybrid search (Bleve BM25 + HNSW vector) over <strong class="text-slate-400">cold</strong> document chapters.
+                        Same endpoint as <code class="text-cyan-600/90">/api/v1/cold/doc_source</code>. Use this to verify hits, scores, and
+                        <code class="text-cyan-600/90">source</code> (e.g. bm25 / vector / hybrid) without running progressive query.
+                    </p>
+                    <div class="flex flex-wrap items-end gap-2">
+                        <label class="form-control min-w-[12rem] flex-1 max-w-xl">
+                            <span class="label py-0"><span class="label-text text-xs text-slate-400">Keywords</span></span>
+                            <input
+                                v-model="coldQ"
+                                type="text"
+                                class="input input-bordered input-sm bg-slate-950 border-slate-700 w-full"
+                                placeholder="scheduler, pods"
+                                autocomplete="off"
+                                @keydown.enter.prevent="runColdProbe"
+                            />
+                        </label>
+                        <label class="form-control w-28">
+                            <span class="label py-0"><span class="label-text text-xs text-slate-400">max_results</span></span>
+                            <input
+                                v-model.number="coldMaxResults"
+                                type="number"
+                                min="1"
+                                max="500"
+                                class="input input-bordered input-sm bg-slate-950 border-slate-700 w-full"
+                            />
+                        </label>
+                        <button
+                            type="button"
+                            class="btn btn-primary btn-sm"
+                            :disabled="coldLoading"
+                            @click="runColdProbe"
+                        >
+                            {{ coldLoading ? 'Running…' : 'Run probe' }}
+                        </button>
+                    </div>
+                    <p v-if="coldError" class="text-sm text-red-400 whitespace-pre-wrap">{{ coldError }}</p>
+                    <p v-else-if="coldRan && !coldLoading && !coldItems.length" class="text-sm text-slate-500">No hits for these terms.</p>
+                    <div v-if="coldItems.length" class="overflow-x-auto rounded-lg border border-slate-800">
+                        <table class="table table-sm">
+                            <thead>
+                                <tr class="bg-slate-900/90 text-slate-400 text-xs">
+                                    <th>Title</th>
+                                    <th>Path</th>
+                                    <th>Source</th>
+                                    <th>Score</th>
+                                    <th>Document</th>
+                                    <th>Context</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="(row, i) in coldItems" :key="i" class="align-top hover:bg-slate-800/30">
+                                    <td class="text-sm text-slate-200 max-w-[10rem]">{{ row.title || '—' }}</td>
+                                    <td class="font-mono text-[11px] text-cyan-200/80 max-w-[12rem] break-all">{{ row.path || '—' }}</td>
+                                    <td class="text-xs text-amber-200/90">{{ row.source || '—' }}</td>
+                                    <td class="text-xs text-slate-400 whitespace-nowrap">{{ formatColdScore(row.score) }}</td>
+                                    <td class="text-xs">
+                                        <router-link
+                                            v-if="row.document_id"
+                                            :to="'/docs/' + row.document_id"
+                                            class="link link-primary"
+                                        >Open</router-link>
+                                        <span v-else class="text-slate-600">—</span>
+                                    </td>
+                                    <td class="max-w-md min-w-[8rem]">
+                                        <p class="text-[11px] text-slate-400 m-0 whitespace-pre-wrap break-words">
+                                            {{ coldExpanded[i] ? row.context : coldContextPreview(row.context) }}
+                                        </p>
+                                        <button
+                                            v-if="row.context && String(row.context).length > 320"
+                                            type="button"
+                                            class="btn btn-link btn-xs text-violet-300 px-0 min-h-0 h-auto"
+                                            @click="toggleColdExpand(i)"
+                                        >
+                                            {{ coldExpanded[i] ? 'Show less' : 'Show full chapter' }}
+                                        </button>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
 
                 <div v-if="tab === 'traces'" class="space-y-6">

@@ -16,13 +16,14 @@ import (
 // AuthBFFHandler registers human-track bootstrap, login, and admin JSON endpoints under /bff/v1.
 type AuthBFFHandler struct {
 	Auth          service.IAuthService
+	ConfigView    service.IAdminConfigViewService
 	Logger        *zap.Logger
 	ServerVersion string
 }
 
 // NewAuthBFFHandler constructs browser-facing auth handlers.
-func NewAuthBFFHandler(auth service.IAuthService, logger *zap.Logger, serverVersion string) *AuthBFFHandler {
-	return &AuthBFFHandler{Auth: auth, Logger: logger, ServerVersion: strings.TrimSpace(serverVersion)}
+func NewAuthBFFHandler(auth service.IAuthService, configView service.IAdminConfigViewService, logger *zap.Logger, serverVersion string) *AuthBFFHandler {
+	return &AuthBFFHandler{Auth: auth, ConfigView: configView, Logger: logger, ServerVersion: strings.TrimSpace(serverVersion)}
 }
 
 // RegisterPublicRoutes mounts unauthenticated paths on the given group (must be /bff/v1).
@@ -46,6 +47,8 @@ func (h *AuthBFFHandler) RegisterAdminRoutes(rg *gin.RouterGroup) {
 	rg.GET("/api_keys/usage", h.AdminAPIKeyUsage)
 	rg.POST("/api_keys", h.AdminCreateAPIKey)
 	rg.POST("/api_keys/:id/revoke", h.AdminRevokeAPIKey)
+
+	rg.GET("/config/snapshot", h.AdminConfigSnapshot)
 }
 
 // RegisterMeRoutes mounts /bff/v1/me/* (caller must apply BFFSessionMiddleware).
@@ -248,6 +251,23 @@ func (h *AuthBFFHandler) AdminRevokeAPIKey(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+func (h *AuthBFFHandler) AdminConfigSnapshot(c *gin.Context) {
+	if h.ConfigView == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "config_view_unavailable"})
+		return
+	}
+	snap, err := h.ConfigView.RedactedSnapshot(c.Request.Context(), BrowserPrincipal(c))
+	if err != nil {
+		h.writeAuthErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"snapshot":     snap,
+		"source":       "viper_effective",
+		"generated_at": time.Now().UTC().Format(time.RFC3339),
+	})
 }
 
 func (h *AuthBFFHandler) AdminAPIKeyUsage(c *gin.Context) {

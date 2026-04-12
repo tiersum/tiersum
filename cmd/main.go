@@ -229,7 +229,7 @@ func registerAPIRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc)
 
 // registerBFFRoutes registers the same REST surface under /bff/v1 for the embedded UI (browser session).
 func registerBFFRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc, serverVersion string) {
-	authBFF := api.NewAuthBFFHandler(deps.DI.AuthService, deps.Logger, serverVersion)
+	authBFF := api.NewAuthBFFHandler(deps.DI.AuthService, deps.DI.AdminConfigView, deps.Logger, serverVersion)
 	bff := r.Group("/bff/v1")
 	authBFF.RegisterPublicRoutes(bff)
 	bff.Use(api.BFFSessionMiddleware(deps.DI.AuthService))
