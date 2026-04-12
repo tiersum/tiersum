@@ -6,33 +6,55 @@ export const TagsPage = {
             tagGroups: [],
             tags: [],
             loading: true,
+            tagsPanelLoading: false,
             selectedGroup: null
         };
-    },
-    computed: {
-        filteredTags() {
-            if (!this.selectedGroup) return [];
-            return this.tags.filter(tag => tag.group_id === this.selectedGroup.id);
-        }
     },
     async mounted() {
         await this.loadData();
     },
     methods: {
+        /** Pick first L1 group that has an id (required for GET /tags?group_ids=). */
+        pickDefaultGroup() {
+            const list = Array.isArray(this.tagGroups) ? this.tagGroups : [];
+            const first = list.find((g) => g && (g.id != null && String(g.id).trim() !== ''));
+            return first || null;
+        },
+        async loadTagsForSelectedGroup() {
+            if (!this.selectedGroup || this.selectedGroup.id == null || String(this.selectedGroup.id).trim() === '') {
+                this.tags = [];
+                return;
+            }
+            this.tagsPanelLoading = true;
+            try {
+                this.tags = await apiClient.getTags({
+                    group_ids: [String(this.selectedGroup.id)],
+                    max_results: 5000
+                });
+            } catch (e) {
+                console.error('Failed to load tags for group:', e);
+                this.tags = [];
+            } finally {
+                this.tagsPanelLoading = false;
+            }
+        },
+        selectGroup(group) {
+            this.selectedGroup = group;
+            return this.loadTagsForSelectedGroup();
+        },
         async loadData() {
             try {
                 this.loading = true;
-                const [groupsData, tagsData] = await Promise.all([
-                    apiClient.getTagGroups(),
-                    apiClient.getTags()
-                ]);
-                this.tagGroups = groupsData;
-                this.tags = tagsData;
-                if (groupsData.length > 0 && !this.selectedGroup) {
-                    this.selectedGroup = groupsData[0];
-                }
+                const prevId = this.selectedGroup && this.selectedGroup.id != null ? String(this.selectedGroup.id) : '';
+                const raw = await apiClient.getTagGroups();
+                this.tagGroups = Array.isArray(raw) ? raw : [];
+                const still = prevId && this.tagGroups.find((g) => g && String(g.id) === prevId);
+                this.selectedGroup = still || this.pickDefaultGroup();
+                await this.loadTagsForSelectedGroup();
             } catch (error) {
                 console.error('Failed to load tags:', error);
+                this.tagGroups = [];
+                this.tags = [];
             } finally {
                 this.loading = false;
             }
@@ -92,7 +114,8 @@ export const TagsPage = {
                                         <button
                                             v-for="group in tagGroups"
                                             :key="group.id"
-                                            @click="selectedGroup = group"
+                                            type="button"
+                                            @click="selectGroup(group)"
                                             :class="['w-full text-left p-4 rounded-lg transition-all border',
                                                      selectedGroup?.id === group.id
                                                         ? 'bg-blue-500/10 border-blue-500/50'
@@ -132,15 +155,24 @@ export const TagsPage = {
                                     <div v-if="loading" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                         <div v-for="i in 6" :key="i" class="h-20 bg-slate-800 rounded animate-pulse"></div>
                                     </div>
+                                    <div v-else-if="tagGroups.length === 0" class="text-center py-12 text-slate-500">
+                                        <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+                                        </svg>
+                                        <p>No L1 groups yet. Ingest tagged documents or use <strong>Regroup Tags</strong>.</p>
+                                    </div>
                                     <div v-else-if="!selectedGroup" class="text-center py-12 text-slate-500">
                                         <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
                                         </svg>
-                                        <p>Select a group to view tags</p>
+                                        <p>Select an L1 group on the left to load L2 tags from the server.</p>
+                                    </div>
+                                    <div v-else-if="tagsPanelLoading" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div v-for="i in 6" :key="'t'+i" class="h-20 bg-slate-800 rounded animate-pulse"></div>
                                     </div>
                                     <div v-else class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                         <div
-                                            v-for="tag in filteredTags"
+                                            v-for="tag in tags"
                                             :key="tag.id"
                                             class="group p-4 rounded-lg bg-slate-800/30 border border-transparent hover:bg-slate-800/60 hover:border-slate-700 transition-all cursor-pointer"
                                         >
@@ -161,7 +193,7 @@ export const TagsPage = {
                                                 </svg>
                                             </div>
                                         </div>
-                                        <div v-if="filteredTags.length === 0" class="col-span-2 text-center py-12 text-slate-500">
+                                        <div v-if="tags.length === 0" class="col-span-2 text-center py-12 text-slate-500">
                                             <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
                                             </svg>

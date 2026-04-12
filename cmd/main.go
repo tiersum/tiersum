@@ -172,7 +172,7 @@ func setupRouter(deps *ServerDeps) *gin.Engine {
 		router.Use(maxRequestBodyMiddleware(maxBody))
 	}
 
-	// Root probes: never gated by security.api_key (same idea as /metrics).
+	// Root probes: never gated by program auth (same idea as /metrics).
 	registerPublicInfraRoutes(router, deps)
 
 	var traceMw gin.HandlerFunc
@@ -180,7 +180,7 @@ func setupRouter(deps *ServerDeps) *gin.Engine {
 		traceMw = api.NewTracingMiddleware()
 	}
 	registerAPIRoutes(router, deps, traceMw)
-	registerBFFRoutes(router, deps, traceMw)
+	registerBFFRoutes(router, deps, traceMw, Version)
 
 	// Register MCP routes
 	registerMCPRoutes(router, deps, traceMw)
@@ -189,7 +189,7 @@ func setupRouter(deps *ServerDeps) *gin.Engine {
 	if viper.GetBool("features.web_ui") {
 		registerStaticRoutes(router, deps)
 	} else {
-		deps.Logger.Info("Web UI disabled (features.web_ui=false); serving /health, /metrics, /api/v1/*, /bff/v1/*, and optional /mcp/* only")
+		deps.Logger.Info("Web UI disabled (features.web_ui=false); serving /health, /metrics, /api/v1/*, /bff/v1/* (auth required when initialized), and optional /mcp/* only")
 		registerWebUIDisabledRoot(router)
 	}
 
@@ -208,7 +208,7 @@ func registerWebUIDisabledRoot(r *gin.Engine) {
 }
 
 // registerPublicInfraRoutes registers GET /health and GET /metrics on the engine root.
-// Neither is wrapped by api.APIKeyAuth or api.BFFAuth so probes and scrapers work without the programmatic API key.
+// Neither is wrapped by program/browser auth middleware so probes and scrapers stay public.
 func registerPublicInfraRoutes(r *gin.Engine, deps *ServerDeps) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -220,19 +220,24 @@ func registerPublicInfraRoutes(r *gin.Engine, deps *ServerDeps) {
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 }
 
-// registerAPIRoutes registers programmatic REST under /api/v1 (optional API key via security.api_key).
+// registerAPIRoutes registers programmatic REST under /api/v1 (DB API keys + scope).
 func registerAPIRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc) {
 	apiV1 := r.Group("/api/v1")
-	apiV1.Use(api.APIKeyAuth(viper.GetString("security.api_key")))
+	apiV1.Use(api.ProgramAuthMiddleware(deps.DI.AuthService))
 	deps.DI.RESTHandler.RegisterRoutes(apiV1, traceMw)
 }
 
-// registerBFFRoutes registers the same REST surface under /bff/v1 for the embedded UI.
-// BFFAuth is intentionally empty for now so key-based auth can apply only to /api/v1.
-func registerBFFRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc) {
+// registerBFFRoutes registers the same REST surface under /bff/v1 for the embedded UI (browser session).
+func registerBFFRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc, serverVersion string) {
+	authBFF := api.NewAuthBFFHandler(deps.DI.AuthService, deps.Logger, serverVersion)
 	bff := r.Group("/bff/v1")
-	bff.Use(api.BFFAuth())
+	authBFF.RegisterPublicRoutes(bff)
+	bff.Use(api.BFFSessionMiddleware(deps.DI.AuthService))
 	deps.DI.RESTHandler.RegisterRoutes(bff, traceMw)
+	me := bff.Group("/me")
+	authBFF.RegisterMeRoutes(me)
+	admin := bff.Group("/admin", api.BFFRequireAdmin())
+	authBFF.RegisterAdminRoutes(admin)
 }
 
 // registerMCPRoutes registers MCP protocol routes (same OpenTelemetry Gin middleware as core REST when enabled).
@@ -449,6 +454,9 @@ func runMigrations(sqlDB *sql.DB, driver string) error {
 	migErr := migrator.MigrateUpSimple()
 	if err := migrator.EnsureOtelSpansTable(ctx); err != nil {
 		return fmt.Errorf("ensure otel_spans: %w", err)
+	}
+	if err := migrator.EnsureAuthTables(ctx); err != nil {
+		return fmt.Errorf("ensure auth tables: %w", err)
 	}
 	return migErr
 }

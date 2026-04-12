@@ -8,8 +8,17 @@ import { DocumentsPage } from './pages/DocumentsPage.js';
 import { DocumentDetailPage } from './pages/DocumentDetailPage.js';
 import { TagsPage } from './pages/TagsPage.js';
 import { ObservabilityPage } from './pages/ObservabilityPage.js';
+import { InitPage } from './pages/InitPage.js';
+import { LoginPage } from './pages/LoginPage.js';
+import { SettingsPage } from './pages/SettingsPage.js';
+import { AdminPage } from './pages/AdminPage.js';
+import { apiClient, isBrowserAdminRole } from './api_client.js';
 
 const routes = [
+    { path: '/init', component: InitPage },
+    { path: '/login', component: LoginPage },
+    { path: '/settings', component: SettingsPage },
+    { path: '/admin', component: AdminPage },
     { path: '/', component: SearchPage },
     { path: '/docs', component: DocumentsPage },
     { path: '/docs/new', component: DocumentCreatePage },
@@ -20,9 +29,45 @@ const routes = [
 ];
 
 const router = createRouter({
-    // HTML5 history: /tags, /docs work with server fallback to index.html (see cmd/main.go NoRoute).
     history: createWebHistory(),
     routes
+});
+
+router.beforeEach(async (to, _from, next) => {
+    let st;
+    try {
+        st = await apiClient.getSystemStatus();
+    } catch {
+        next();
+        return;
+    }
+    if (!st.initialized) {
+        if (to.path !== '/init') {
+            next('/init');
+            return;
+        }
+        next();
+        return;
+    }
+    if (to.path === '/init') {
+        next('/');
+        return;
+    }
+    if (to.path === '/login') {
+        next();
+        return;
+    }
+    try {
+        const me = await apiClient.getProfile();
+        if (to.path.startsWith('/admin') && !isBrowserAdminRole(me.role)) {
+            next('/');
+            return;
+        }
+    } catch {
+        next('/login');
+        return;
+    }
+    next();
 });
 
 const App = {
@@ -42,7 +87,8 @@ app.config.errorHandler = (err, instance, info) => {
     if (root && !root.querySelector('[data-vue-error]')) {
         const pre = document.createElement('pre');
         pre.dataset.vueError = '1';
-        pre.style.cssText = 'color:#f87171;padding:1rem;font-family:monospace;white-space:pre-wrap;border-top:1px solid #334155';
+        pre.style.cssText =
+            'color:#f87171;padding:1rem;font-family:monospace;white-space:pre-wrap;border-top:1px solid #334155';
         pre.textContent = 'Vue error: ' + (err && err.message ? err.message : String(err)) + '\n' + String(info);
         root.appendChild(pre);
     }
@@ -52,7 +98,10 @@ router.isReady().then(() => {
 }).catch((err) => {
     const root = document.getElementById('app');
     if (root) {
-        root.innerHTML = '<pre style="color:#f87171;padding:1rem;font-family:monospace;white-space:pre-wrap">' +
-            'Router failed to start: ' + String(err && err.message ? err.message : err) + '</pre>';
+        root.innerHTML =
+            '<pre style="color:#f87171;padding:1rem;font-family:monospace;white-space:pre-wrap">' +
+            'Router failed to start: ' +
+            String(err && err.message ? err.message : err) +
+            '</pre>';
     }
 });

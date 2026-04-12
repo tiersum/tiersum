@@ -1,0 +1,56 @@
+import { apiClient } from '../api_client.js';
+
+export const InitPage = {
+    data() {
+        return {
+            username: 'admin',
+            loading: false,
+            done: false,
+            result: null,
+            err: ''
+        };
+    },
+    methods: {
+        async submit() {
+            this.err = '';
+            this.loading = true;
+            try {
+                const r = await apiClient.bootstrap(this.username.trim());
+                this.result = r;
+                this.done = true;
+            } catch (e) {
+                this.err = e.message || String(e);
+            } finally {
+                this.loading = false;
+            }
+        }
+    },
+    template: `
+        <div class="max-w-lg mx-auto px-4 py-16">
+            <h1 class="text-2xl font-bold text-slate-100 mb-2">Initialize TierSum</h1>
+            <p class="text-slate-400 text-sm mb-6">Create the first administrator. This runs once per deployment.</p>
+            <div v-if="!done" class="space-y-4">
+                <label class="form-control w-full">
+                    <span class="label-text text-slate-300">Super admin username</span>
+                    <input v-model="username" type="text" class="input input-bordered bg-slate-900 border-slate-700 text-slate-100" autocomplete="username" />
+                </label>
+                <p v-if="err" class="text-sm text-red-400">{{ err }}</p>
+                <button class="btn btn-primary w-full" :disabled="loading || !username.trim()" @click="submit">
+                    {{ loading ? 'Working…' : 'Initialize' }}
+                </button>
+            </div>
+            <div v-else class="space-y-4 rounded-lg border border-red-900/60 bg-red-950/30 p-4">
+                <p class="text-red-300 font-semibold">Copy these secrets now. They are shown only once.</p>
+                <div class="text-sm text-slate-300 space-y-2">
+                    <div><span class="text-slate-500">Admin access token (browser):</span>
+                        <pre class="mt-1 p-2 bg-slate-900 rounded text-emerald-300 whitespace-pre-wrap break-all">{{ result.admin_access_token }}</pre>
+                    </div>
+                    <div><span class="text-slate-500">Initial API key (read, for MCP / scripts):</span>
+                        <pre class="mt-1 p-2 bg-slate-900 rounded text-emerald-300 whitespace-pre-wrap break-all">{{ result.initial_api_key }}</pre>
+                    </div>
+                </div>
+                <router-link to="/login" class="btn btn-secondary w-full">Continue to login</router-link>
+            </div>
+        </div>
+    `
+};

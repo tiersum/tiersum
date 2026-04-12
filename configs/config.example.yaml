@@ -191,6 +191,8 @@ mcp:
   enabled: true
   # Public base URL for MCP clients that require absolute message endpoint URLs (no trailing slash).
   base_url: ""
+  # Optional fallback when TIERSUM_API_KEY is not set in the MCP process environment (same value as REST Bearer).
+  api_key: ""
 
 documents:
   # Max ingest body (UTF-8 byte length of content).
@@ -220,12 +222,13 @@ logging:
   # Enable caller info
   caller: true
 
-# Security — programmatic REST /api/v1 only (optional). MCP routes are not protected by this middleware.
-# Embedded UI calls /bff/v1/* (same handlers); BFF auth is separate (see api.BFFAuth; currently empty).
-# GET /health and GET /metrics are always public at the server root (not gated by api_key).
-security:
-  # When non-empty, /api/v1/* requires X-API-Key or Authorization: Bearer <this value>. Empty = no API key check. Does not apply to /bff/v1/*, /health, or /metrics.
-  api_key: ""
+# Dual-track auth: /api/v1 and MCP use database API keys (Bearer or X-API-Key). /bff/v1 uses browser sessions after bootstrap.
+# GET /health and GET /metrics stay public at the server root.
+auth:
+  browser:
+    session_ttl: 168h # HttpOnly session cookie lifetime (sliding on each request)
+    slide_user_token_ttl: 168h # Human access-token sliding window when token_expiry_mode=slide
+    default_max_devices: 3
 
 # Feature flags (only keys read by the server are listed here).
 features:

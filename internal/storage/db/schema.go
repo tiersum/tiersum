@@ -53,6 +53,12 @@ var SchemaVersions = []SchemaVersion{
 		SQLite:   sqliteSchemaV8,
 		Postgres: postgresSchemaV8,
 	},
+	{
+		Version:  9,
+		Name:     "Dual-track auth: system state, users, browser sessions, API keys, audit",
+		SQLite:   sqliteSchemaV9,
+		Postgres: postgresSchemaV9,
+	},
 }
 
 // SchemaVersion represents a single schema migration
@@ -471,6 +477,133 @@ CREATE TABLE IF NOT EXISTS otel_spans (
 );
 CREATE INDEX IF NOT EXISTS idx_otel_spans_trace_id ON otel_spans(trace_id);
 CREATE INDEX IF NOT EXISTS idx_otel_spans_created_at ON otel_spans(created_at);
+`
+
+// sqliteSchemaV9 — dual-track authentication (human browser + service API keys).
+const sqliteSchemaV9 = `
+CREATE TABLE IF NOT EXISTS system_state (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    initialized_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+    access_token_hash TEXT NOT NULL,
+    token_expiry_mode TEXT NOT NULL DEFAULT 'slide' CHECK (token_expiry_mode IN ('slide', 'never')),
+    max_devices INTEGER NOT NULL DEFAULT 3,
+    token_valid_until DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_users_access_token_hash ON users(access_token_hash);
+
+CREATE TABLE IF NOT EXISTS browser_sessions (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_token_hash TEXT NOT NULL UNIQUE,
+    fingerprint_hash TEXT NOT NULL,
+    ip_prefix TEXT NOT NULL DEFAULT '',
+    user_agent_norm TEXT NOT NULL DEFAULT '',
+    timezone TEXT NOT NULL DEFAULT '',
+    device_alias TEXT NOT NULL DEFAULT '',
+    expires_at DATETIME NOT NULL,
+    last_seen_at DATETIME NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_browser_sessions_user_id ON browser_sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    scope TEXT NOT NULL CHECK (scope IN ('read', 'write', 'admin')),
+    key_hash TEXT NOT NULL UNIQUE,
+    revoked_at DATETIME,
+    expires_at DATETIME,
+    created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+    last_used_at DATETIME,
+    last_used_ip TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(revoked_at);
+
+CREATE TABLE IF NOT EXISTS api_key_audit (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    api_key_id TEXT NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+    method TEXT NOT NULL,
+    path TEXT NOT NULL,
+    client_ip TEXT NOT NULL DEFAULT '',
+    called_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_api_key_audit_key_time ON api_key_audit(api_key_id, called_at);
+
+INSERT OR IGNORE INTO system_state (id, initialized_at) VALUES (1, NULL);
+`
+
+// postgresSchemaV9 — dual-track authentication.
+const postgresSchemaV9 = `
+CREATE TABLE IF NOT EXISTS system_state (
+    id SMALLINT PRIMARY KEY CHECK (id = 1),
+    initialized_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    username VARCHAR(200) NOT NULL UNIQUE,
+    role VARCHAR(16) NOT NULL CHECK (role IN ('admin', 'user')),
+    access_token_hash VARCHAR(64) NOT NULL,
+    token_expiry_mode VARCHAR(16) NOT NULL DEFAULT 'slide' CHECK (token_expiry_mode IN ('slide', 'never')),
+    max_devices INTEGER NOT NULL DEFAULT 3,
+    token_valid_until TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_users_access_token_hash ON users(access_token_hash);
+
+CREATE TABLE IF NOT EXISTS browser_sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    session_token_hash VARCHAR(64) NOT NULL UNIQUE,
+    fingerprint_hash VARCHAR(64) NOT NULL,
+    ip_prefix VARCHAR(64) NOT NULL DEFAULT '',
+    user_agent_norm TEXT NOT NULL DEFAULT '',
+    timezone VARCHAR(128) NOT NULL DEFAULT '',
+    device_alias VARCHAR(200) NOT NULL DEFAULT '',
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    last_seen_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_browser_sessions_user_id ON browser_sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS api_keys (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name VARCHAR(300) NOT NULL,
+    scope VARCHAR(16) NOT NULL CHECK (scope IN ('read', 'write', 'admin')),
+    key_hash VARCHAR(64) NOT NULL UNIQUE,
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE,
+    created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    last_used_ip VARCHAR(64),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_api_keys_revoked ON api_keys(revoked_at);
+
+CREATE TABLE IF NOT EXISTS api_key_audit (
+    id BIGSERIAL PRIMARY KEY,
+    api_key_id UUID NOT NULL REFERENCES api_keys(id) ON DELETE CASCADE,
+    method VARCHAR(16) NOT NULL,
+    path TEXT NOT NULL,
+    client_ip VARCHAR(64) NOT NULL DEFAULT '',
+    called_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_api_key_audit_key_time ON api_key_audit(api_key_id, called_at);
+
+INSERT INTO system_state (id, initialized_at) VALUES (1, NULL)
+ON CONFLICT (id) DO NOTHING;
 `
 
 // GetSchemaForDriver returns schema for specific driver and version

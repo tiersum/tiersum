@@ -79,6 +79,7 @@ cold_index:
 mcp:
   enabled: true
   base_url: ""
+  api_key: ""
 
 documents:
   tiering:
@@ -92,9 +93,11 @@ logging:
   file_path: ./logs/tiersum.log
   caller: true
 
-security:
-  # Non-empty → /api/v1/* requires X-API-Key or Authorization: Bearer <value>. Does not apply to /bff/v1/*, /health, or /metrics.
-  api_key: ""
+auth:
+  browser:
+    session_ttl: 168h
+    slide_user_token_ttl: 168h
+    default_max_devices: 3
 
 features:
   web_ui: true

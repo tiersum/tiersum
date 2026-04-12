@@ -20,6 +20,25 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
+// stubProgramAuth satisfies service.IProgramAuth for handler tests (always initialized; permissive API key).
+type stubProgramAuth struct{}
+
+func (stubProgramAuth) IsSystemInitialized(ctx context.Context) (bool, error) {
+	return true, nil
+}
+
+func (stubProgramAuth) ValidateAPIKey(ctx context.Context, bearerToken string) (*service.APIKeyPrincipal, error) {
+	return &service.APIKeyPrincipal{KeyID: "test", Scope: types.AuthScopeAdmin, Name: "test"}, nil
+}
+
+func (stubProgramAuth) APIKeyMeetsScope(principal *service.APIKeyPrincipal, requiredScope string) bool {
+	return true
+}
+
+func (stubProgramAuth) RecordAPIKeyUse(ctx context.Context, keyID, method, path, clientIP string) error {
+	return nil
+}
+
 // Mock implementations for API testing
 type mockDocService struct {
 	docs map[string]*types.Document
@@ -210,6 +229,7 @@ func setupTestHandler() (*Handler, *gin.Engine) {
 	}
 
 	api := router.Group("/api/v1")
+	api.Use(ProgramAuthMiddleware(stubProgramAuth{}))
 	handler.RegisterRoutes(api, nil)
 
 	return handler, router

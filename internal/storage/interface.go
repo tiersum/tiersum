@@ -3,6 +3,7 @@ package storage
 
 import (
 	"context"
+	"time"
 
 	"github.com/tiersum/tiersum/pkg/types"
 )
@@ -163,4 +164,59 @@ type ColdIndexHit struct {
 	Content    string  `json:"content"`
 	Score      float64 `json:"score"`
 	Source     string  `json:"source,omitempty"` // trace only: e.g. bm25, vector, hybrid
+}
+
+// ISystemAuthStateRepository reads and updates first-boot / initialized flag.
+type ISystemAuthStateRepository interface {
+	Get(ctx context.Context) (*SystemAuthState, error)
+	MarkInitialized(ctx context.Context) error
+}
+
+// IAuthUserRepository persists human-track users (hashed access tokens).
+type IAuthUserRepository interface {
+	Create(ctx context.Context, u *AuthUser) error
+	GetByID(ctx context.Context, id string) (*AuthUser, error)
+	GetByUsername(ctx context.Context, username string) (*AuthUser, error)
+	GetByAccessTokenHash(ctx context.Context, accessTokenHashHex string) (*AuthUser, error)
+	UpdateAccessToken(ctx context.Context, userID, accessTokenHashHex string, validUntil *time.Time) error
+	UpdateTokenExpiryMode(ctx context.Context, userID, mode string) error
+	UpdateTokenValidUntil(ctx context.Context, userID string, validUntil *time.Time) error
+	List(ctx context.Context) ([]AuthUser, error)
+}
+
+// IBrowserSessionRepository stores browser session cookies and device binding metadata.
+type IBrowserSessionRepository interface {
+	Create(ctx context.Context, s *BrowserSession) error
+	GetByID(ctx context.Context, sessionID string) (*BrowserSession, error)
+	GetBySessionTokenHash(ctx context.Context, sessionTokenHashHex string) (*BrowserSession, error)
+	UpdateLastSeen(ctx context.Context, sessionID string, at time.Time) error
+	UpdateExpiresAt(ctx context.Context, sessionID string, exp time.Time) error
+	UpdateDeviceAlias(ctx context.Context, sessionID, alias string) error
+	Delete(ctx context.Context, sessionID string) error
+	DeleteByUserAndFingerprint(ctx context.Context, userID, fingerprintHashHex string) error
+	DeleteAllForUser(ctx context.Context, userID string) error
+	ListByUser(ctx context.Context, userID string) ([]BrowserSession, error)
+	// ListAllWithUsername returns every browser session with owning username (admin views).
+	ListAllWithUsername(ctx context.Context) ([]BrowserSessionAdminListRow, error)
+	CountByUser(ctx context.Context, userID string) (int, error)
+	CountActiveDistinctFingerprints(ctx context.Context, userID string, now time.Time) (int, error)
+	HasActiveSessionWithFingerprint(ctx context.Context, userID, fingerprintHashHex string, now time.Time) (bool, error)
+}
+
+// IAPIKeyRepository persists service-track API keys (hashed).
+type IAPIKeyRepository interface {
+	Create(ctx context.Context, k *APIKey) error
+	GetByID(ctx context.Context, id string) (*APIKey, error)
+	GetByKeyHash(ctx context.Context, keyHashHex string) (*APIKey, error)
+	GetActiveByKeyHash(ctx context.Context, keyHashHex string) (*APIKey, error)
+	List(ctx context.Context) ([]APIKey, error)
+	Revoke(ctx context.Context, id string) error
+	TouchLastUsed(ctx context.Context, id, clientIP string, at time.Time) error
+}
+
+// IAPIKeyAuditRepository appends and queries API key usage for auditing.
+type IAPIKeyAuditRepository interface {
+	Insert(ctx context.Context, apiKeyID, method, path, clientIP string, at time.Time) error
+	CountSince(ctx context.Context, apiKeyID string, since time.Time) (int64, error)
+	CountsPerKeySince(ctx context.Context, since time.Time) (map[string]int64, error)
 }

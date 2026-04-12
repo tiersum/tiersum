@@ -20,23 +20,26 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/telemetry"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
 // MCPServer handles MCP protocol. Tool names and payloads mirror REST /api/v1 (see RegisterRoutes).
 type MCPServer struct {
-	api    *Handler
-	logger *zap.Logger
-	mcp    *mcpserver.MCPServer
-	sse    *mcpserver.SSEServer
+	api         *Handler
+	programAuth service.IProgramAuth
+	logger      *zap.Logger
+	mcp         *mcpserver.MCPServer
+	sse         *mcpserver.SSEServer
 }
 
 // NewMCPServer creates a new MCP server wired to the same Handler as REST.
-func NewMCPServer(restAPI *Handler, logger *zap.Logger) *MCPServer {
+func NewMCPServer(restAPI *Handler, programAuth service.IProgramAuth, logger *zap.Logger) *MCPServer {
 	s := &MCPServer{
-		api:    restAPI,
-		logger: logger,
+		api:         restAPI,
+		programAuth: programAuth,
+		logger:      logger,
 	}
 
 	s.mcp = mcpserver.NewMCPServer(
@@ -296,6 +299,9 @@ func mcpJSONResult(status int, body any) (*mcp.CallToolResult, error) {
 }
 
 func (s *MCPServer) handleAPIv1DocumentsPost(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpWriteGate(ctx, "POST /api/v1/documents"); res != nil {
+		return res, err
+	}
 	args := toolArgs(request)
 	title := strings.TrimSpace(argString(args, "title"))
 	content := strings.TrimSpace(argString(args, "content"))
@@ -330,12 +336,18 @@ func (s *MCPServer) handleAPIv1DocumentsPost(ctx context.Context, request mcp.Ca
 }
 
 func (s *MCPServer) handleAPIv1DocumentsList(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/documents"); res != nil {
+		return res, err
+	}
 	_ = toolArgs(request)
 	status, body := s.api.ExecuteListDocuments(ctx)
 	return mcpJSONResult(status, body)
 }
 
 func (s *MCPServer) handleAPIv1DocumentsGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/documents/:id"); res != nil {
+		return res, err
+	}
 	id := strings.TrimSpace(argString(toolArgs(request), "id"))
 	if id == "" {
 		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "id is required"})
@@ -345,6 +357,9 @@ func (s *MCPServer) handleAPIv1DocumentsGet(ctx context.Context, request mcp.Cal
 }
 
 func (s *MCPServer) handleAPIv1DocumentsChaptersGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/documents/:id/chapters"); res != nil {
+		return res, err
+	}
 	id := strings.TrimSpace(argString(toolArgs(request), "id"))
 	if id == "" {
 		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "id is required"})
@@ -354,6 +369,9 @@ func (s *MCPServer) handleAPIv1DocumentsChaptersGet(ctx context.Context, request
 }
 
 func (s *MCPServer) handleAPIv1DocumentsSummariesGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/documents/:id/summaries"); res != nil {
+		return res, err
+	}
 	id := strings.TrimSpace(argString(toolArgs(request), "id"))
 	if id == "" {
 		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "id is required"})
@@ -363,6 +381,9 @@ func (s *MCPServer) handleAPIv1DocumentsSummariesGet(ctx context.Context, reques
 }
 
 func (s *MCPServer) handleAPIv1QueryProgressivePost(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "POST /api/v1/query/progressive"); res != nil {
+		return res, err
+	}
 	args := toolArgs(request)
 	q := strings.TrimSpace(argString(args, "question"))
 	if q == "" {
@@ -403,6 +424,9 @@ func (s *MCPServer) handleAPIv1QueryProgressivePost(ctx context.Context, request
 }
 
 func (s *MCPServer) handleAPIv1TagsGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/tags"); res != nil {
+		return res, err
+	}
 	args := toolArgs(request)
 	groupIDs := argStringList(args, "group_ids")
 	maxRaw := optionalMaxResultsQueryString(args, "max_results")
@@ -411,18 +435,27 @@ func (s *MCPServer) handleAPIv1TagsGet(ctx context.Context, request mcp.CallTool
 }
 
 func (s *MCPServer) handleAPIv1TagsGroupsGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/tags/groups"); res != nil {
+		return res, err
+	}
 	_ = toolArgs(request)
 	status, body := s.api.ExecuteListTagGroups(ctx)
 	return mcpJSONResult(status, body)
 }
 
 func (s *MCPServer) handleAPIv1TagsGroupPost(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpWriteGate(ctx, "POST /api/v1/tags/group"); res != nil {
+		return res, err
+	}
 	_ = toolArgs(request)
 	status, body := s.api.ExecuteTriggerTagGroup(ctx)
 	return mcpJSONResult(status, body)
 }
 
 func (s *MCPServer) handleAPIv1HotDocSummariesGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/hot/doc_summaries"); res != nil {
+		return res, err
+	}
 	args := toolArgs(request)
 	tags := argStringList(args, "tags")
 	maxRaw := optionalMaxResultsQueryString(args, "max_results")
@@ -431,6 +464,9 @@ func (s *MCPServer) handleAPIv1HotDocSummariesGet(ctx context.Context, request m
 }
 
 func (s *MCPServer) handleAPIv1HotDocChaptersGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/hot/doc_chapters"); res != nil {
+		return res, err
+	}
 	args := toolArgs(request)
 	docIDs := argStringList(args, "doc_ids")
 	maxRaw := optionalMaxResultsQueryString(args, "max_results")
@@ -439,6 +475,9 @@ func (s *MCPServer) handleAPIv1HotDocChaptersGet(ctx context.Context, request mc
 }
 
 func (s *MCPServer) handleAPIv1HotDocSourceGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/hot/doc_source"); res != nil {
+		return res, err
+	}
 	args := toolArgs(request)
 	paths := argStringList(args, "chapter_paths")
 	maxRaw := optionalMaxResultsQueryString(args, "max_results")
@@ -447,6 +486,9 @@ func (s *MCPServer) handleAPIv1HotDocSourceGet(ctx context.Context, request mcp.
 }
 
 func (s *MCPServer) handleAPIv1ColdDocSourceGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/cold/doc_source"); res != nil {
+		return res, err
+	}
 	args := toolArgs(request)
 	terms := argStringList(args, "q")
 	maxRaw := optionalMaxResultsQueryString(args, "max_results")
@@ -455,6 +497,9 @@ func (s *MCPServer) handleAPIv1ColdDocSourceGet(ctx context.Context, request mcp
 }
 
 func (s *MCPServer) handleAPIv1QuotaGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/quota"); res != nil {
+		return res, err
+	}
 	_ = toolArgs(request)
 	status, body := s.api.ExecuteGetQuota()
 	return mcpJSONResult(status, body)

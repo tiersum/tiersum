@@ -99,7 +99,7 @@ deployments/
 internal/
   api/                       # Layer 1: API Layer
     handler.go               # REST handlers (depends on service.* only, no storage repos)
-    auth.go                  # APIKeyAuth (/api/v1), BFFAuth (/bff/v1; placeholder)
+    auth.go                  # BFFAuth placeholder; ProgramAuthMiddleware (/api/v1); BFFSessionMiddleware (/bff/v1)
     handler_test.go          # Handler tests
     mcp.go                   # MCP protocol handlers
   service/                   # Layer 2: Service Layer
@@ -479,8 +479,8 @@ The **embedded Vue UI** (`cmd/web/js/`) calls the same handlers under **`/bff/v1
 | POST   | `/api/v1/tags/group`              | Trigger tag grouping                                                                  |
 | GET    | `/api/v1/quota`                   | Check quota status                                                                    |
 | GET    | `/api/v1/monitoring`              | JSON monitoring snapshot (version, document counts, cold index size + Bleve inverted + HNSW vector stats, quota) |
-| GET    | `/metrics`                        | Prometheus metrics (root path; **not** under `/api/v1`; no `security.api_key` check) |
-| GET    | `/health`                         | Liveness JSON (root path; **not** under `/api/v1`; no `security.api_key` check)        |
+| GET    | `/metrics`                        | Prometheus metrics (root path; **not** under `/api/v1`; public) |
+| GET    | `/health`                         | Liveness JSON (root path; **not** under `/api/v1`; public)        |
 
 The same **relative paths** (e.g. `GET /documents`, `POST /query/progressive`) are also mounted under **`/bff/v1`** with **`api.BFFAuth`** (currently a no-op) instead of the optional API-key middleware.
 
@@ -534,7 +534,7 @@ var _ service.IMyService = (*MySvc)(nil)
 
 ## Security Considerations
 
-- Optional API key for **programmatic REST** only: set `security.api_key`; **`/api/v1/*`** clients send `X-API-Key` or `Authorization: Bearer <key>`. **`/bff/v1/*`** is not gated by this value (extend **`api.BFFAuth`** for browser auth). **`GET /health`** and **`GET /metrics`** are public at the root path (not gated by `security.api_key`). MCP **`/mcp/*`** routes are not protected by this middleware.
+- **Dual-track auth:** **`/api/v1/*`** and MCP tool calls require **database API keys** (`service.IProgramAuth` / `svcimpl.AuthSvc`): send `X-API-Key` or `Authorization: Bearer` with `tsk_live_*` or `tsk_admin_*` values created in the admin UI (or the bootstrap response). Scopes: `read` (default GET + `POST /query/progressive`), `write` (+ document ingest + tag regroup), `admin` (superset). **`/bff/v1/*`** uses **HttpOnly session cookies** after `POST /bff/v1/auth/login` (`BFFSessionMiddleware`). Until first bootstrap, **`/api/v1`** returns **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`. **`GET /health`** and **`GET /metrics`** stay public at the root. MCP reads **`TIERSUM_API_KEY`** or `mcp.api_key` for the same validation as REST.
 - JWT authentication for REST is not implemented (no corresponding config keys).
 - CORS configuration for web UI
 - No sensitive data in logs (use zap logging)

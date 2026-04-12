@@ -38,6 +38,9 @@ type Dependencies struct {
 	RESTHandler *api.Handler   // REST API
 	MCPServer   *api.MCPServer // MCP protocol
 
+	// Auth (dual-track: program + browser)
+	AuthService service.IAuthService
+
 	// Job Layer
 	JobScheduler        *job.Scheduler
 	DocumentMaintenance service.IDocumentMaintenanceService
@@ -112,10 +115,18 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 		job.HotIngestQueue,
 	)
 
-	// 8. API Layer — retrieval facade so HTTP handlers do not import storage interfaces
+	// 8. Auth + API Layer — retrieval facade so HTTP handlers do not import storage interfaces
+	authSvc := svcimpl.NewAuthSvc(
+		uow.SystemAuth,
+		uow.AuthUsers,
+		uow.BrowserSessions,
+		uow.APIKeys,
+		uow.APIKeyAudit,
+		logger,
+	)
 	retrievalSvc := svcimpl.NewRetrievalSvc(uow.Tags, uow.Summaries, uow.Documents, coldIndex)
 	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, retrievalSvc, quotaManager, uow.OtelSpans, logger, serverVersion)
-	mcpServer := api.NewMCPServer(restHandler, logger)
+	mcpServer := api.NewMCPServer(restHandler, authSvc, logger)
 
 	// 9. Job Layer — jobs depend only on service.* contracts
 	docMaintenance := svcimpl.NewDocumentMaintenanceSvc(uow.Documents, indexer, summarizer, logger)
@@ -132,6 +143,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 		TagGroupService:     tagGroupSvc,
 		RESTHandler:         restHandler,
 		MCPServer:           mcpServer,
+		AuthService:         authSvc,
 		JobScheduler:        jobScheduler,
 		DocumentMaintenance: docMaintenance,
 		ColdIndex:           coldIndex,
@@ -157,6 +169,8 @@ var (
 	_ service.ISummarizer                 = (*svcimpl.SummarizerSvc)(nil)
 	_ service.IRetrievalService           = (*svcimpl.RetrievalSvc)(nil)
 	_ service.IDocumentMaintenanceService = (*svcimpl.DocumentMaintenanceSvc)(nil)
+	_ service.IAuthService                = (*svcimpl.AuthSvc)(nil)
+	_ service.IProgramAuth                = (*svcimpl.AuthSvc)(nil)
 
 	// Client Layer
 	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)

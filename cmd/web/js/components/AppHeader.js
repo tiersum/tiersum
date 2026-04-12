@@ -1,4 +1,39 @@
+import { apiClient, isBrowserAdminRole } from '../api_client.js';
+
 export const AppHeader = {
+    data() {
+        return { me: null };
+    },
+    computed: {
+        securityMenuActive() {
+            const p = this.$route?.path || '';
+            return p === '/settings' || p.startsWith('/admin');
+        }
+    },
+    async mounted() {
+        try {
+            const st = await apiClient.getSystemStatus();
+            if (!st.initialized) {
+                this.me = null;
+                return;
+            }
+            this.me = await apiClient.getProfile();
+        } catch {
+            this.me = null;
+        }
+    },
+    methods: {
+        isBrowserAdminRole,
+        async logout() {
+            try {
+                await apiClient.logout();
+            } catch {
+                /* ignore */
+            }
+            this.me = null;
+            window.location.assign('/login');
+        }
+    },
     template: `
         <header class="border-b border-slate-800 bg-slate-950/80 backdrop-blur-md sticky top-0 z-50">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
@@ -10,39 +45,64 @@ export const AppHeader = {
                         TierSum
                     </span>
                 </router-link>
-                <nav class="flex items-center gap-1">
+                <nav class="flex items-center gap-1 flex-wrap justify-end">
                     <router-link to="/" custom v-slot="{ navigate, isActive }">
                         <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
-                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                            </svg>
                             Search
                         </button>
                     </router-link>
                     <router-link to="/docs" custom v-slot="{ navigate, isActive }">
                         <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
-                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                            </svg>
                             Documents
                         </button>
                     </router-link>
                     <router-link to="/tags" custom v-slot="{ navigate, isActive }">
                         <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
-                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
-                            </svg>
                             Tags
                         </button>
                     </router-link>
                     <router-link to="/observability" custom v-slot="{ navigate, isActive }">
                         <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
-                            <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-                            </svg>
                             Observability
                         </button>
                     </router-link>
+                    <template v-if="me">
+                        <div class="dropdown dropdown-end">
+                            <div tabindex="0" role="button" :class="['btn btn-ghost btn-sm gap-1', securityMenuActive ? 'text-emerald-300 bg-emerald-500/10' : 'text-slate-300']">
+                                <span>Security</span>
+                                <svg class="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20"><path d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0L5.25 8.27a.75.75 0 01-.02-1.06z"/></svg>
+                            </div>
+                            <ul tabindex="0" class="dropdown-content menu z-[100] mt-2 w-64 rounded-box border border-slate-700 bg-slate-900 p-2 shadow-xl">
+                                <li>
+                                    <router-link to="/settings" custom v-slot="{ href, navigate, isActive }">
+                                        <a
+                                            :href="href"
+                                            class="flex flex-col items-start gap-0 py-2 px-2 !h-auto rounded-lg hover:bg-slate-800 cursor-pointer transition-colors"
+                                            :class="isActive ? 'bg-emerald-500/15 ring-1 ring-emerald-600/40' : ''"
+                                            @click="(e) => navigate(e)"
+                                        >
+                                            <span class="font-medium" :class="isActive ? 'text-emerald-100' : 'text-slate-100'">Devices & sessions</span>
+                                            <span class="text-xs text-slate-500">Bound browsers, rename or sign out devices</span>
+                                        </a>
+                                    </router-link>
+                                </li>
+                                <li v-if="isBrowserAdminRole(me.role)">
+                                    <router-link to="/admin" custom v-slot="{ href, navigate, isActive }">
+                                        <a
+                                            :href="href"
+                                            class="flex flex-col items-start gap-0 py-2 px-2 !h-auto rounded-lg hover:bg-slate-800 cursor-pointer transition-colors"
+                                            :class="isActive ? 'bg-amber-500/15 ring-1 ring-amber-600/40' : ''"
+                                            @click="(e) => navigate(e)"
+                                        >
+                                            <span class="font-medium" :class="isActive ? 'text-amber-100' : 'text-amber-200'">Users & API keys</span>
+                                            <span class="text-xs text-slate-500">Human access tokens and service keys</span>
+                                        </a>
+                                    </router-link>
+                                </li>
+                            </ul>
+                        </div>
+                        <button type="button" class="btn btn-ghost btn-sm text-slate-400" @click="logout">Logout</button>
+                    </template>
                 </nav>
             </div>
         </header>

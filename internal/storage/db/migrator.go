@@ -24,14 +24,14 @@ func NewMigrator(db *sql.DB, driver string) *Migrator {
 func (m *Migrator) InitSchema(ctx context.Context) error {
 	// For SQLite, we can simply execute all schemas
 	// For PostgreSQL, we should track versions in a migrations table
-	
+
 	schema := GetAllSchemas(m.driver)
-	
+
 	_, err := m.db.ExecContext(ctx, schema)
 	if err != nil {
 		return fmt.Errorf("init schema: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -41,24 +41,24 @@ func (m *Migrator) GetCurrentVersion(ctx context.Context) (int, error) {
 	// Check if migrations table exists
 	var exists bool
 	var query string
-	
+
 	if m.driver == "postgres" {
 		query = `SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'schema_migrations')`
 	} else {
 		query = `SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='schema_migrations'`
 	}
-	
+
 	err := m.db.QueryRowContext(ctx, query).Scan(&exists)
 	if err != nil || !exists {
 		return 0, nil // No migrations table, assume fresh database
 	}
-	
+
 	var version int
 	err = m.db.QueryRowContext(ctx, `SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1`).Scan(&version)
 	if err != nil {
 		return 0, nil
 	}
-	
+
 	return version, nil
 }
 
@@ -68,25 +68,25 @@ func (m *Migrator) MigrateUp(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	
+
 	latest := GetLatestVersion()
 	if current >= latest {
 		return nil // Already up to date
 	}
-	
+
 	// Run pending migrations
 	for i := current + 1; i <= latest; i++ {
 		schema := GetSchemaForDriver(m.driver, i)
 		if schema == "" {
 			continue
 		}
-		
+
 		_, err := m.db.ExecContext(ctx, schema)
 		if err != nil {
 			return fmt.Errorf("migrate to version %d: %w", i, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -94,6 +94,26 @@ func (m *Migrator) MigrateUp(ctx context.Context) error {
 func (m *Migrator) MigrateUpSimple() error {
 	ctx := context.Background()
 	return m.MigrateUp(ctx)
+}
+
+// EnsureAuthTables applies schema version 9 (dual-track auth) when core tables are missing.
+// Like EnsureOtelSpansTable, this guards against MigrateUp errors being ignored in cmd/main.go
+// ("continuing anyway") or partial application, so /bff/v1/system/status does not fail on a
+// cold database that already has older tiersum tables.
+func (m *Migrator) EnsureAuthTables(ctx context.Context) error {
+	ok, err := m.tableExists(ctx, "system_state")
+	if err != nil {
+		return err
+	}
+	if ok {
+		return nil
+	}
+	schema := GetSchemaForDriver(m.driver, 9)
+	if schema == "" {
+		return fmt.Errorf("ensure auth tables: no schema for driver %q at version 9", m.driver)
+	}
+	_, err = m.db.ExecContext(ctx, schema)
+	return err
 }
 
 // EnsureOtelSpansTable creates the otel_spans table and indexes when missing.
@@ -142,7 +162,7 @@ func (m *Migrator) tableExists(ctx context.Context, name string) (bool, error) {
 // EnsureMigrationsTable creates the migrations tracking table
 func (m *Migrator) EnsureMigrationsTable(ctx context.Context) error {
 	var query string
-	
+
 	if m.driver == "postgres" {
 		query = `
 			CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -158,7 +178,7 @@ func (m *Migrator) EnsureMigrationsTable(ctx context.Context) error {
 			)
 		`
 	}
-	
+
 	_, err := m.db.ExecContext(ctx, query)
 	return err
 }
