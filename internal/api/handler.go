@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
@@ -30,6 +29,8 @@ type Handler struct {
 	Quota           QuotaSnapshot
 	OtelSpans       storage.IOtelSpanRepository
 	Logger          *zap.Logger
+	// ServerVersion is the release/build label (e.g. from main.Version ldflags). Empty uses moduleVersion().
+	ServerVersion string
 }
 
 // NewHandler creates a new API handler
@@ -41,6 +42,7 @@ func NewHandler(
 	quota QuotaSnapshot,
 	otelSpans storage.IOtelSpanRepository,
 	logger *zap.Logger,
+	serverVersion string,
 ) *Handler {
 	return &Handler{
 		DocService:      docService,
@@ -50,10 +52,11 @@ func NewHandler(
 		Quota:           quota,
 		OtelSpans:       otelSpans,
 		Logger:          logger,
+		ServerVersion:   strings.TrimSpace(serverVersion),
 	}
 }
 
-// RegisterRoutes registers all API routes.
+// RegisterRoutes registers all API routes on the given group (e.g. /api/v1 or /bff/v1 prefix from cmd).
 // When traceMiddleware is non-nil, it wraps core (non-CRUD) endpoints so OpenTelemetry spans
 // are recorded with configurable sampling; CRUD-style and introspection routes stay untraced.
 func (h *Handler) RegisterRoutes(router *gin.RouterGroup, traceMiddleware gin.HandlerFunc) {
@@ -74,7 +77,6 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup, traceMiddleware gin.Ha
 	router.GET("/monitoring", h.GetMonitoring)
 	router.GET("/traces", h.ListTraces)
 	router.GET("/traces/:trace_id", h.GetTrace)
-	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	core := router
 	if traceMiddleware != nil {
@@ -167,6 +169,10 @@ func (h *Handler) GetQuota(c *gin.Context) {
 // GetMonitoring returns a JSON snapshot for the monitoring UI.
 func (h *Handler) GetMonitoring(c *gin.Context) {
 	status, body := h.ExecuteMonitoring(c.Request.Context())
+	if m, ok := body.(gin.H); ok {
+		// Top-level /metrics (Prometheus convention); registered in cmd without API key middleware.
+		m["prometheus_metrics_path"] = "/metrics"
+	}
 	c.JSON(status, body)
 }
 

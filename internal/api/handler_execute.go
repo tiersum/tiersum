@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
+	"github.com/tiersum/tiersum/internal/telemetry"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -35,6 +38,10 @@ func parseMaxResultsFromString(raw string, defaultVal, maxVal int) int {
 func (h *Handler) ExecuteIngestDocument(ctx context.Context, req types.CreateDocumentRequest) (int, any) {
 	doc, err := h.DocService.Ingest(ctx, req)
 	if err != nil {
+		if errors.Is(err, service.ErrIngestValidation) {
+			h.Logger.Info("ingest validation rejected", zap.Error(err))
+			return http.StatusBadRequest, gin.H{"error": err.Error()}
+		}
 		h.Logger.Error("failed to ingest document", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": "failed to create document"}
 	}
@@ -149,6 +156,13 @@ func (h *Handler) ExecuteProgressiveQuery(ctx context.Context, req types.Progres
 		req.MaxResults = 100
 	}
 	response, err := h.QueryService.ProgressiveQuery(ctx, req)
+	if telemetry.GlobalTracerActive() {
+		flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if flushErr := telemetry.FlushSpans(flushCtx); flushErr != nil {
+			h.Logger.Warn("telemetry flush after progressive query", zap.Error(flushErr))
+		}
+	}
 	if err != nil {
 		h.Logger.Error("failed to perform progressive query", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": err.Error()}
@@ -340,7 +354,7 @@ func (h *Handler) ExecuteColdDocSource(ctx context.Context, terms []string, maxR
 	return http.StatusOK, gin.H{"items": items}
 }
 
-// ExecuteMonitoring matches GET /api/v1/monitoring — JSON snapshot for dashboards (not Prometheus format).
+// ExecuteMonitoring matches GET …/monitoring (e.g. /api/v1 or /bff/v1) — JSON snapshot for dashboards (not Prometheus format).
 func (h *Handler) ExecuteMonitoring(ctx context.Context) (int, any) {
 	docCounts := map[string]int{
 		"total":   0,
@@ -380,20 +394,64 @@ func (h *Handler) ExecuteMonitoring(ctx context.Context) (int, any) {
 	}
 
 	coldApprox := 0
+	vector := gin.H{
+		"hnsw_nodes":               0,
+		"vector_dim":               0,
+		"hnsw_m":                   0,
+		"hnsw_ef_search":           0,
+		"text_embedder_configured": false,
+	}
+	inverted := gin.H{
+		"bleve_doc_count": 0,
+		"storage_backend": "",
+		"text_analyzer":   "",
+	}
 	if h.Retrieval != nil {
 		coldApprox = h.Retrieval.ApproxColdIndexEntries()
+		vs := h.Retrieval.ColdIndexVectorStats()
+		vector = gin.H{
+			"hnsw_nodes":               vs.HNSWNodes,
+			"vector_dim":               vs.VectorDim,
+			"hnsw_m":                   vs.HNSWM,
+			"hnsw_ef_search":           vs.HNSWEfSearch,
+			"text_embedder_configured": vs.TextEmbedderConfigured,
+		}
+		is := h.Retrieval.ColdIndexInvertedStats()
+		inverted = gin.H{
+			"bleve_doc_count": is.BleveDocCount,
+			"storage_backend": is.StorageBackend,
+			"text_analyzer":   is.TextAnalyzer,
+		}
+	}
+
+	ver := strings.TrimSpace(h.ServerVersion)
+	if ver == "" {
+		ver = moduleVersion()
 	}
 
 	return http.StatusOK, gin.H{
 		"server": gin.H{
-			"version": moduleVersion(),
+			"version": ver,
+		},
+		"go": gin.H{
+			"version":    runtime.Version(),
+			"goos":       runtime.GOOS,
+			"goarch":     runtime.GOARCH,
+			"compiler":   runtime.Compiler,
+			"num_cpu":    runtime.NumCPU(),
+			"gomaxprocs": runtime.GOMAXPROCS(0),
 		},
 		"documents": docCounts,
 		"cold_index": gin.H{
 			"approx_chapters": coldApprox,
+			"inverted":        inverted,
+			"vector":          vector,
 		},
-		"quota":                   quota,
-		"prometheus_metrics_path": "/api/v1/metrics",
+		"telemetry": gin.H{
+			"http_tracing_active":       telemetry.GlobalTracerActive(),
+			"progressive_debug_allowed": viper.GetBool("query.allow_progressive_debug"),
+		},
+		"quota": quota,
 	}
 }
 

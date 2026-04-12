@@ -3,18 +3,12 @@
 
 server:
   port: 8080
-  host: 0.0.0.0
-  timeout: 30s
-  max_body_size: 10MB
-  cors:
-    enabled: true
-    allowed_origins:
-      - "http://localhost:3000"
-      - "http://localhost:8080"
 
 llm:
   # Moonshot (Kimi) — OpenAI-compatible API
   provider: openai
+  # Strip chain-of-thought blocks; for some OpenAI-compatible APIs also disables thinking in the request.
+  disable_think: true
 
   openai:
     api_key: ${MOONSHOT_API_KEY}
@@ -38,9 +32,6 @@ llm:
 summarization:
   document_summary_max: 500
   chapter_summary_max: 300
-  paragraph_summary_max: 150
-  workers: 4
-  batch_size: 10
 
 storage:
   database:
@@ -49,12 +40,25 @@ storage:
     max_connections: 20
     min_connections: 5
 
-  cache:
-    ttl: 1h
-    max_size: 10000
-
 quota:
   per_hour: 100
+
+# OpenTelemetry: HTTP + progressive-query spans export to table otel_spans (run migrations).
+# Search UI "Trace sample" uses ?debug_trace=1; requires enabled + persist_to_db for DB export.
+telemetry:
+  enabled: true
+  persist_to_db: true
+  sample_ratio: 0.1
+  service_name: tiersum
+  force_sample_query_param: debug_trace
+  force_sample_header: X-TierSum-Debug-Trace
+
+# Progressive query (POST /api/v1/query/progressive): answer LLM + optional detailed trace spans.
+query:
+  allow_progressive_debug: true
+  progressive_answer_max_tokens: 0
+  progressive_answer_max_references: 0
+  progressive_answer_excerpt_max_bytes: 0
 
 # Same shape as config.example.yaml (cold_index.embedding.* is read by the server).
 cold_index:
@@ -74,20 +78,9 @@ cold_index:
 
 mcp:
   enabled: true
-  transport: sse
-  path: /mcp/sse
   base_url: ""
-  allowed_tools: []
 
 documents:
-  supported_formats:
-    - markdown
-    - md
-  max_size: 50MB
-  chunking:
-    enabled: true
-    max_chunk_size: 10000
-    overlap: 200
   tiering:
     hot_content_threshold: 5000
     cold_promotion_threshold: 3
@@ -100,12 +93,8 @@ logging:
   caller: true
 
 security:
+  # Non-empty → /api/v1/* requires X-API-Key or Authorization: Bearer <value>. Does not apply to /bff/v1/* (see api.BFFAuth).
   api_key: ""
-  jwt_secret: ${JWT_SECRET}
-  token_expiry: 24h
 
 features:
-  incremental_updates: false
-  auto_convert: false
-  web_ui: false
-  cold_doc_search: true
+  web_ui: true

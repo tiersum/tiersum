@@ -183,9 +183,9 @@ func (m *MockDocumentRepository) ListAll(ctx context.Context, limit int) ([]type
 
 // MockSummaryRepository is a mock implementation of storage.ISummaryRepository
 type MockSummaryRepository struct {
-	mu       sync.RWMutex
+	mu        sync.RWMutex
 	summaries map[string]*types.Summary
-	err      error
+	err       error
 }
 
 func NewMockSummaryRepository() *MockSummaryRepository {
@@ -497,10 +497,10 @@ func (m *MockTagGroupRepository) GetCount(ctx context.Context) (int, error) {
 
 // MockColdIndex is a mock implementation of storage.IColdIndex
 type MockColdIndex struct {
-	mu        sync.RWMutex
-	docs      map[string]*types.Document
+	mu            sync.RWMutex
+	docs          map[string]*types.Document
 	searchResults []storage.ColdIndexHit
-	err       error
+	err           error
 }
 
 func NewMockColdIndex() *MockColdIndex {
@@ -555,6 +555,30 @@ func (m *MockColdIndex) ApproxEntries() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.docs)
+}
+
+func (m *MockColdIndex) VectorStats() storage.ColdIndexVectorStats {
+	m.mu.RLock()
+	n := len(m.docs)
+	m.mu.RUnlock()
+	return storage.ColdIndexVectorStats{
+		HNSWNodes:              n,
+		VectorDim:              types.ColdEmbeddingVectorDimension,
+		HNSWM:                  16,
+		HNSWEfSearch:           100,
+		TextEmbedderConfigured: false,
+	}
+}
+
+func (m *MockColdIndex) InvertedIndexStats() storage.ColdIndexInvertedStats {
+	m.mu.RLock()
+	n := len(m.docs)
+	m.mu.RUnlock()
+	return storage.ColdIndexInvertedStats{
+		BleveDocCount:  uint64(n),
+		StorageBackend: "memory",
+		TextAnalyzer:   "jieba_analyzer (gojieba cut-for-search + to_lower)",
+	}
 }
 
 func (m *MockColdIndex) MarkdownChapters(docID, title, markdown string) []types.DocumentMarkdownChapter {
@@ -647,11 +671,11 @@ func (m *MockIndexer) GetIndexed(docID string) *types.DocumentAnalysisResult {
 
 // MockSummarizer is a mock implementation of service.ISummarizer
 type MockSummarizer struct {
-	mu              sync.RWMutex
-	analysisResult  *types.DocumentAnalysisResult
-	filterResults   []types.LLMFilterResult
+	mu               sync.RWMutex
+	analysisResult   *types.DocumentAnalysisResult
+	filterResults    []types.LLMFilterResult
 	tagFilterResults []types.TagFilterResult
-	err             error
+	err              error
 }
 
 func NewMockSummarizer() *MockSummarizer {

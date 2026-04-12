@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"go.uber.org/zap"
@@ -188,8 +189,28 @@ func (s *DocumentSvc) ProcessHotIngestWork(ctx context.Context, work types.HotIn
 	return nil
 }
 
+func validateIngestRequest(req types.CreateDocumentRequest) error {
+	maxBytes := config.DocumentMaxBodyBytes()
+	if maxBytes > 0 && int64(len(req.Content)) > maxBytes {
+		return fmt.Errorf("content exceeds configured maximum size (%d bytes)", maxBytes)
+	}
+	if !config.DocumentFormatAllowed(req.Format) {
+		return fmt.Errorf("format %q is not allowed for ingest", req.Format)
+	}
+	if enabled, maxRunes := config.DocumentChunkingMaxChars(); enabled && maxRunes > 0 {
+		if utf8.RuneCountInString(req.Content) > maxRunes {
+			return fmt.Errorf("content exceeds documents.chunking.max_chunk_size (%d Unicode code points)", maxRunes)
+		}
+	}
+	return nil
+}
+
 // Ingest implements IDocumentService.Ingest
 func (s *DocumentSvc) Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error) {
+	if err := validateIngestRequest(req); err != nil {
+		return nil, fmt.Errorf("%w: %v", service.ErrIngestValidation, err)
+	}
+
 	// Check if document has prebuilt summary/tags from external agent
 	hasPrebuiltSummary := req.Summary != "" && len(req.Chapters) > 0
 	hasPrebuiltTags := len(req.Tags) > 0

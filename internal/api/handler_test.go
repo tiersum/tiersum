@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,6 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
+	"github.com/tiersum/tiersum/internal/service"
+	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -183,6 +186,14 @@ func (m *mockRetrieval) ApproxColdIndexEntries() int {
 	return 0
 }
 
+func (m *mockRetrieval) ColdIndexVectorStats() storage.ColdIndexVectorStats {
+	return storage.ColdIndexVectorStats{}
+}
+
+func (m *mockRetrieval) ColdIndexInvertedStats() storage.ColdIndexInvertedStats {
+	return storage.ColdIndexInvertedStats{}
+}
+
 func setupTestHandler() (*Handler, *gin.Engine) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
@@ -195,6 +206,7 @@ func setupTestHandler() (*Handler, *gin.Engine) {
 		Quota:           nil,
 		OtelSpans:       nil,
 		Logger:          zap.NewNop(),
+		ServerVersion:   "test",
 	}
 
 	api := router.Group("/api/v1")
@@ -228,6 +240,22 @@ func TestCreateDocument(t *testing.T) {
 	assert.NotEmpty(t, resp.ID)
 }
 
+func TestCreateDocument_IngestValidationError(t *testing.T) {
+	h, router := setupTestHandler()
+	m := newMockDocService()
+	m.err = fmt.Errorf("%w: content too large", service.ErrIngestValidation)
+	h.DocService = m
+
+	req := types.CreateDocumentRequest{Title: "t", Content: "x", Format: "markdown"}
+	body, _ := json.Marshal(req)
+	w := httptest.NewRecorder()
+	httpReq, _ := http.NewRequest("POST", "/api/v1/documents", bytes.NewBuffer(body))
+	httpReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, httpReq)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
 func TestGetMonitoring(t *testing.T) {
 	_, router := setupTestHandler()
 
@@ -240,9 +268,36 @@ func TestGetMonitoring(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &body)
 	require.NoError(t, err)
 	assert.Contains(t, body, "server")
+	srv, ok := body["server"].(map[string]any)
+	require.True(t, ok)
+	assert.Equal(t, "test", srv["version"])
+	goRt, ok := body["go"].(map[string]any)
+	require.True(t, ok)
+	assert.NotEmpty(t, goRt["version"])
+	assert.NotEmpty(t, goRt["goos"])
+	assert.NotEmpty(t, goRt["goarch"])
 	assert.Contains(t, body, "documents")
 	assert.Contains(t, body, "quota")
 	assert.Contains(t, body, "cold_index")
+	ci, ok := body["cold_index"].(map[string]any)
+	require.True(t, ok)
+	vec, ok := ci["vector"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, vec, "hnsw_nodes")
+	assert.Contains(t, vec, "vector_dim")
+	assert.Contains(t, vec, "text_embedder_configured")
+	inv, ok := ci["inverted"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, inv, "bleve_doc_count")
+	assert.Contains(t, inv, "storage_backend")
+	assert.Contains(t, inv, "text_analyzer")
+	tel, ok := body["telemetry"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, tel, "http_tracing_active")
+	assert.Contains(t, tel, "progressive_debug_allowed")
+	pm, ok := body["prometheus_metrics_path"].(string)
+	require.True(t, ok)
+	assert.Equal(t, "/metrics", pm)
 }
 
 func TestCreateDocument_InvalidIngestMode(t *testing.T) {

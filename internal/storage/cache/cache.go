@@ -10,9 +10,10 @@ import (
 
 // Cache is a simple in-memory cache with TTL support
 type Cache struct {
-	data map[string]cacheItem
-	mu   sync.RWMutex
-	ttl  time.Duration
+	data       map[string]cacheItem
+	mu         sync.RWMutex
+	ttl        time.Duration
+	maxEntries int // 0 = unlimited
 }
 
 type cacheItem struct {
@@ -20,14 +21,18 @@ type cacheItem struct {
 	expiration time.Time
 }
 
-// NewCache creates a new cache with the specified TTL
-func NewCache(ttl time.Duration) *Cache {
+// NewCache creates a new cache with the specified TTL and optional max entry count (best-effort eviction).
+func NewCache(ttl time.Duration, maxEntries int) *Cache {
 	if ttl == 0 {
 		ttl = 10 * time.Minute
 	}
+	if maxEntries < 0 {
+		maxEntries = 0
+	}
 	c := &Cache{
-		data: make(map[string]cacheItem),
-		ttl:  ttl,
+		data:       make(map[string]cacheItem),
+		ttl:        ttl,
+		maxEntries: maxEntries,
 	}
 	go c.cleanup()
 	return c
@@ -52,6 +57,16 @@ func (c *Cache) Get(key string) (interface{}, bool) {
 func (c *Cache) Set(key string, value interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.maxEntries > 0 && len(c.data) >= c.maxEntries {
+		if _, exists := c.data[key]; !exists {
+			for k := range c.data {
+				delete(c.data, k)
+				if len(c.data) < c.maxEntries {
+					break
+				}
+			}
+		}
+	}
 	c.data[key] = cacheItem{
 		value:      value,
 		expiration: time.Now().Add(c.ttl),

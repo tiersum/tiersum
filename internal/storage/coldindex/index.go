@@ -26,6 +26,11 @@ import (
 )
 
 const (
+	// coldIndexBleveStorageBackend is how TierSum holds the cold Bleve index (see bleve.NewMemOnly).
+	coldIndexBleveStorageBackend = "memory"
+	// coldIndexBleveTextAnalyzer labels the default title/content analyzer (see createIndexMapping).
+	coldIndexBleveTextAnalyzer = "jieba_analyzer (gojieba cut-for-search + to_lower)"
+
 	// VectorDimension is the dimension of cold-document embedding vectors (see types.ColdEmbeddingVectorDimension).
 	VectorDimension = types.ColdEmbeddingVectorDimension
 	// DefaultHNSWM is the M parameter for HNSW (max connections per layer)
@@ -680,6 +685,39 @@ func (idx *Index) ApproxEntries() int {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 	return len(idx.documents)
+}
+
+// VectorStats implements storage.IColdIndex.
+func (idx *Index) VectorStats() storage.ColdIndexVectorStats {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	st := storage.ColdIndexVectorStats{
+		VectorDim:              VectorDimension,
+		HNSWM:                  idx.hnswConfig.M,
+		HNSWEfSearch:           idx.hnswConfig.EfSearch,
+		TextEmbedderConfigured: idx.textEmbedder != nil,
+	}
+	if idx.vector != nil && idx.vector.g != nil {
+		st.HNSWNodes = idx.vector.g.Len()
+		st.VectorDim = idx.vector.dim
+	}
+	return st
+}
+
+// InvertedIndexStats implements storage.IColdIndex.
+func (idx *Index) InvertedIndexStats() storage.ColdIndexInvertedStats {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	st := storage.ColdIndexInvertedStats{
+		StorageBackend: coldIndexBleveStorageBackend,
+		TextAnalyzer:   coldIndexBleveTextAnalyzer,
+	}
+	if idx.inverted != nil && idx.inverted.idx != nil {
+		if n, err := idx.inverted.idx.DocCount(); err == nil {
+			st.BleveDocCount = n
+		}
+	}
+	return st
 }
 
 // Close closes the index

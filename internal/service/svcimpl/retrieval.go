@@ -174,4 +174,20 @@ func (s *RetrievalSvc) ApproxColdIndexEntries() int {
 	return s.coldIndex.ApproxEntries()
 }
 
+// ColdIndexVectorStats implements service.IRetrievalService.
+func (s *RetrievalSvc) ColdIndexVectorStats() storage.ColdIndexVectorStats {
+	if s.coldIndex == nil {
+		return storage.ColdIndexVectorStats{}
+	}
+	return s.coldIndex.VectorStats()
+}
+
+// ColdIndexInvertedStats implements service.IRetrievalService.
+func (s *RetrievalSvc) ColdIndexInvertedStats() storage.ColdIndexInvertedStats {
+	if s.coldIndex == nil {
+		return storage.ColdIndexInvertedStats{}
+	}
+	return s.coldIndex.InvertedIndexStats()
+}
+
 var _ service.IRetrievalService = (*RetrievalSvc)(nil)

@@ -12,15 +12,31 @@ export const SearchPage = {
             aiLoading: false,
             highlightedRef: null,
             traceDebug: false,
-            lastTraceID: null
+            lastTraceID: null,
+            /** null until GET /bff/v1/monitoring — whether OpenTelemetry HTTP tracing + DB export is active */
+            httpTracingActive: null
         };
+    },
+    mounted() {
+        this.refreshTelemetryHint();
     },
     computed: {
         hasResults() {
             return this.results && this.results.length > 0;
+        },
+        traceSampleBlocked() {
+            return this.traceDebug && this.httpTracingActive === false;
         }
     },
     methods: {
+        async refreshTelemetryHint() {
+            try {
+                const m = await apiClient.getMonitoring();
+                this.httpTracingActive = m?.telemetry?.http_tracing_active === true;
+            } catch {
+                this.httpTracingActive = null;
+            }
+        },
         async handleSearch() {
             if (!this.query.trim()) return;
 
@@ -174,12 +190,19 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                 <span v-else>Search</span>
                             </button>
                         </div>
-                        <div class="mt-3 flex flex-wrap items-center justify-center gap-3 text-sm text-slate-400">
+                        <div class="mt-3 flex flex-col items-center gap-2 text-sm text-slate-400">
+                            <p v-if="traceSampleBlocked" class="text-amber-400/90 text-xs max-w-xl text-center">
+                                Trace sample is on, but the server is not exporting HTTP spans to the database.
+                                Set <code class="text-amber-200/90">telemetry.enabled: true</code> and
+                                <code class="text-amber-200/90">telemetry.persist_to_db: true</code> in config, then restart.
+                                <button type="button" class="link link-primary text-xs ml-1" @click="refreshTelemetryHint">Recheck</button>
+                            </p>
+                            <div class="flex flex-wrap items-center justify-center gap-3">
                             <label class="flex items-center gap-2 cursor-pointer select-none">
                                 <input type="checkbox" v-model="traceDebug" class="checkbox checkbox-sm checkbox-primary" />
                                 <span
                                     class="text-sm"
-                                    title="Adds ?debug_trace=1 so this request is force-sampled like other traced REST calls. Progressive detail spans are created only when query.allow_progressive_debug is true and the trace is recording. Requires telemetry.enabled."
+                                    title="Appends ?debug_trace=1 to force-record this request. Requires telemetry.enabled and telemetry.persist_to_db (see GET /bff/v1/monitoring telemetry.http_tracing_active). Also requires query.allow_progressive_debug for detailed progressive spans."
                                 >Trace sample (OpenTelemetry)</span>
                             </label>
                             <router-link
@@ -187,6 +210,7 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                 :to="{ path: '/observability', query: { tab: 'traces', trace: lastTraceID } }"
                                 class="btn btn-ghost btn-xs text-cyan-400"
                             >View trace in Observability</router-link>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 
+	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -55,6 +56,10 @@ type IRetrievalService interface {
 	SearchColdByQuery(ctx context.Context, query string, limit int) ([]types.ColdSearchHit, error)
 	// ApproxColdIndexEntries returns the cold index size hint (chapter rows), or 0 if unavailable.
 	ApproxColdIndexEntries() int
+	// ColdIndexVectorStats returns HNSW / embedding monitoring fields for the cold index (zero value if unavailable).
+	ColdIndexVectorStats() storage.ColdIndexVectorStats
+	// ColdIndexInvertedStats returns Bleve / inverted-text monitoring fields for the cold index (zero value if unavailable).
+	ColdIndexInvertedStats() storage.ColdIndexInvertedStats
 }
 
 // ITagGroupService defines tag grouping business logic
@@ -89,4 +94,3 @@ type ISummarizer interface {
 	// FilterChapters selects relevant chapters based on query
 	FilterChapters(ctx context.Context, query string, chapters []types.Summary) ([]types.LLMFilterResult, error)
 }
-

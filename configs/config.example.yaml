@@ -1,22 +1,18 @@
 # TierSum Configuration Example
 # Copy this file to config.yaml and modify as needed
 
-# Server configuration
+# Server
 server:
-  # HTTP server port
   port: 8080
-  # Bind address (0.0.0.0 for all interfaces, 127.0.0.1 for local only)
-  host: 0.0.0.0
-  # Request timeout
-  timeout: 30s
-  # Maximum request body size (10MB)
-  max_body_size: 10MB
-  # Enable CORS (for web UI development)
+  # Bind address: empty or 0.0.0.0 → all interfaces (":port").
+  host: ""
+  # Applies to ReadTimeout, WriteTimeout, and IdleTimeout on http.Server (e.g. 60s). Zero = no limit.
+  timeout: 0
+  # Max JSON/multipart body the Gin engine accepts (e.g. 32MB, 10MB).
+  max_body_size: 32MB
   cors:
-    enabled: true
-    allowed_origins:
-      - "http://localhost:3000"
-      - "http://localhost:8080"
+    enabled: false
+    allowed_origins: []
 
 # LLM configuration
 llm:
@@ -128,21 +124,19 @@ query:
   # Max bytes per reference excerpt in that prompt (unset: 3500, max 6000).
   progressive_answer_excerpt_max_bytes: 0
 
-# Summarization configuration
+# Summarization configuration (character caps in prompts).
 summarization:
-  # Summary length limits (in characters)
   document_summary_max: 500
   chapter_summary_max: 300
-  paragraph_summary_max: 150
-
-  # Concurrent processing workers
-  workers: 4
-
-  # Batch size for document processing
-  batch_size: 10
+  # Max characters embedded per document/chapter in FilterDocuments / FilterChapters prompts.
+  paragraph_summary_max: 300
 
 # Storage configuration
 storage:
+  # In-process repo cache (document rows, etc.).
+  cache:
+    ttl: 10m
+    max_size: 0
   database:
     # Database driver: sqlite3 (default) or postgres
     driver: sqlite3
@@ -155,13 +149,6 @@ storage:
     # PostgreSQL specific settings (ignored for SQLite)
     max_connections: 20
     min_connections: 5
-
-  # Local cache settings
-  cache:
-    # Default TTL for cached summaries
-    ttl: 1h
-    # Max cache size (number of items)
-    max_size: 10000
 
 # Quota configuration for hot/cold document processing
 quota:
@@ -199,39 +186,21 @@ cold_index:
     # Empty → third_party/minilm/tokenizer.json (same directory as minilm_model_path).
     minilm_tokenizer_path: ""
 
-# MCP (Model Context Protocol) configuration
+# MCP — routes are fixed at /mcp/sse and /mcp/message.
 mcp:
-  # Enable MCP server
   enabled: true
-  # Transport type: sse (Server-Sent Events) or stdio
-  transport: sse
-  # SSE endpoint path
-  path: /mcp/sse
   # Public base URL for MCP clients that require absolute message endpoint URLs (no trailing slash).
-  # Example: http://localhost:8080 — leave empty to use relative /mcp/message paths (same-origin).
   base_url: ""
-  # Allowed tools (empty = all)
-  allowed_tools: []
 
-# Document processing
 documents:
-  # Supported formats for import
-  supported_formats:
-    - markdown
-    - md
-
-  # Maximum document size (50MB)
+  # Max ingest body (UTF-8 byte length of content).
   max_size: 50MB
-
-  # Chunking strategy for large documents
+  # Allowed format values (lowercase). Empty = any non-empty format string.
+  supported_formats: []
   chunking:
-    enabled: true
-    # Max characters per chunk before splitting
+    # When true, reject ingest if content exceeds max_chunk_size (Unicode code points).
+    enabled: false
     max_chunk_size: 10000
-    # Overlap between chunks (preserve context)
-    overlap: 200
-
-  # Hot/cold tiering configuration
   tiering:
     # Threshold for hot document (characters)
     hot_content_threshold: 5000
@@ -251,22 +220,13 @@ logging:
   # Enable caller info
   caller: true
 
-# Security (for production)
+# Security — programmatic REST /api/v1 only (optional). MCP routes are not protected by this middleware.
+# Embedded UI calls /bff/v1/* (same handlers); BFF auth is separate (see api.BFFAuth; currently empty).
 security:
-  # API key for REST API authentication (optional)
+  # When non-empty, /api/v1/* requires X-API-Key or Authorization: Bearer <this value>. Empty = no API key check. Does not apply to /bff/v1/*.
   api_key: ""
-  # JWT secret for token-based auth
-  jwt_secret: ${JWT_SECRET}
-  # Token expiration
-  token_expiry: 24h
 
-# Feature flags
+# Feature flags (only keys read by the server are listed here).
 features:
-  # Reserved for future use: partial re-summarization on document updates (not implemented yet)
-  incremental_updates: false
-  # Enable automatic document conversion skills
-  auto_convert: false
-  # Enable web UI (future feature)
-  web_ui: false
-  # Enable cold document search (BM25 + vector)
-  cold_doc_search: true
+  # Embedded Vue UI at /. When false, / returns 404 JSON; /api/v1, /bff/v1, /health, /metrics, and optional /mcp/* still work.
+  web_ui: true

@@ -85,7 +85,7 @@ cd deployments/docker && docker-compose up -d  # Starts tiersum (SQLite by defau
 
 ```
 cmd/
-  main.go                    # API server entrypoint (single binary)
+  main.go                    # API server entrypoint: /api/v1 (+ API key), /bff/v1 (browser BFF), /metrics, /mcp/*, embedded UI
 configs/
   config.example.yaml        # Configuration template
 db/
@@ -99,6 +99,7 @@ deployments/
 internal/
   api/                       # Layer 1: API Layer
     handler.go               # REST handlers (depends on service.* only, no storage repos)
+    auth.go                  # APIKeyAuth (/api/v1), BFFAuth (/bff/v1; placeholder)
     handler_test.go          # Handler tests
     mcp.go                   # MCP protocol handlers
   service/                   # Layer 2: Service Layer
@@ -148,7 +149,7 @@ pkg/types/                   # Public API types + shared cold-embedding constant
 cmd/web/                     # Vue 3 CDN frontend (embedded in binary)
   index.html                 # HTML shell + importmap; loads `js/main.js` (ESM)
   js/                        # ES modules: `main.js`, `api_client.js`, `pages/`, `components/`
-  FRONTEND.md                # Frontend stack, routes, **Web UI ↔ REST API** table
+  FRONTEND.md                # Frontend stack, routes, **Web UI ↔ BFF REST** table
 ```
 
 ---
@@ -217,7 +218,7 @@ make docker-build
 
 ## Configuration
 
-Key configuration file: `configs/config.yaml` (copy from `config.example.yaml`)
+Key configuration file: `configs/config.yaml` (copy from `configs/config.example.yaml`). Keys present in the example file are the ones intended for use; for wiring details, search the codebase for `viper.Get` with the dotted key prefix.
 
 ### Required Settings
 
@@ -459,7 +460,7 @@ Endpoints that are more than simple CRUD — ingest tiering, progressive query, 
 
 ### REST API
 
-The **embedded Vue UI** (`cmd/web/js/`) uses a subset of these routes; see **`cmd/web/FRONTEND.md`** → *Web UI ↔ REST API* for the mapping by screen.
+The **embedded Vue UI** (`cmd/web/js/`) calls the same handlers under **`/bff/v1`** (see **`cmd/web/FRONTEND.md`** → *Web UI ↔ BFF REST*). Integrations, curl, and MCP-aligned clients use **`/api/v1`** below.
 
 | Method | Endpoint                          | Description                                                                           |
 | ------ | --------------------------------- | ------------------------------------------------------------------------------------- |
@@ -477,10 +478,11 @@ The **embedded Vue UI** (`cmd/web/js/`) uses a subset of these routes; see **`cm
 | GET    | `/api/v1/cold/doc_source`         | Cold chapter hits via cold index (`q` comma-separated terms, `max_results`; JSON includes `path` per chapter) |
 | POST   | `/api/v1/tags/group`              | Trigger tag grouping                                                                  |
 | GET    | `/api/v1/quota`                   | Check quota status                                                                    |
-| GET    | `/api/v1/monitoring`              | JSON monitoring snapshot (version, document counts, cold index size, quota)         |
-| GET    | `/api/v1/metrics`                 | Prometheus metrics                                                                    |
+| GET    | `/api/v1/monitoring`              | JSON monitoring snapshot (version, document counts, cold index size + Bleve inverted + HNSW vector stats, quota) |
+| GET    | `/metrics`                        | Prometheus metrics (root path; **not** under `/api/v1`; no `security.api_key` check) |
 | GET    | `/health`                         | Health check                                                                          |
 
+The same **relative paths** (e.g. `GET /documents`, `POST /query/progressive`) are also mounted under **`/bff/v1`** with **`api.BFFAuth`** (currently a no-op) instead of the optional API-key middleware.
 
 ### MCP Endpoints
 
@@ -532,8 +534,8 @@ var _ service.IMyService = (*MySvc)(nil)
 
 ## Security Considerations
 
-- Optional REST API key: set `security.api_key`; clients send `X-API-Key` or `Authorization: Bearer <key>`. MCP `/mcp/`* routes are not protected by this middleware.
-- JWT authentication for REST is not implemented (`security.jwt_secret` is reserved).
+- Optional API key for **programmatic REST** only: set `security.api_key`; **`/api/v1/*`** clients send `X-API-Key` or `Authorization: Bearer <key>`. **`/bff/v1/*`** is not gated by this value (extend **`api.BFFAuth`** for browser auth). **`GET /metrics`** (Prometheus) is intentionally public at the root path (not gated by `security.api_key`). MCP **`/mcp/*`** routes are not protected by this middleware.
+- JWT authentication for REST is not implemented (no corresponding config keys).
 - CORS configuration for web UI
 - No sensitive data in logs (use zap logging)
 - Database credentials via environment variables
@@ -559,7 +561,6 @@ Default setup uses SQLite with volume-mounted data directory.
 | ------------------- | -------- | ------------------------------- |
 | `OPENAI_API_KEY`    | Yes*     | OpenAI API key                  |
 | `ANTHROPIC_API_KEY` | Yes*     | Anthropic API key (alternative) |
-| `JWT_SECRET`        | No       | JWT signing secret              |
 
 
 *At least one LLM provider key required

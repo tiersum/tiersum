@@ -2,8 +2,10 @@
 
 This document traces **non-trivial** REST endpoints: anything beyond simple list/get of stored rows. It follows the call chain from `internal/api` into `internal/service/svcimpl` and related storage.
 
+**Mount points and auth:** The same `Handler.RegisterRoutes` surface is mounted at **`/api/v1`** (optional `security.api_key` via `api.APIKeyAuth`) and at **`/bff/v1`** for the embedded UI (`api.BFFAuth`, currently a no-op so browser calls do not require the API key). Paths below use the **`/api/v1`** prefix; replace the prefix for **`/bff/v1`** to hit the same handlers. **Prometheus:** **`GET /metrics`** is registered only at the **root** (Prometheus convention; no API key), not under `/api/v1` or `/bff/v1`.
+
 **Simple CRUD / pass-through (not detailed here)**  
-`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/documents/:id/summaries`, `GET /api/v1/tags/groups`, `GET /api/v1/quota`, `GET /api/v1/metrics`, `GET /health` — mostly read from DB or Prometheus without multi-step domain logic.
+`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/documents/:id/summaries`, `GET /api/v1/tags/groups`, `GET /api/v1/quota`, `GET /health`, and **`GET /metrics`** (Prometheus exposition at the root path, no API key) — mostly read from DB or Prometheus without multi-step domain logic.
 
 `GET /api/v1/documents/:id/chapters` is detailed below (markdown fallback when DB has no chapter-tier rows).
 
@@ -18,6 +20,10 @@ This document traces **non-trivial** REST endpoints: anything beyond simple list
 ## 1. `POST /api/v1/documents` — Ingest (hot / cold)
 
 **Handler:** `Handler.CreateDocument` → `ExecuteIngestDocument` → `DocumentSvc.Ingest` (`internal/service/svcimpl/document.go`).
+
+### 1.0 Ingest validation (configurable)
+
+Before hot/cold routing, **`DocumentSvc.Ingest`** enforces **`documents.max_size`** (UTF-8 byte length of `content`), **`documents.supported_formats`** (when non-empty), and optional **`documents.chunking`** (`enabled` + **`max_chunk_size`** as Unicode code points). Violations return **`service.ErrIngestValidation`**, mapped to **HTTP 400** in **`ExecuteIngestDocument`**.
 
 ### 1.1 Hot vs cold decision (`shouldBeHot`)
 

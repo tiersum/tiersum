@@ -1,4 +1,4 @@
-/** TierSum REST client (`/api/v1`). */
+/** TierSum BFF REST client (`/bff/v1` — same handlers as `/api/v1`, no API-key middleware). */
 
 export const apiClient = {
     baseURL: '',
@@ -27,7 +27,7 @@ export const apiClient = {
         }
     },
 
-    /** Plain-text GET (e.g. Prometheus exposition at /api/v1/metrics). */
+    /** Plain-text GET (Prometheus exposition at /metrics). */
     async requestText(endpoint, options = {}) {
         const url = `${this.baseURL}${endpoint}`;
         const response = await fetch(url, {
@@ -44,11 +44,11 @@ export const apiClient = {
         return await response.text();
     },
 
-    getDocuments: () => apiClient.request('/api/v1/documents').then(r => r.documents || []),
-    getDocument: (id) => apiClient.request(`/api/v1/documents/${id}`),
-    getDocumentSummaries: (id) => apiClient.request(`/api/v1/documents/${id}/summaries`).then(r => r.summaries || []),
-    getDocumentChapters: (id) => apiClient.request(`/api/v1/documents/${id}/chapters`).then(r => r.chapters || []),
-    createDocument: (data) => apiClient.request('/api/v1/documents', { method: 'POST', body: JSON.stringify(data) }),
+    getDocuments: () => apiClient.request('/bff/v1/documents').then(r => r.documents || []),
+    getDocument: (id) => apiClient.request(`/bff/v1/documents/${id}`),
+    getDocumentSummaries: (id) => apiClient.request(`/bff/v1/documents/${id}/summaries`).then(r => r.summaries || []),
+    getDocumentChapters: (id) => apiClient.request(`/bff/v1/documents/${id}/chapters`).then(r => r.chapters || []),
+    createDocument: (data) => apiClient.request('/bff/v1/documents', { method: 'POST', body: JSON.stringify(data) }),
 
     /**
      * @param {string} question
@@ -57,7 +57,7 @@ export const apiClient = {
     progressiveQuery: (question, options = {}) => {
         const max = options.max_results != null ? options.max_results : 100;
         const payload = { question, max_results: max };
-        let path = '/api/v1/query/progressive';
+        let path = '/bff/v1/query/progressive';
         if (options.trace) {
             path += '?debug_trace=1';
         }
@@ -67,12 +67,12 @@ export const apiClient = {
         });
     },
 
-    getTags: () => apiClient.request('/api/v1/tags').then(r => r.tags || []),
-    getTagGroups: () => apiClient.request('/api/v1/tags/groups').then(r => r.groups || []),
-    triggerTagGrouping: () => apiClient.request('/api/v1/tags/group', { method: 'POST' }),
+    getTags: () => apiClient.request('/bff/v1/tags').then(r => r.tags || []),
+    getTagGroups: () => apiClient.request('/bff/v1/tags/groups').then(r => r.groups || []),
+    triggerTagGrouping: () => apiClient.request('/bff/v1/tags/group', { method: 'POST' }),
 
-    getMonitoring: () => apiClient.request('/api/v1/monitoring'),
-    getMetricsText: () => apiClient.requestText('/api/v1/metrics'),
+    getMonitoring: () => apiClient.request('/bff/v1/monitoring'),
+    getMetricsText: () => apiClient.requestText('/metrics'),
 
     /** @param {{ limit?: number, offset?: number }} [params] */
     listTraces: (params = {}) => {
@@ -80,9 +80,9 @@ export const apiClient = {
         if (params.limit != null) q.set('limit', String(params.limit));
         if (params.offset != null) q.set('offset', String(params.offset));
         const s = q.toString();
-        return apiClient.request('/api/v1/traces' + (s ? `?${s}` : ''));
+        return apiClient.request('/bff/v1/traces' + (s ? `?${s}` : ''));
     },
 
     getTrace: (traceId) =>
-        apiClient.request(`/api/v1/traces/${encodeURIComponent(traceId)}`),
+        apiClient.request(`/bff/v1/traces/${encodeURIComponent(traceId)}`),
 };

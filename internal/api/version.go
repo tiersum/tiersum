@@ -1,11 +1,27 @@
 package api
 
-import "runtime/debug"
+import (
+	"runtime/debug"
+	"strings"
+)
 
-// moduleVersion returns the main module version from build info (e.g. v1.2.3 or "(devel)").
+// moduleVersion returns a best-effort build label: Go module version, VCS revision, or "dev".
 func moduleVersion() string {
-	if info, ok := debug.ReadBuildInfo(); ok && info.Main.Version != "" {
-		return info.Main.Version
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "dev"
 	}
-	return "unknown"
+	if v := strings.TrimSpace(info.Main.Version); v != "" {
+		return v
+	}
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" && s.Value != "" {
+			rev := s.Value
+			if len(rev) > 12 {
+				return rev[:12]
+			}
+			return rev
+		}
+	}
+	return "dev"
 }

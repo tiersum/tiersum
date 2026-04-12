@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -17,11 +18,14 @@ import (
 	"github.com/gin-gonic/gin"
 	_ "github.com/lib/pq"
 	_ "github.com/mattn/go-sqlite3"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/tiersum/tiersum/internal/api"
+	"github.com/tiersum/tiersum/internal/config"
 	"github.com/tiersum/tiersum/internal/di"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/storage/coldindex"
@@ -58,6 +62,9 @@ func initConfig() {
 		log.Printf("Warning: config file not found: %v", err)
 	}
 
+	// When features.web_ui is omitted, keep the embedded UI enabled (backward compatible with older configs).
+	viper.SetDefault("features.web_ui", true)
+
 	// Expand environment variables in config values (e.g., ${VAR} -> value)
 	expandEnvVars()
 }
@@ -85,7 +92,11 @@ type ServerDeps struct {
 
 // setupServerDeps initializes all server dependencies
 func setupServerDeps() (*ServerDeps, error) {
-	logger, _ := zap.NewProduction()
+	logger, err := newLoggerFromViper()
+	if err != nil {
+		log.Printf("logging: init from config failed (%v), falling back to zap production", err)
+		logger, _ = zap.NewProduction()
+	}
 
 	// Initialize database
 	sqlDB, err := initDB()
@@ -126,7 +137,7 @@ func setupServerDeps() (*ServerDeps, error) {
 	}
 
 	// Wire all dependencies
-	deps, err := di.NewDependencies(sqlDB, getDriver(), coldIndex, logger)
+	deps, err := di.NewDependencies(sqlDB, getDriver(), coldIndex, logger, Version)
 	if err != nil {
 		_ = textEmbedder.Close()
 		sqlDB.Close()
@@ -155,23 +166,46 @@ func setupRouter(deps *ServerDeps) *gin.Engine {
 
 	router := gin.New()
 	router.Use(gin.Recovery())
+	applyCORS(router, deps.Logger)
+	if maxBody := config.ServerMaxRequestBodyBytes(); maxBody > 0 {
+		router.MaxMultipartMemory = maxBody
+		router.Use(maxRequestBodyMiddleware(maxBody))
+	}
 
 	// Register health check
 	registerHealthRoute(router, deps)
+	registerPrometheusMetricsRoute(router)
 
 	var traceMw gin.HandlerFunc
 	if telemetry.GlobalTracerActive() {
 		traceMw = api.NewTracingMiddleware()
 	}
 	registerAPIRoutes(router, deps, traceMw)
+	registerBFFRoutes(router, deps, traceMw)
 
 	// Register MCP routes
 	registerMCPRoutes(router, deps, traceMw)
 
-	// Register static file routes
-	registerStaticRoutes(router, deps)
+	// Embedded Vue UI (only when enabled; REST/MCP/health always available)
+	if viper.GetBool("features.web_ui") {
+		registerStaticRoutes(router, deps)
+	} else {
+		deps.Logger.Info("Web UI disabled (features.web_ui=false); serving /health, /metrics, /api/v1/*, /bff/v1/*, and optional /mcp/* only")
+		registerWebUIDisabledRoot(router)
+	}
 
 	return router
+}
+
+// registerWebUIDisabledRoot avoids serving the SPA when features.web_ui is false.
+func registerWebUIDisabledRoot(r *gin.Engine) {
+	const msg = "web UI is disabled (features.web_ui: false); use /api/v1 or /bff/v1, /health, /metrics, or enable the flag in config"
+	r.GET("/", func(c *gin.Context) {
+		c.JSON(http.StatusNotFound, gin.H{"error": msg})
+	})
+	r.HEAD("/", func(c *gin.Context) {
+		c.Status(http.StatusNotFound)
+	})
 }
 
 // registerHealthRoute registers the health check endpoint
@@ -185,11 +219,25 @@ func registerHealthRoute(r *gin.Engine, deps *ServerDeps) {
 	})
 }
 
-// registerAPIRoutes registers all API v1 routes
+// registerPrometheusMetricsRoute exposes GET /metrics (Prometheus text format) at the root path.
+// This matches common Prometheus scrape conventions and is intentionally outside /api/v1 and /bff/v1 (no API key).
+func registerPrometheusMetricsRoute(r *gin.Engine) {
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+}
+
+// registerAPIRoutes registers programmatic REST under /api/v1 (optional API key via security.api_key).
 func registerAPIRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc) {
 	apiV1 := r.Group("/api/v1")
 	apiV1.Use(api.APIKeyAuth(viper.GetString("security.api_key")))
 	deps.DI.RESTHandler.RegisterRoutes(apiV1, traceMw)
+}
+
+// registerBFFRoutes registers the same REST surface under /bff/v1 for the embedded UI.
+// BFFAuth is intentionally empty for now so key-based auth can apply only to /api/v1.
+func registerBFFRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc) {
+	bff := r.Group("/bff/v1")
+	bff.Use(api.BFFAuth())
+	deps.DI.RESTHandler.RegisterRoutes(bff, traceMw)
 }
 
 // registerMCPRoutes registers MCP protocol routes (same OpenTelemetry Gin middleware as core REST when enabled).
@@ -225,6 +273,8 @@ func StaticFileServer() gin.HandlerFunc {
 		path := c.Request.URL.Path
 
 		if strings.HasPrefix(path, "/api/") ||
+			strings.HasPrefix(path, "/bff/") ||
+			path == "/metrics" ||
 			strings.HasPrefix(path, "/health") ||
 			strings.HasPrefix(path, "/mcp/") {
 			c.Next()
@@ -287,10 +337,16 @@ func startServer(router *gin.Engine, deps *ServerDeps) error {
 	if port == 0 {
 		port = 8080
 	}
+	addr := config.HTTPListenAddr(port)
 
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
+		Addr:    addr,
 		Handler: router,
+	}
+	if t := config.ServerReadTimeout(); t > 0 {
+		srv.ReadTimeout = t
+		srv.WriteTimeout = t
+		srv.IdleTimeout = t
 	}
 
 	// Graceful shutdown
@@ -301,6 +357,7 @@ func startServer(router *gin.Engine, deps *ServerDeps) error {
 	}()
 
 	deps.Logger.Info("Server started",
+		zap.String("addr", addr),
 		zap.Int("port", port),
 		zap.Int("cold_docs_indexed", deps.ColdIndex.ApproxEntries()))
 
@@ -327,6 +384,7 @@ func runServer(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer func() { _ = deps.Logger.Sync() }()
 	defer deps.SQLDB.Close()
 	defer func() {
 		if deps.TracerShutdown == nil {
@@ -448,6 +506,123 @@ func normalizeDBDriver(d string) string {
 		return "postgres"
 	default:
 		return strings.ToLower(strings.TrimSpace(d))
+	}
+}
+
+func parseZapLevel(s string) zapcore.Level {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "debug":
+		return zapcore.DebugLevel
+	case "warn", "warning":
+		return zapcore.WarnLevel
+	case "error":
+		return zapcore.ErrorLevel
+	case "dpanic", "panic", "fatal":
+		return zapcore.InfoLevel
+	default:
+		return zapcore.InfoLevel
+	}
+}
+
+// newLoggerFromViper builds zap from logging.* viper keys (level, format, output, file_path, caller).
+// When output is "file", creates parent directories and appends to logging.file_path.
+func newLoggerFromViper() (*zap.Logger, error) {
+	level := parseZapLevel(viper.GetString("logging.level"))
+	fmtStr := strings.ToLower(strings.TrimSpace(viper.GetString("logging.format")))
+	if fmtStr == "" {
+		fmtStr = "console"
+	}
+	outKind := strings.ToLower(strings.TrimSpace(viper.GetString("logging.output")))
+	if outKind == "" {
+		outKind = "stdout"
+	}
+
+	var enc zapcore.Encoder
+	if fmtStr == "json" {
+		encCfg := zap.NewProductionEncoderConfig()
+		encCfg.EncodeTime = zapcore.ISO8601TimeEncoder
+		enc = zapcore.NewJSONEncoder(encCfg)
+	} else {
+		encCfg := zap.NewDevelopmentEncoderConfig()
+		encCfg.EncodeTime = zapcore.ISO8601TimeEncoder
+		enc = zapcore.NewConsoleEncoder(encCfg)
+	}
+
+	var ws zapcore.WriteSyncer
+	switch outKind {
+	case "file":
+		p := strings.TrimSpace(viper.GetString("logging.file_path"))
+		if p == "" {
+			p = "./logs/tiersum.log"
+		}
+		dir := filepath.Dir(p)
+		if dir != "." && dir != "" {
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return nil, fmt.Errorf("logging.file_path mkdir: %w", err)
+			}
+		}
+		f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			return nil, fmt.Errorf("logging.file_path open: %w", err)
+		}
+		ws = zapcore.AddSync(f)
+	default:
+		ws = zapcore.AddSync(os.Stdout)
+	}
+
+	core := zapcore.NewCore(enc, ws, zap.NewAtomicLevelAt(level))
+	opts := []zap.Option{zap.WithCaller(viper.GetBool("logging.caller"))}
+	return zap.New(core, opts...), nil
+}
+
+// applyCORS registers Access-Control headers when server.cors.enabled is true.
+func applyCORS(r *gin.Engine, logger *zap.Logger) {
+	if !viper.GetBool("server.cors.enabled") {
+		return
+	}
+	origins := viper.GetStringSlice("server.cors.allowed_origins")
+	if len(origins) == 0 {
+		logger.Warn("server.cors.enabled is true but server.cors.allowed_origins is empty; allowing any origin")
+		origins = []string{"*"}
+	}
+	r.Use(func(c *gin.Context) {
+		reqOrigin := strings.TrimSpace(c.GetHeader("Origin"))
+		allow := ""
+		for _, o := range origins {
+			o = strings.TrimSpace(o)
+			if o == "*" {
+				allow = "*"
+				break
+			}
+			if o != "" && o == reqOrigin {
+				allow = reqOrigin
+				break
+			}
+		}
+		if allow != "" {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", allow)
+			c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD")
+			c.Writer.Header().Set("Access-Control-Allow-Headers", "Origin, Content-Type, Content-Length, Accept, Authorization, X-API-Key")
+			c.Writer.Header().Set("Access-Control-Expose-Headers", "Content-Length")
+			if allow != "*" {
+				c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+			}
+		}
+		if c.Request.Method == http.MethodOptions {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
+	})
+}
+
+func maxRequestBodyMiddleware(maxBytes int64) gin.HandlerFunc {
+	if maxBytes <= 0 {
+		return func(c *gin.Context) { c.Next() }
+	}
+	return func(c *gin.Context) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		c.Next()
 	}
 }
 

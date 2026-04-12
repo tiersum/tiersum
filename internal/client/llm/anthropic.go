@@ -52,10 +52,14 @@ type anthropicResponse struct {
 
 // Generate implements ILLMProvider.Generate
 func (p *AnthropicProvider) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
+	temp := viper.GetFloat64("llm.anthropic.temperature")
+	if temp == 0 {
+		temp = 0.3
+	}
 	reqBody := anthropicRequest{
 		Model:       p.model,
 		MaxTokens:   maxTokens,
-		Temperature: 0.3,
+		Temperature: temp,
 		Messages: []anthMsg{
 			{Role: "user", Content: prompt},
 		},

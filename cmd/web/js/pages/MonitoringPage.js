@@ -84,7 +84,7 @@ export const MonitoringPage = {
                 <div v-else class="space-y-6">
                     <p v-if="lastRefresh" class="text-xs text-slate-600">Last updated: {{ lastRefresh.toLocaleString() }}</p>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                         <div class="card bg-slate-900/50 border border-slate-800">
                             <div class="card-body">
                                 <h2 class="card-title text-slate-200 text-base">Health</h2>
@@ -101,6 +101,44 @@ export const MonitoringPage = {
                                 <dl class="text-sm space-y-2 mt-2">
                                     <div class="flex justify-between gap-4"><dt class="text-slate-500">Module version</dt><dd class="text-slate-200 font-mono text-xs">{{ monitoring?.server?.version || '—' }}</dd></div>
                                     <div class="flex justify-between gap-4"><dt class="text-slate-500">Cold chapters (approx)</dt><dd class="text-slate-200">{{ monitoring?.cold_index?.approx_chapters ?? '—' }}</dd></div>
+                                </dl>
+                            </div>
+                        </div>
+                        <div class="card bg-slate-900/50 border border-slate-800 lg:col-span-2">
+                            <div class="card-body">
+                                <h2 class="card-title text-slate-200 text-base">Go runtime</h2>
+                                <p class="text-xs text-slate-500 mt-1">Process Go toolchain and OS/arch (from <code class="text-slate-600">runtime</code>).</p>
+                                <dl class="text-sm space-y-2 mt-2 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2">
+                                    <div class="flex justify-between gap-4"><dt class="text-slate-500">Version</dt><dd class="text-slate-200 font-mono text-xs">{{ monitoring?.go?.version || '—' }}</dd></div>
+                                    <div class="flex justify-between gap-4"><dt class="text-slate-500">GOOS / GOARCH</dt><dd class="text-slate-200 font-mono text-xs">{{ monitoring?.go?.goos || '—' }} / {{ monitoring?.go?.goarch || '—' }}</dd></div>
+                                    <div class="flex justify-between gap-4"><dt class="text-slate-500">Compiler</dt><dd class="text-slate-200 font-mono text-xs">{{ monitoring?.go?.compiler || '—' }}</dd></div>
+                                    <div class="flex justify-between gap-4"><dt class="text-slate-500">NumCPU / GOMAXPROCS</dt><dd class="text-slate-200 font-mono text-xs">{{ monitoring?.go?.num_cpu ?? '—' }} / {{ monitoring?.go?.gomaxprocs ?? '—' }}</dd></div>
+                                </dl>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                        <div class="card bg-slate-900/50 border border-slate-800">
+                            <div class="card-body">
+                                <h2 class="card-title text-slate-200 text-base">Vector index (HNSW)</h2>
+                                <p class="text-xs text-slate-500 mt-1">Dense embeddings per cold chapter for hybrid retrieval.</p>
+                                <dl class="text-sm space-y-2 mt-2">
+                                    <div class="flex justify-between gap-4"><dt class="text-slate-500">HNSW nodes</dt><dd class="text-slate-200 font-mono">{{ monitoring?.cold_index?.vector?.hnsw_nodes ?? '—' }}</dd></div>
+                                    <div class="flex justify-between gap-4"><dt class="text-slate-500">Vector dimension</dt><dd class="text-slate-200 font-mono">{{ monitoring?.cold_index?.vector?.vector_dim ?? '—' }}</dd></div>
+                                    <div class="flex justify-between gap-4"><dt class="text-slate-500">M / ef_search</dt><dd class="text-slate-200 font-mono">{{ monitoring?.cold_index?.vector?.hnsw_m ?? '—' }} / {{ monitoring?.cold_index?.vector?.hnsw_ef_search ?? '—' }}</dd></div>
+                                    <div class="flex justify-between gap-4"><dt class="text-slate-500">Text embedder configured</dt><dd class="text-slate-200">{{ monitoring?.cold_index?.vector?.text_embedder_configured === true ? 'Yes' : monitoring?.cold_index?.vector?.text_embedder_configured === false ? 'No' : '—' }}</dd></div>
+                                </dl>
+                            </div>
+                        </div>
+                        <div class="card bg-slate-900/50 border border-slate-800">
+                            <div class="card-body">
+                                <h2 class="card-title text-slate-200 text-base">Inverted index (Bleve)</h2>
+                                <p class="text-xs text-slate-500 mt-1">Full-text BM25 search over cold chapters (in-memory inverted index).</p>
+                                <dl class="text-sm space-y-2 mt-2">
+                                    <div class="flex justify-between gap-4"><dt class="text-slate-500">Bleve documents</dt><dd class="text-slate-200 font-mono">{{ monitoring?.cold_index?.inverted?.bleve_doc_count ?? '—' }}</dd></div>
+                                    <div class="flex justify-between gap-4"><dt class="text-slate-500">Storage backend</dt><dd class="text-slate-200 font-mono text-xs break-all">{{ monitoring?.cold_index?.inverted?.storage_backend || '—' }}</dd></div>
+                                    <div class="flex flex-col gap-1 sm:flex-row sm:justify-between sm:gap-4"><dt class="text-slate-500 shrink-0">Text analyzer</dt><dd class="text-slate-200 text-xs break-words sm:text-right">{{ monitoring?.cold_index?.inverted?.text_analyzer || '—' }}</dd></div>
                                 </dl>
                             </div>
                         </div>
@@ -149,13 +187,13 @@ export const MonitoringPage = {
                                     <button type="button" class="btn btn-sm btn-outline border-slate-600" :disabled="metricsLoading" @click="loadMetricsPreview">
                                         Load preview
                                     </button>
-                                    <a :href="(monitoring?.prometheus_metrics_path || '/api/v1/metrics')" target="_blank" rel="noopener noreferrer"
+                                    <a :href="(monitoring?.prometheus_metrics_path || '/metrics')" target="_blank" rel="noopener noreferrer"
                                         class="btn btn-sm btn-primary">Open raw</a>
                                 </div>
                             </div>
                             <p v-if="metricsError" class="text-sm text-red-400 mt-2">{{ metricsError }}</p>
                             <pre v-else-if="metricsText" class="mt-4 p-4 rounded-lg bg-slate-950 border border-slate-800 text-xs text-emerald-300/90 overflow-x-auto max-h-80 overflow-y-auto whitespace-pre-wrap font-mono">{{ metricsText }}</pre>
-                            <p v-else class="text-sm text-slate-600 mt-4">Load preview or open raw metrics in a new tab (same-origin; API key in headers is not sent from a new tab — use preview here or curl).</p>
+                            <p v-else class="text-sm text-slate-600 mt-4">Load preview or open raw metrics in a new tab (<code>/metrics</code>, Prometheus default path; no API key).</p>
                         </div>
                     </div>
                 </div>

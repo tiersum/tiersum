@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -584,4 +586,53 @@ func TestTruncateContent(t *testing.T) {
 			assert.Equal(t, tt.want, got)
 		})
 	}
+}
+
+func TestDocumentSvc_Ingest_validationChunking(t *testing.T) {
+	oldEn := viper.GetBool("documents.chunking.enabled")
+	oldMax := viper.GetInt("documents.chunking.max_chunk_size")
+	defer func() {
+		viper.Set("documents.chunking.enabled", oldEn)
+		viper.Set("documents.chunking.max_chunk_size", oldMax)
+	}()
+	viper.Set("documents.chunking.enabled", true)
+	viper.Set("documents.chunking.max_chunk_size", 3)
+
+	ctx := context.Background()
+	svc := NewDocumentSvc(
+		NewMockDocumentRepository(),
+		NewMockIndexer(),
+		NewMockSummarizer(),
+		NewMockTagRepository(),
+		NewMockColdIndex(),
+		NewMockQuotaManager(),
+		testLogger(),
+		testHotIngestQueue(),
+	)
+	req := types.CreateDocumentRequest{Title: "t", Content: "abcd", Format: "markdown"}
+	_, err := svc.Ingest(ctx, req)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrIngestValidation))
+}
+
+func TestDocumentSvc_Ingest_validationSupportedFormats(t *testing.T) {
+	old := viper.GetStringSlice("documents.supported_formats")
+	defer func() { viper.Set("documents.supported_formats", old) }()
+	viper.Set("documents.supported_formats", []string{"md"})
+
+	ctx := context.Background()
+	svc := NewDocumentSvc(
+		NewMockDocumentRepository(),
+		NewMockIndexer(),
+		NewMockSummarizer(),
+		NewMockTagRepository(),
+		NewMockColdIndex(),
+		NewMockQuotaManager(),
+		testLogger(),
+		testHotIngestQueue(),
+	)
+	req := types.CreateDocumentRequest{Title: "t", Content: "x", Format: "markdown"}
+	_, err := svc.Ingest(ctx, req)
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, service.ErrIngestValidation))
 }

@@ -28,6 +28,7 @@ type SummarizerSvc struct {
 type SummarizerConfig struct {
 	DocumentSummaryMax  int
 	ChapterSummaryMax   int
+	ParagraphSummaryMax int
 	MaxTagsPerDocument  int
 }
 
@@ -36,6 +37,7 @@ func NewSummarizerSvc(provider client.ILLMProvider, logger *zap.Logger) *Summari
 	config := SummarizerConfig{
 		DocumentSummaryMax:  viper.GetInt("summarization.document_summary_max"),
 		ChapterSummaryMax:   viper.GetInt("summarization.chapter_summary_max"),
+		ParagraphSummaryMax: viper.GetInt("summarization.paragraph_summary_max"),
 		MaxTagsPerDocument:  10,
 	}
 	if config.DocumentSummaryMax == 0 {
@@ -43,6 +45,9 @@ func NewSummarizerSvc(provider client.ILLMProvider, logger *zap.Logger) *Summari
 	}
 	if config.ChapterSummaryMax == 0 {
 		config.ChapterSummaryMax = 200
+	}
+	if config.ParagraphSummaryMax == 0 {
+		config.ParagraphSummaryMax = 300
 	}
 
 	return &SummarizerSvc{
@@ -145,7 +150,7 @@ func (s *SummarizerSvc) FilterDocuments(ctx context.Context, query string, docs 
 	var docList strings.Builder
 	for i, d := range docs {
 		docList.WriteString(fmt.Sprintf("[%d] Title: %s\nTags: %v\nSummary: %s\n\n",
-			i, d.Title, d.Tags, truncateString(d.Content, 300)))
+			i, d.Title, d.Tags, truncateString(d.Content, s.config.ParagraphSummaryMax)))
 	}
 
 	prompt := fmt.Sprintf(`Given the query: "%s"
@@ -184,7 +189,7 @@ func (s *SummarizerSvc) FilterChapters(ctx context.Context, query string, chapte
 	var chapterList strings.Builder
 	for i, ch := range chapters {
 		chapterList.WriteString(fmt.Sprintf("[%d] Path: %s\nSummary: %s\n\n",
-			i, ch.Path, truncateString(ch.Content, 300)))
+			i, ch.Path, truncateString(ch.Content, s.config.ParagraphSummaryMax)))
 	}
 
 	prompt := fmt.Sprintf(`Given the query: "%s"
@@ -347,7 +352,7 @@ func (s *SummarizerSvc) parseAnalysisResponse(response string) (*types.DocumentA
 	jsonStr := response[jsonStart : jsonEnd+1]
 
 	var result struct {
-		Summary  string `json:"summary"`
+		Summary  string   `json:"summary"`
 		Tags     []string `json:"tags"`
 		Chapters []struct {
 			Title   string `json:"title"`

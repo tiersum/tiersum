@@ -4,6 +4,7 @@ package di
 
 import (
 	"database/sql"
+	"time"
 
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -48,10 +49,16 @@ type Dependencies struct {
 	Logger *zap.Logger
 }
 
-// NewDependencies creates all dependencies with proper wiring
-func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, logger *zap.Logger) (*Dependencies, error) {
+// NewDependencies creates all dependencies with proper wiring.
+// serverVersion is the process release label (e.g. main.Version from ldflags); passed to REST monitoring as server.version.
+func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, logger *zap.Logger, serverVersion string) (*Dependencies, error) {
 	// 1. Storage Layer - Cache
-	cacheStore := cache.NewCache(0)
+	cacheTTL := viper.GetDuration("storage.cache.ttl")
+	if cacheTTL <= 0 {
+		cacheTTL = 10 * time.Minute
+	}
+	cacheMax := viper.GetInt("storage.cache.max_size")
+	cacheStore := cache.NewCache(cacheTTL, cacheMax)
 
 	// 2. Storage Layer - DB
 	uow := db.NewUnitOfWork(sqlDB, driver, cacheStore)
@@ -107,7 +114,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 
 	// 8. API Layer — retrieval facade so HTTP handlers do not import storage interfaces
 	retrievalSvc := svcimpl.NewRetrievalSvc(uow.Tags, uow.Summaries, uow.Documents, coldIndex)
-	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, retrievalSvc, quotaManager, uow.OtelSpans, logger)
+	restHandler := api.NewHandler(docService, queryService, tagGroupSvc, retrievalSvc, quotaManager, uow.OtelSpans, logger, serverVersion)
 	mcpServer := api.NewMCPServer(restHandler, logger)
 
 	// 9. Job Layer — jobs depend only on service.* contracts
