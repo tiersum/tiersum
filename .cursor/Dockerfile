@@ -34,7 +34,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY go.mod go.sum ./
 RUN go mod download
 
-COPY . .
+COPY ../deployments/docker .
 
 ARG VERSION=dev
 # Native linux/${TARGETARCH} inside this stage (matches docker --platform); do not use CGO_ENABLED=0 cross-builds for this binary.
