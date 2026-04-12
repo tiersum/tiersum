@@ -200,6 +200,7 @@ make run
 # Web UI:   http://localhost:8080/
 # REST API: http://localhost:8080/api/v1   (scripts / integrations; optional API key)
 # BFF:      http://localhost:8080/bff/v1  (embedded UI; separate auth hook)
+# Health:   http://localhost:8080/health  (liveness JSON; no API key)
 # Metrics:  http://localhost:8080/metrics   (Prometheus scrape; no API key)
 # MCP SSE:  http://localhost:8080/mcp/sse
 ```

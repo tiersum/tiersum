@@ -172,9 +172,8 @@ func setupRouter(deps *ServerDeps) *gin.Engine {
 		router.Use(maxRequestBodyMiddleware(maxBody))
 	}
 
-	// Register health check
-	registerHealthRoute(router, deps)
-	registerPrometheusMetricsRoute(router)
+	// Root probes: never gated by security.api_key (same idea as /metrics).
+	registerPublicInfraRoutes(router, deps)
 
 	var traceMw gin.HandlerFunc
 	if telemetry.GlobalTracerActive() {
@@ -208,8 +207,9 @@ func registerWebUIDisabledRoot(r *gin.Engine) {
 	})
 }
 
-// registerHealthRoute registers the health check endpoint
-func registerHealthRoute(r *gin.Engine, deps *ServerDeps) {
+// registerPublicInfraRoutes registers GET /health and GET /metrics on the engine root.
+// Neither is wrapped by api.APIKeyAuth or api.BFFAuth so probes and scrapers work without the programmatic API key.
+func registerPublicInfraRoutes(r *gin.Engine, deps *ServerDeps) {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status":         "healthy",
@@ -217,11 +217,6 @@ func registerHealthRoute(r *gin.Engine, deps *ServerDeps) {
 			"cold_doc_count": deps.ColdIndex.ApproxEntries(),
 		})
 	})
-}
-
-// registerPrometheusMetricsRoute exposes GET /metrics (Prometheus text format) at the root path.
-// This matches common Prometheus scrape conventions and is intentionally outside /api/v1 and /bff/v1 (no API key).
-func registerPrometheusMetricsRoute(r *gin.Engine) {
 	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 }
 

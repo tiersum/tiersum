@@ -93,7 +93,7 @@ logging:
   caller: true
 
 security:
-  # Non-empty → /api/v1/* requires X-API-Key or Authorization: Bearer <value>. Does not apply to /bff/v1/* (see api.BFFAuth).
+  # Non-empty → /api/v1/* requires X-API-Key or Authorization: Bearer <value>. Does not apply to /bff/v1/*, /health, or /metrics.
   api_key: ""
 
 features:

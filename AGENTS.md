@@ -85,7 +85,7 @@ cd deployments/docker && docker-compose up -d  # Starts tiersum (SQLite by defau
 
 ```
 cmd/
-  main.go                    # API server entrypoint: /api/v1 (+ API key), /bff/v1 (browser BFF), /metrics, /mcp/*, embedded UI
+  main.go                    # API server entrypoint: /api/v1 (+ API key), /bff/v1 (browser BFF), /health & /metrics (public), /mcp/*, embedded UI
 configs/
   config.example.yaml        # Configuration template
 db/
@@ -480,7 +480,7 @@ The **embedded Vue UI** (`cmd/web/js/`) calls the same handlers under **`/bff/v1
 | GET    | `/api/v1/quota`                   | Check quota status                                                                    |
 | GET    | `/api/v1/monitoring`              | JSON monitoring snapshot (version, document counts, cold index size + Bleve inverted + HNSW vector stats, quota) |
 | GET    | `/metrics`                        | Prometheus metrics (root path; **not** under `/api/v1`; no `security.api_key` check) |
-| GET    | `/health`                         | Health check                                                                          |
+| GET    | `/health`                         | Liveness JSON (root path; **not** under `/api/v1`; no `security.api_key` check)        |
 
 The same **relative paths** (e.g. `GET /documents`, `POST /query/progressive`) are also mounted under **`/bff/v1`** with **`api.BFFAuth`** (currently a no-op) instead of the optional API-key middleware.
 
@@ -534,7 +534,7 @@ var _ service.IMyService = (*MySvc)(nil)
 
 ## Security Considerations
 
-- Optional API key for **programmatic REST** only: set `security.api_key`; **`/api/v1/*`** clients send `X-API-Key` or `Authorization: Bearer <key>`. **`/bff/v1/*`** is not gated by this value (extend **`api.BFFAuth`** for browser auth). **`GET /metrics`** (Prometheus) is intentionally public at the root path (not gated by `security.api_key`). MCP **`/mcp/*`** routes are not protected by this middleware.
+- Optional API key for **programmatic REST** only: set `security.api_key`; **`/api/v1/*`** clients send `X-API-Key` or `Authorization: Bearer <key>`. **`/bff/v1/*`** is not gated by this value (extend **`api.BFFAuth`** for browser auth). **`GET /health`** and **`GET /metrics`** are public at the root path (not gated by `security.api_key`). MCP **`/mcp/*`** routes are not protected by this middleware.
 - JWT authentication for REST is not implemented (no corresponding config keys).
 - CORS configuration for web UI
 - No sensitive data in logs (use zap logging)

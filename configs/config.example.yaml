@@ -222,8 +222,9 @@ logging:
 
 # Security — programmatic REST /api/v1 only (optional). MCP routes are not protected by this middleware.
 # Embedded UI calls /bff/v1/* (same handlers); BFF auth is separate (see api.BFFAuth; currently empty).
+# GET /health and GET /metrics are always public at the server root (not gated by api_key).
 security:
-  # When non-empty, /api/v1/* requires X-API-Key or Authorization: Bearer <this value>. Empty = no API key check. Does not apply to /bff/v1/*.
+  # When non-empty, /api/v1/* requires X-API-Key or Authorization: Bearer <this value>. Empty = no API key check. Does not apply to /bff/v1/*, /health, or /metrics.
   api_key: ""
 
 # Feature flags (only keys read by the server are listed here).

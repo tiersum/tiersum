@@ -16,6 +16,7 @@ func BFFAuth() gin.HandlerFunc {
 }
 
 // APIKeyAuth returns middleware that enforces X-API-Key or Authorization: Bearer when apiKey is non-empty.
+// Use only on versioned REST groups (e.g. /api/v1); do not wrap GET /health or GET /metrics at the server root.
 func APIKeyAuth(apiKey string) gin.HandlerFunc {
 	if apiKey == "" {
 		return func(c *gin.Context) {

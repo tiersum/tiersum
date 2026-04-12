@@ -92,6 +92,6 @@ The embedded UI calls **`/bff/v1/*`** (same handlers as programmatic **`/api/v1/
 - `GET /bff/v1/cold/doc_source`
 - `GET /bff/v1/quota`, `GET /health`
 
-**Auth:** Programmatic clients use **`/api/v1`** and, when `security.api_key` is set, send `X-API-Key` or `Authorization: Bearer <key>`. The embedded UI uses **`/bff/v1`** only; extend `api.BFFAuth()` in Go when you add browser-side auth.
+**Auth:** Programmatic clients use **`/api/v1`** and, when `security.api_key` is set, send `X-API-Key` or `Authorization: Bearer <key>`. The embedded UI uses **`/bff/v1`** only; extend `api.BFFAuth()` in Go when you add browser-side auth. **`GET /health`** and **`GET /metrics`** at the server root are never checked against `security.api_key` (same as typical probes and Prometheus scrapes).
 
 **Errors:** Failed responses typically use `{ "error": "..." }`; the client surfaces `error` or `message` when present.

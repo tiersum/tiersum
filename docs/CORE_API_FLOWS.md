@@ -2,10 +2,10 @@
 
 This document traces **non-trivial** REST endpoints: anything beyond simple list/get of stored rows. It follows the call chain from `internal/api` into `internal/service/svcimpl` and related storage.
 
-**Mount points and auth:** The same `Handler.RegisterRoutes` surface is mounted at **`/api/v1`** (optional `security.api_key` via `api.APIKeyAuth`) and at **`/bff/v1`** for the embedded UI (`api.BFFAuth`, currently a no-op so browser calls do not require the API key). Paths below use the **`/api/v1`** prefix; replace the prefix for **`/bff/v1`** to hit the same handlers. **Prometheus:** **`GET /metrics`** is registered only at the **root** (Prometheus convention; no API key), not under `/api/v1` or `/bff/v1`.
+**Mount points and auth:** The same `Handler.RegisterRoutes` surface is mounted at **`/api/v1`** (optional `security.api_key` via `api.APIKeyAuth`) and at **`/bff/v1`** for the embedded UI (`api.BFFAuth`, currently a no-op so browser calls do not require the API key). Paths below use the **`/api/v1`** prefix; replace the prefix for **`/bff/v1`** to hit the same handlers. **Probes / metrics:** **`GET /health`** and **`GET /metrics`** are registered only at the **root** (not under `/api/v1` or `/bff/v1`); neither is gated by `security.api_key`.
 
 **Simple CRUD / pass-through (not detailed here)**  
-`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/documents/:id/summaries`, `GET /api/v1/tags/groups`, `GET /api/v1/quota`, `GET /health`, and **`GET /metrics`** (Prometheus exposition at the root path, no API key) — mostly read from DB or Prometheus without multi-step domain logic.
+`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/documents/:id/summaries`, `GET /api/v1/tags/groups`, `GET /api/v1/quota`, **`GET /health`** (root JSON liveness), and **`GET /metrics`** (root Prometheus text) — mostly read from DB or Prometheus without multi-step domain logic. **`/health`** and **`/metrics`** ignore `security.api_key`.
 
 `GET /api/v1/documents/:id/chapters` is detailed below (markdown fallback when DB has no chapter-tier rows).
 
