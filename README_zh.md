@@ -122,9 +122,6 @@ export OPENAI_API_KEY="your-api-key"
 # 或
 export ANTHROPIC_API_KEY="your-api-key"
 
-# 数据库迁移
-make migrate-up
-
 # 构建（内含嵌入的前端静态资源）
 make build
 

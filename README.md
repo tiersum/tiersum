@@ -126,9 +126,6 @@ export OPENAI_API_KEY="your-api-key"
 # or
 export ANTHROPIC_API_KEY="your-api-key"
 
-# Run database migrations
-make migrate-up
-
 # Build backend (includes embedded frontend)
 make build
 

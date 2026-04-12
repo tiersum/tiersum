@@ -26,7 +26,7 @@ make build                  # Output: ./build/tiersum
 go build -o tiersum ./cmd   # Direct go build
 
 # Development
-make run                    # Build + run with config.yaml
+make run                    # Build + run with configs/config.yaml
 make dev                    # Hot reload (requires `air`)
 make fetch-onnxruntime      # Download ONNX Runtime into third_party/ (MiniLM without OS install)
 make fetch-minilm           # Download MiniLM ONNX + tokenizer into third_party/minilm/ (reproducible)
@@ -38,9 +38,7 @@ make fmt                    # go fmt + gofmt -s
 make vet                    # go vet ./...
 
 # Database
-make migrate-up             # Run migrations
-make migrate-down           # Rollback migrations
-make seed                   # Seed sample data
+# Forward schema migrations run when the server starts (see cmd/main.go).
 
 # Docker Compose (full stack)
 cd deployments/docker && docker-compose up -d  # Starts tiersum (SQLite by default)
