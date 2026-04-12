@@ -1,6 +1,8 @@
+SHELL := /bin/bash
+
 .PHONY: build build-linux build-linux-amd64 build-linux-arm64 \
 	build-darwin-amd64 build-darwin-arm64 build-windows-amd64 build-all \
-	release-assets release-pack release-clean \
+	release-assets release-pack release-linux-pack release-bundle-pack release-clean \
 	test run dev clean lint fmt vet help \
 	deps generate fetch-onnxruntime fetch-minilm \
 	docker-build docker-build-amd64 docker-build-arm64 docker-build-both \
@@ -85,7 +87,6 @@ release-pack: ## Create $(DIST_DIR) archives + SHA256SUMS from existing $(BUILD_
 	ST="$(DIST_DIR)/.stage"; \
 	for spec in linux:amd64:$(BINARY_NAME)-linux-amd64 \
 	            linux:arm64:$(BINARY_NAME)-linux-arm64 \
-	            darwin:amd64:$(BINARY_NAME)-darwin-amd64 \
 	            darwin:arm64:$(BINARY_NAME)-darwin-arm64; do \
 	  os=$${spec%%:*}; rest=$${spec#*:}; arch=$${rest%%:*}; bin=$${rest#*:}; \
 	  rm -rf "$$ST"; mkdir -p "$$ST"; \
@@ -100,6 +101,106 @@ release-pack: ## Create $(DIST_DIR) archives + SHA256SUMS from existing $(BUILD_
 	echo "Release assets:"; ls -1 "$(DIST_DIR)"
 
 release-assets: release-clean build-all release-pack ## Cross-build (CGO off) + pack for GitHub Assets (local only; CI uses release-pack)
+
+# Linux-only distributable: binary + ONNX Runtime (per-arch) + MiniLM. Requires: CGO-built build/tiersum-linux-*, fetch-onnxruntime.sh linux, fetch-minilm.sh.
+release-linux-pack: ## Create $(DIST_DIR) Linux amd64/arm64 tarballs with embedded third_party deps
+	@test -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-amd64" || (echo "missing $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64"; exit 1)
+	@test -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-arm64" || (echo "missing $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64"; exit 1)
+	@test -f third_party/minilm/model.onnx && test -f third_party/minilm/tokenizer.json || (echo "run: make fetch-minilm"; exit 1)
+	@test -d third_party/onnxruntime/linux_amd64/lib && test -d third_party/onnxruntime/linux_arm64/lib || (echo "run: bash scripts/fetch-onnxruntime.sh linux"; exit 1)
+	@echo "Packing Linux bundles (stamp: $(RELEASE_STAMP))..."
+	@mkdir -p $(DIST_DIR)
+	@set -euo pipefail; \
+	REL="$(RELEASE_STAMP)"; \
+	D="$(DIST_DIR)"; \
+	pack_one() { \
+	  arch="$$1"; \
+	  bin="$$2"; \
+	  onnx_subdir="$$3"; \
+	  ROOT="$$D/.root-$$arch"; \
+	  rm -rf "$$ROOT"; \
+	  NAME="$(BINARY_NAME)_$${REL}_linux_$${arch}"; \
+	  mkdir -p "$$ROOT/$$NAME/third_party/minilm" "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir" "$$ROOT/$$NAME/configs"; \
+	  cp "$(BUILD_DIR)/$$bin" "$$ROOT/$$NAME/$(BINARY_NAME)"; \
+	  chmod +x "$$ROOT/$$NAME/$(BINARY_NAME)"; \
+	  cp third_party/minilm/model.onnx third_party/minilm/tokenizer.json "$$ROOT/$$NAME/third_party/minilm/"; \
+	  cp -R "third_party/onnxruntime/$$onnx_subdir/lib" "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir/"; \
+	  if [[ -f "third_party/onnxruntime/$$onnx_subdir/LICENSE.onnxruntime" ]]; then \
+	    cp "third_party/onnxruntime/$$onnx_subdir/LICENSE.onnxruntime" "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir/"; \
+	  fi; \
+	  if [[ -f third_party/onnxruntime/VERSION ]]; then \
+	    mkdir -p "$$ROOT/$$NAME/third_party/onnxruntime"; \
+	    cp third_party/onnxruntime/VERSION "$$ROOT/$$NAME/third_party/onnxruntime/"; \
+	  fi; \
+	  cp LICENSE "$$ROOT/$$NAME/" 2>/dev/null || true; \
+	  cp deployments/release/README-Linux.txt "$$ROOT/$$NAME/README.txt"; \
+	  if [[ "$$arch" == "amd64" ]]; then \
+	    cp configs/config.example.yaml "$$ROOT/$$NAME/configs/config.example.yaml"; \
+	  else \
+	    sed -e 's|third_party/onnxruntime/linux_amd64/lib/libonnxruntime.so|third_party/onnxruntime/linux_arm64/lib/libonnxruntime.so|g' configs/config.example.yaml > "$$ROOT/$$NAME/configs/config.example.yaml"; \
+	  fi; \
+	  tar -czf "$$D/$(BINARY_NAME)_$${REL}_linux_$${arch}.tar.gz" -C "$$ROOT" "$$NAME"; \
+	  rm -rf "$$ROOT"; \
+	}; \
+	pack_one amd64 $(BINARY_NAME)-linux-amd64 linux_amd64; \
+	pack_one arm64 $(BINARY_NAME)-linux-arm64 linux_arm64; \
+	( cd "$(DIST_DIR)" && $(SHA256_CMD) $(BINARY_NAME)_"$${REL}"_linux_amd64.tar.gz $(BINARY_NAME)_"$${REL}"_linux_arm64.tar.gz > SHA256SUMS ); \
+	echo "Linux release bundles:"; ls -1 "$(DIST_DIR)"
+
+# Full CI release: linux amd64/arm64, darwin arm64, windows amd64 — each with MiniLM + ONNX. Requires: bash scripts/fetch-onnxruntime.sh bundle && make fetch-minilm
+release-bundle-pack: ## Create $(DIST_DIR) per-OS bundles (binary + third_party/minilm + matching onnx tree)
+	@test -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-amd64" || (echo "missing $(BUILD_DIR)/$(BINARY_NAME)-linux-amd64"; exit 1)
+	@test -f "$(BUILD_DIR)/$(BINARY_NAME)-linux-arm64" || (echo "missing $(BUILD_DIR)/$(BINARY_NAME)-linux-arm64"; exit 1)
+	@test -f "$(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64" || (echo "missing $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64"; exit 1)
+	@test -f "$(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe" || (echo "missing $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe"; exit 1)
+	@test -f third_party/minilm/model.onnx && test -f third_party/minilm/tokenizer.json || (echo "run: make fetch-minilm"; exit 1)
+	@test -d third_party/onnxruntime/linux_amd64/lib && test -d third_party/onnxruntime/linux_arm64/lib \
+		&& test -d third_party/onnxruntime/darwin_arm64/lib && test -d third_party/onnxruntime/windows_amd64/lib \
+		|| (echo "run: bash scripts/fetch-onnxruntime.sh bundle"; exit 1)
+	@echo "Packing release bundles (stamp: $(RELEASE_STAMP))..."
+	@mkdir -p $(DIST_DIR)
+	@set -euo pipefail; \
+	REL="$(RELEASE_STAMP)"; \
+	D="$(abspath $(DIST_DIR))"; \
+	ONNX_BASE='onnx_runtime_path: third_party/onnxruntime/linux_amd64/lib/libonnxruntime.so'; \
+	pack_tree() { \
+	  os="$$1"; arch="$$2"; bin="$$3"; onnx_subdir="$$4"; onnx_yaml="$$5"; \
+	  NAME="$(BINARY_NAME)_$${REL}_$${os}_$${arch}"; \
+	  ROOT="$$D/.root-$${os}-$${arch}"; \
+	  rm -rf "$$ROOT"; \
+	  mkdir -p "$$ROOT/$$NAME/third_party/minilm" "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir/lib" "$$ROOT/$$NAME/configs"; \
+	  cp "$(BUILD_DIR)/$$bin" "$$ROOT/$$NAME/$$bin"; \
+	  chmod +x "$$ROOT/$$NAME/$$bin"; \
+	  if [[ "$$os" == "windows" ]]; then \
+	    mv "$$ROOT/$$NAME/$$bin" "$$ROOT/$$NAME/$(BINARY_NAME).exe"; \
+	  else \
+	    mv "$$ROOT/$$NAME/$$bin" "$$ROOT/$$NAME/$(BINARY_NAME)"; \
+	  fi; \
+	  cp third_party/minilm/model.onnx third_party/minilm/tokenizer.json "$$ROOT/$$NAME/third_party/minilm/"; \
+	  cp -R "third_party/onnxruntime/$$onnx_subdir/lib/." "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir/lib/"; \
+	  if [[ -f "third_party/onnxruntime/$$onnx_subdir/LICENSE.onnxruntime" ]]; then \
+	    cp "third_party/onnxruntime/$$onnx_subdir/LICENSE.onnxruntime" "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir/"; \
+	  fi; \
+	  if [[ -f third_party/onnxruntime/VERSION ]]; then \
+	    mkdir -p "$$ROOT/$$NAME/third_party/onnxruntime"; \
+	    cp third_party/onnxruntime/VERSION "$$ROOT/$$NAME/third_party/onnxruntime/"; \
+	  fi; \
+	  cp LICENSE "$$ROOT/$$NAME/" 2>/dev/null || true; \
+	  cp deployments/release/README-bundle.txt "$$ROOT/$$NAME/README.txt"; \
+	  sed -e "s|$${ONNX_BASE}|$${onnx_yaml}|g" configs/config.example.yaml > "$$ROOT/$$NAME/configs/config.example.yaml"; \
+	  if [[ "$$os" == "windows" ]]; then \
+	    ( cd "$$ROOT" && zip -rq "$$D/$(BINARY_NAME)_$${REL}_windows_$${arch}.zip" "$$NAME" ); \
+	  else \
+	    tar -czf "$$D/$(BINARY_NAME)_$${REL}_$${os}_$${arch}.tar.gz" -C "$$ROOT" "$$NAME"; \
+	  fi; \
+	  rm -rf "$$ROOT"; \
+	}; \
+	pack_tree linux amd64 $(BINARY_NAME)-linux-amd64 linux_amd64 'onnx_runtime_path: third_party/onnxruntime/linux_amd64/lib/libonnxruntime.so'; \
+	pack_tree linux arm64 $(BINARY_NAME)-linux-arm64 linux_arm64 'onnx_runtime_path: third_party/onnxruntime/linux_arm64/lib/libonnxruntime.so'; \
+	pack_tree darwin arm64 $(BINARY_NAME)-darwin-arm64 darwin_arm64 'onnx_runtime_path: third_party/onnxruntime/darwin_arm64/lib/libonnxruntime.dylib'; \
+	pack_tree windows amd64 $(BINARY_NAME)-windows-amd64.exe windows_amd64 'onnx_runtime_path: third_party/onnxruntime/windows_amd64/lib/onnxruntime.dll'; \
+	( cd "$(DIST_DIR)" && $(SHA256_CMD) $(BINARY_NAME)_"$${REL}"_linux_amd64.tar.gz $(BINARY_NAME)_"$${REL}"_linux_arm64.tar.gz $(BINARY_NAME)_"$${REL}"_darwin_arm64.tar.gz $(BINARY_NAME)_"$${REL}"_windows_amd64.zip > SHA256SUMS ); \
+	echo "Release bundles:"; ls -1 "$(DIST_DIR)"
 
 run: build ## Build and run locally
 	$(BUILD_DIR)/$(BINARY_NAME) --config configs/config.yaml

@@ -45,14 +45,6 @@ jobs:
             cc: ""
             cxx: ""
 
-          - runs-on: macos-13
-            goos: darwin
-            goarch: amd64
-            outfile: tiersum-darwin-amd64
-            setup: ""
-            cc: ""
-            cxx: ""
-
           - runs-on: windows-latest
             goos: windows
             goarch: amd64
@@ -104,6 +96,7 @@ jobs:
   package:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -117,10 +110,21 @@ jobs:
           path: build
           merge-multiple: true
 
-      - name: Pack archives
+      - name: Install archive tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y unzip zip
+
+      - name: Vendor ONNX Runtime + MiniLM
+        run: |
+          set -euo pipefail
+          bash scripts/fetch-onnxruntime.sh bundle
+          bash scripts/fetch-minilm.sh
+
+      - name: Pack release bundles
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
-        run: make release-pack
+        run: make release-bundle-pack
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2

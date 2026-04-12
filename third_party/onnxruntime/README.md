@@ -10,7 +10,9 @@ From the repository root:
 make fetch-onnxruntime
 # or
 ./scripts/fetch-onnxruntime.sh        # current machine only
-./scripts/fetch-onnxruntime.sh all     # linux_amd64, linux_arm64, darwin_amd64, darwin_arm64
+./scripts/fetch-onnxruntime.sh linux  # linux_amd64 + linux_arm64 only
+./scripts/fetch-onnxruntime.sh bundle # linux amd64/arm64 + darwin arm64 + windows amd64 (GitHub release layout)
+./scripts/fetch-onnxruntime.sh all    # linux_amd64, linux_arm64, darwin_amd64, darwin_arm64
 ```
 
 This downloads Microsoft’s CPU build (default version in `scripts/fetch-onnxruntime.sh`, currently aligned with `deployments/docker/Dockerfile`). Libraries land under `third_party/onnxruntime/<platform>/lib/`.
