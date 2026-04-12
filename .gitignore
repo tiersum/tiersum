@@ -2,6 +2,9 @@
 /data/tiersum.db-shm
 /data/tiersum.db-wal
 
+# `make release-assets` output
+/dist/
+
 # ONNX Runtime from scripts/fetch-onnxruntime.sh (platform trees + VERSION; README stays)
 /third_party/onnxruntime/*/
 /third_party/onnxruntime/VERSION
