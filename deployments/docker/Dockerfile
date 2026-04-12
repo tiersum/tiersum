@@ -13,7 +13,7 @@
 # Debian bookworm (glibc): official ONNX Linux builds are glibc-linked; Alpine/musl would not load them.
 
 # -----------------------------------------------------------------------------
-# Build stage
+# Build stage (CGO on: go-sqlite3, gojieba, onnxruntime_go need a C/C++ toolchain in-image)
 # -----------------------------------------------------------------------------
 FROM golang:1.24-bookworm AS builder
 
@@ -21,11 +21,14 @@ WORKDIR /app
 
 # go.mod may require a newer toolchain than the image default
 ENV GOTOOLCHAIN=auto
+ENV CGO_ENABLED=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     gcc \
+    g++ \
     libc6-dev \
+    libsqlite3-dev \
     && rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
@@ -34,7 +37,8 @@ RUN go mod download
 COPY . .
 
 ARG VERSION=dev
-RUN CGO_ENABLED=1 GOOS=linux go build -trimpath \
+# Native linux/${TARGETARCH} inside this stage (matches docker --platform); do not use CGO_ENABLED=0 cross-builds for this binary.
+RUN GOOS=linux go build -trimpath \
     -ldflags="-w -s -X main.Version=${VERSION}" \
     -o /out/tiersum \
     ./cmd
