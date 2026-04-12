@@ -1,6 +1,6 @@
 .PHONY: build build-linux build-linux-amd64 build-linux-arm64 \
 	build-darwin-amd64 build-darwin-arm64 build-windows-amd64 build-all \
-	release-assets release-clean \
+	release-assets release-pack release-clean \
 	test run dev clean lint fmt vet help \
 	deps generate fetch-onnxruntime fetch-minilm \
 	docker-build docker-build-amd64 docker-build-arm64 docker-build-both \
@@ -76,7 +76,8 @@ build-all: build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-a
 release-clean: ## Remove $(DIST_DIR) (release archives)
 	rm -rf $(DIST_DIR)
 
-release-assets: release-clean build-all ## Cross-build + pack archives for GitHub Assets (see $(DIST_DIR)/)
+# Pack pre-built binaries from $(BUILD_DIR) (tiersum-linux-amd64, …, tiersum-windows-amd64.exe). Used by CI after per-OS CGO builds.
+release-pack: ## Create $(DIST_DIR) archives + SHA256SUMS from existing $(BUILD_DIR) binaries
 	@echo "Packing release archives (stamp: $(RELEASE_STAMP))..."
 	@mkdir -p $(DIST_DIR)
 	@set -e; \
@@ -95,8 +96,10 @@ release-assets: release-clean build-all ## Cross-build + pack archives for GitHu
 	cp "$(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe" "$$ST/$(BINARY_NAME).exe"; \
 	( cd "$$ST" && zip -q "../$(BINARY_NAME)_$${REL}_windows_amd64.zip" "$(BINARY_NAME).exe" ); \
 	rm -rf "$$ST"; \
-	cd "$(DIST_DIR)" && $(SHA256_CMD) $(BINARY_NAME)_"$${REL}"_*.tar.gz $(BINARY_NAME)_"$${REL}"_*.zip > SHA256SUMS; \
+	( cd "$(DIST_DIR)" && $(SHA256_CMD) $(BINARY_NAME)_"$${REL}"_*.tar.gz $(BINARY_NAME)_"$${REL}"_*.zip > SHA256SUMS ); \
 	echo "Release assets:"; ls -1 "$(DIST_DIR)"
+
+release-assets: release-clean build-all release-pack ## Cross-build (CGO off) + pack for GitHub Assets (local only; CI uses release-pack)
 
 run: build ## Build and run locally
 	$(BUILD_DIR)/$(BINARY_NAME) --config configs/config.yaml

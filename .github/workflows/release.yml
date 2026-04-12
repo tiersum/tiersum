@@ -8,9 +8,62 @@ on:
 permissions:
   contents: write
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
-  release:
-    runs-on: ubuntu-latest
+  # go-sqlite3 + gojieba require CGO; CGO_ENABLED=0 cross-build fails on ubuntu. Build each target on a suitable runner, then pack once.
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runs-on: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            outfile: tiersum-linux-amd64
+            setup: ""
+            cc: ""
+            cxx: ""
+
+          - runs-on: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            outfile: tiersum-linux-arm64
+            setup: |
+              sudo apt-get update
+              sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+            cc: aarch64-linux-gnu-gcc
+            cxx: aarch64-linux-gnu-g++
+
+          - runs-on: macos-latest
+            goos: darwin
+            goarch: arm64
+            outfile: tiersum-darwin-arm64
+            setup: ""
+            cc: ""
+            cxx: ""
+
+          - runs-on: macos-13
+            goos: darwin
+            goarch: amd64
+            outfile: tiersum-darwin-amd64
+            setup: ""
+            cc: ""
+            cxx: ""
+
+          - runs-on: windows-latest
+            goos: windows
+            goarch: amd64
+            outfile: tiersum-windows-amd64.exe
+            setup: |
+              choco install mingw -y --no-progress
+              echo "/c/ProgramData/Chocolatey/lib/mingw/tools/install/mingw64/bin" >> "$GITHUB_PATH"
+            cc: ""
+            cxx: ""
+
+    runs-on: ${{ matrix.runs-on }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -23,10 +76,51 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Build release archives
+      - name: Extra setup
+        if: ${{ matrix.setup != '' }}
+        run: ${{ matrix.setup }}
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: "1"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          set -euo pipefail
+          if [[ -n "${{ matrix.cc }}" ]]; then
+            export CC="${{ matrix.cc }}"
+            export CXX="${{ matrix.cxx }}"
+          fi
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "${{ github.ref_name }}")
+          mkdir -p build
+          go build -trimpath -ldflags "-w -s -X main.Version=${VERSION}" -o "build/${{ matrix.outfile }}" ./cmd
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.outfile }}
+          path: build/${{ matrix.outfile }}
+
+  package:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: tiersum-*
+          path: build
+          merge-multiple: true
+
+      - name: Pack archives
         env:
           GITHUB_REF_NAME: ${{ github.ref_name }}
-        run: make release-assets
+        run: make release-pack
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
