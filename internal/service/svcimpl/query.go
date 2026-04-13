@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tiersum/tiersum/pkg/metrics"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -15,7 +16,6 @@ import (
 	"github.com/tiersum/tiersum/internal/client"
 	"github.com/tiersum/tiersum/internal/config"
 	"github.com/tiersum/tiersum/internal/job"
-	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"

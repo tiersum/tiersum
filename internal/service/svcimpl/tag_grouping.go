@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/tiersum/tiersum/pkg/metrics"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
-	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
@@ -19,12 +19,12 @@ import (
 
 // TagGroupSvc implements service.ITagGroupService
 type TagGroupSvc struct {
-	tagRepo       storage.ITagRepository
-	groupRepo     storage.ITagGroupRepository
-	provider      client.ILLMProvider
-	logger        *zap.Logger
+	tagRepo         storage.ITagRepository
+	groupRepo       storage.ITagGroupRepository
+	provider        client.ILLMProvider
+	logger          *zap.Logger
 	lastRefreshTime time.Time
-	lastTagCount  int
+	lastTagCount    int
 }
 
 // NewTagGroupSvc creates a new tag grouping service

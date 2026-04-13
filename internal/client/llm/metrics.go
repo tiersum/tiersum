@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/tiersum/tiersum/internal/client"
-	"github.com/tiersum/tiersum/internal/metrics"
+	"github.com/tiersum/tiersum/pkg/metrics"
 )
 
 // MetricTrackedProvider wraps an LLM provider to track metrics

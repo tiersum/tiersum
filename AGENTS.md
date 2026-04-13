@@ -152,6 +152,8 @@ internal/
     hotscore_job.go          # Schedules RecalculateDocumentHotScores
   di/                        # Dependency Injection (composition root)
     container.go             # Wires all layers together
+pkg/metrics/                 # Prometheus metric definitions (LLM, query, documents, jobs); init registers collectors
+  metrics.go
 pkg/types/                   # Public API types + shared cold-embedding constants
   document.go                # Document, Summary, Tag types
   query.go                   # Query request/response types

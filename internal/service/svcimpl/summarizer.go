@@ -9,10 +9,10 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
+	"github.com/tiersum/tiersum/pkg/metrics"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
-	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/pkg/types"
 )

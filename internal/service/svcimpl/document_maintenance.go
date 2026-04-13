@@ -5,10 +5,10 @@ import (
 	"math"
 	"time"
 
+	"github.com/tiersum/tiersum/pkg/metrics"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/config"
-	"github.com/tiersum/tiersum/internal/metrics"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"

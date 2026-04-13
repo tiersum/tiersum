@@ -11,10 +11,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
+	"github.com/tiersum/tiersum/internal/telemetry"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
-	"github.com/tiersum/tiersum/internal/telemetry"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 

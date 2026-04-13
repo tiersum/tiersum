@@ -11,7 +11,7 @@ alwaysApply: true
 |-------|------|----------------|
 | **API** | `internal/api/` | `internal/service` (**interfaces only**), `pkg/types` |
 | **Job** | `internal/job/` | Same as API: **`internal/service` interfaces only**, `pkg/types` if needed |
-| **Service** | `internal/service/` (`interface.go`), `internal/service/svcimpl/` | `internal/storage` (**interfaces**), `internal/client` (**interfaces**), `pkg/types`, `internal/config` / `internal/metrics` where appropriate |
+| **Service** | `internal/service/` (`interface.go`), `internal/service/svcimpl/` | `internal/storage` (**interfaces**), `internal/client` (**interfaces**), `pkg/types`, `internal/config` / `pkg/metrics` where appropriate |
 | **Storage** | `internal/storage/` | `internal/client` only if a storage adapter truly needs it; **never** `internal/api`, `internal/job`, `internal/service` |
 | **Client** | `internal/client/` | Standard/third-party libs; **never** `internal/api`, `internal/job`, `internal/service`, `internal/storage` |
 

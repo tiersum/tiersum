@@ -21,6 +21,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/tiersum/tiersum/internal/telemetry"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 
@@ -30,7 +31,6 @@ import (
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/storage/coldindex"
 	"github.com/tiersum/tiersum/internal/storage/db"
-	"github.com/tiersum/tiersum/internal/telemetry"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 

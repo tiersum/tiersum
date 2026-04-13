@@ -9,11 +9,11 @@ import (
 	"github.com/spf13/viper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tiersum/tiersum/internal/telemetry"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
 	"github.com/tiersum/tiersum/internal/storage"
-	"github.com/tiersum/tiersum/internal/telemetry"
 	"github.com/tiersum/tiersum/pkg/types"
 
 	"go.opentelemetry.io/otel"

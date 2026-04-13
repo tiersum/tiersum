@@ -16,12 +16,12 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
+	"github.com/tiersum/tiersum/internal/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
-	"github.com/tiersum/tiersum/internal/telemetry"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
