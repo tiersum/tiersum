@@ -6,7 +6,7 @@
 
 ## GitHub Actions → Alibaba Cloud ACR
 
-Workflow: `.github/workflows/docker-acr.yml` (push to `main`, tags `v*`, or manual run).
+Workflow: `.github/workflows/docker-acr.yml` (**tags `v*` only**, or **Actions → Run workflow** manual run). Pushes to `main` do **not** trigger image builds.
 
 Uses **two jobs** (`ubuntu-latest` for amd64, `ubuntu-24.04-arm64` for arm64): **native compile, no QEMU**.
 
@@ -14,8 +14,8 @@ Uses **two jobs** (`ubuntu-latest` for amd64, `ubuntu-24.04-arm64` for arm64): *
 
 | Event | amd64 | arm64 |
 |--------|--------|--------|
-| push `main` | `.../myns/tiersum:latest-amd64` (+ `sha-<12>-amd64`) | `.../myns/tiersum:latest-arm64` (+ `sha-<12>-arm64`) |
-| push tag `v1.2.3` | `.../myns/tiersum:v1.2.3-amd64` | `.../myns/tiersum:v1.2.3-arm64` |
+| push tag `v1.2.3` | `.../myns/tiersum:v1.2.3-amd64` (+ `sha-<12>-amd64`) | `.../myns/tiersum:v1.2.3-arm64` (+ `sha-<12>-arm64`) |
+| **workflow_dispatch** | `.../myns/tiersum:manual-<12hexsha>-amd64` | `.../myns/tiersum:manual-<12hexsha>-arm64` |
 
 There is **no** single multi-arch `latest` manifest; pull the tag that matches your CPU (or run amd64 everywhere).
 

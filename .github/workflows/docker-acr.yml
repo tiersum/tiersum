@@ -1,8 +1,9 @@
 # Build and push TierSum Linux images to Alibaba Cloud ACR — one native runner per arch (no QEMU).
 #
 # Tags pushed (replace <ns> with your ACR_NAMESPACE secret):
-#   main branch  →  <registry>/<ns>/tiersum:latest-amd64  and  ...:latest-arm64
-#   tag v1.2.3   →  .../tiersum:v1.2.3-amd64  and  .../tiersum:v1.2.3-arm64
+#   tag v1.2.3        →  .../tiersum:v1.2.3-amd64  and  .../v1.2.3-arm64 (+ sha-* per arch)
+#   workflow_dispatch →  .../tiersum:manual-<12hexsha>-amd64 / ...-arm64 (+ sha-*)
+#   (push to main no longer triggers this workflow.)
 #
 # Required secrets: ACR_USERNAME, ACR_PASSWORD, ACR_NAMESPACE (see deployments/docker/README.md)
 #
@@ -13,8 +14,6 @@ name: Docker (ACR)
 
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
   workflow_dispatch:
@@ -65,7 +64,7 @@ jobs:
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             echo "primary=${BASE}:${GITHUB_REF_NAME}-${{ matrix.tag_suffix }}" >> "$GITHUB_OUTPUT"
           else
-            echo "primary=${BASE}:latest-${{ matrix.tag_suffix }}" >> "$GITHUB_OUTPUT"
+            echo "primary=${BASE}:manual-${GITHUB_SHA:0:12}-${{ matrix.tag_suffix }}" >> "$GITHUB_OUTPUT"
           fi
           echo "sha=${BASE}:sha-${GITHUB_SHA:0:12}-${{ matrix.tag_suffix }}" >> "$GITHUB_OUTPUT"
 
