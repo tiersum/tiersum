@@ -5,10 +5,7 @@ export const ProductIntroPage = {
         <div class="min-h-screen bg-slate-950">
             <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-16">
                 <p class="text-xs uppercase tracking-widest text-slate-500 mb-2">Product overview</p>
-                <h1 class="text-3xl sm:text-4xl font-bold text-slate-100 mb-2">TierSum</h1>
-                <p class="text-base text-slate-400 mb-10 max-w-2xl">
-                    Hierarchical summaries, <strong class="text-slate-300">chapter-first</strong> retrieval, and—when you need it—<strong class="text-slate-300">up-front AI analysis</strong> feeding a <strong class="text-slate-300">step-by-step</strong> query flow. Details below.
-                </p>
+                <h1 class="text-3xl sm:text-4xl font-bold text-slate-100 mb-8">TierSum</h1>
 
                 <article class="space-y-10 text-slate-300 leading-relaxed">
                     <section class="space-y-4">
