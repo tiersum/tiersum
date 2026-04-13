@@ -118,4 +118,4 @@ require (
 replace github.com/sugarme/tokenizer => github.com/clems4ever/tokenizer v0.0.0-20250926133620-9ddc80533c43
 
 // Upstream renameio omits TempFile on Windows; coder/hnsw calls TempFile unconditionally (cold index saves).
-replace github.com/google/renameio v1.0.1 => ./internal/patchrenameio
+replace github.com/google/renameio v1.0.1 => ./pkg/patchrenameio

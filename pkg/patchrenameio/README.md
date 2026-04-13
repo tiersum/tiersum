@@ -1,6 +1,6 @@
 # renameio (TierSum fork)
 
-This directory replaces `github.com/google/renameio@v1.0.1` via `go.mod` `replace`.
+This tree under `pkg/patchrenameio` replaces `github.com/google/renameio@v1.0.1` via `go.mod` `replace`.
 
 Upstream intentionally omits `TempFile` / `WriteFile` on Windows (`//go:build !windows`), but
 `github.com/coder/hnsw` calls `renameio.TempFile` unconditionally when persisting vector graphs,
