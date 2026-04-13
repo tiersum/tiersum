@@ -6,11 +6,9 @@ export const ProductIntroPage = {
             <main class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-16">
                 <p class="text-xs uppercase tracking-widest text-slate-500 mb-2">Product overview</p>
                 <h1 class="text-3xl sm:text-4xl font-bold text-slate-100 mb-2">TierSum</h1>
-                <p class="text-lg text-blue-300/90 mb-3">
-                    Hierarchical summary knowledge base — <strong class="font-semibold text-blue-200/95">AI structures and summarizes documents up front</strong> (tags, document synopsis, chapter-level blurbs on the hot path),
-                    then answers questions with a <strong class="font-semibold text-blue-200/95">human-style progressive query</strong>: <em>tags → documents → chapters</em>, one legible step at a time — not a single opaque vector hop.
+                <p class="text-base text-slate-400 mb-10 max-w-2xl">
+                    Hierarchical summaries, <strong class="text-slate-300">chapter-first</strong> retrieval, and—when you need it—<strong class="text-slate-300">up-front AI analysis</strong> feeding a <strong class="text-slate-300">step-by-step</strong> query flow. Details below.
                 </p>
-                <p class="text-sm text-slate-500 mb-10">Cold-path docs stay chapter-centric for search; frequent use can promote them to the fully analyzed tier.</p>
 
                 <article class="space-y-10 text-slate-300 leading-relaxed">
                     <section class="space-y-4">
@@ -22,9 +20,9 @@ export const ProductIntroPage = {
                             so you navigate knowledge the way humans organize it, not the way embeddings shard it.
                         </p>
                         <p>
-                            <strong class="text-slate-200">Pre-shaped knowledge, then human-shaped questions.</strong>
-                            Where AI analysis has already run, each document carries structured summaries the system can lean on.
-                            <strong class="text-slate-200">Progressive query</strong> mirrors how people actually explore: narrow which tags and topics matter, pick plausible documents, then land on the right chapters — each hop scored by the LLM so the path stays interpretable.
+                            On the <strong class="text-slate-200">hot path</strong>, AI work runs <strong class="text-slate-200">when documents are ingested</strong>: tags, a document synopsis, and chapter-level blurbs become the
+                            <strong class="text-slate-200">pre-shaped layer</strong> that <strong class="text-slate-200">progressive query</strong> reuses—narrowing <em>tags → documents → chapters</em> with LLM scoring at each hop, like skimming an outline before opening the right section.
+                            <strong class="text-slate-200">Cold</strong> documents skip most of that upfront cost but stay searched and returned <strong class="text-slate-200">by whole chapters</strong>; ones that see heavy use can <strong class="text-slate-200">promote</strong> to hot when you want the full pre-shaped experience.
                         </p>
                         <p class="rounded-lg border border-slate-700/80 bg-slate-900/60 px-4 py-3 text-slate-200">
                             <strong class="text-blue-300">Chapter-first, hot or cold.</strong>
@@ -49,7 +47,7 @@ export const ProductIntroPage = {
                             <strong class="text-slate-100">Hot and cold both stay chapter-centric:</strong> retrieval, ranking, and what you read back are built on <strong>whole markdown chapters</strong>, preserving semantic integrity whether the doc is fully analyzed or cost-optimized.
                         </p>
                         <p>
-                            <strong class="text-emerald-300/90">Hot</strong> documents add richer treatment: LLM summaries and tags at the chapter level — the <strong class="text-slate-200">pre-shaped layer</strong> progressive query relies on — plus search that filters down to those chapters step by step. They count against a configurable hourly quota so costs stay predictable.
+                            <strong class="text-emerald-300/90">Hot</strong> documents are the ingest-time path described above: chapter-level summaries and tags form the <strong class="text-slate-200">pre-shaped layer</strong> progressive query uses. They count against a configurable hourly quota so costs stay predictable.
                         </p>
                         <p>
                             <strong class="text-sky-300/90">Cold</strong> documents skip heavy LLM work on ingest but use the same <strong class="text-slate-200">chapter-sized</strong> index for BM25 and optional semantic ranking — hits return <em>entire sections</em>, not arbitrary snippets. Frequently used cold docs can be promoted toward hot automatically.
@@ -72,11 +70,9 @@ export const ProductIntroPage = {
                 </div>
 
                 <article class="space-y-10 text-slate-300 leading-relaxed">
-                    <p class="text-lg text-blue-300/90 mb-3">
-                        分层摘要知识库 — <strong class="font-semibold text-blue-200/95">入库阶段即可由 AI 完成结构与摘要</strong>（热路径：标签、文档概述、章节级提要），
-                        提问时走<strong class="font-semibold text-blue-200/95">符合阅读习惯的渐进式查询</strong>：<strong class="text-slate-200">标签 → 文档 → 章节</strong>，像先看目录再翻到对应小节那样<strong class="text-slate-200">一步一步收窄</strong>，而不是只做一次「黑盒」向量匹配。
+                    <p class="text-base text-slate-400 mb-10 max-w-2xl">
+                        分层摘要、<strong class="text-slate-300">以章节为先</strong>的检索，以及在需要时由 <strong class="text-slate-300">入库阶段 AI 分析</strong>支撑的<strong class="text-slate-300">分步渐进</strong>查询。下文展开。
                     </p>
-                    <p class="text-sm text-slate-500 mb-10">冷路径文档同样以章节为检索与展示粒度；访问频繁时可自动晋升为完整 AI 分析层级。</p>
                     <section class="space-y-4">
                         <h2 class="text-xl font-semibold text-slate-100 border-b border-slate-800 pb-2">为何选择 TierSum</h2>
                         <p>
@@ -85,9 +81,9 @@ export const ProductIntroPage = {
                             而不是只靠向量「猜」片段边界。
                         </p>
                         <p>
-                            <strong class="text-slate-200">知识先被「铺好」，问题再按人的节奏展开。</strong>
-                            对已完成 AI 分析的文档，系统始终能依托<strong class="text-slate-200">预先写好的摘要与标签</strong>；
-                            <strong class="text-slate-200">渐进式查询</strong>则贴近真实阅读：先判断哪些标签、主题相关，再锁定可能文档，最后落到具体章节，每一步由大模型打分，路径<strong class="text-slate-200">可解释、可复查</strong>。
+                            在<strong class="text-slate-200">热路径</strong>上，<strong class="text-slate-200">入库时</strong>即可由 AI 写好标签、文档概述与章节级提要，形成后续检索依赖的<strong class="text-slate-200">「已铺好的」语义层</strong>；
+                            <strong class="text-slate-200">渐进式查询</strong>在此基础上沿 <strong class="text-slate-200">标签 → 文档 → 章节</strong> 逐步收窄，每一步由大模型打分，像先扫目录再翻到对应小节，路径<strong class="text-slate-200">可解释、可复查</strong>。
+                            <strong class="text-slate-200">冷路径</strong>则省去大部分入库时 LLM 成本，仍以<strong class="text-slate-200">整章</strong>建索引与返回；访问频繁时可<strong class="text-slate-200">晋升</strong>为热文档，获得同样的预摘要能力。
                         </p>
                         <p class="rounded-lg border border-slate-700/80 bg-slate-900/60 px-4 py-3 text-slate-200">
                             <strong class="text-blue-300">冷热一致：以章节为单元。</strong>
@@ -112,7 +108,7 @@ export const ProductIntroPage = {
                             <strong class="text-slate-100">热与冷都以章节为中心：</strong>检索、排序与展示都建立在 <strong>完整 Markdown 章节</strong> 上，沿标题结构保持语义边界，避免任意碎片破坏语境。
                         </p>
                         <p>
-                            <strong class="text-emerald-300/90">热文档</strong>在章节粒度上由 LLM 预先写好摘要与标签，为<strong class="text-slate-200">渐进式查询</strong>提供「已铺好的路」；查询沿标签 → 文档 → 章节逐步收窄到相关章节；通常受<strong class="text-slate-200">每小时配额</strong>约束以控制成本。
+                            <strong class="text-emerald-300/90">热文档</strong>即上文「入库时预写摘要与标签」的路径；渐进式查询主要依托这一层展开，通常受<strong class="text-slate-200">每小时配额</strong>约束以控制成本。
                         </p>
                         <p>
                             <strong class="text-sky-300/90">冷文档</strong>入库时几乎不做完整 LLM 分析，但同样按 <strong class="text-slate-200">章节</strong> 建索引，用 <strong class="text-slate-200">BM25 + 向量</strong> 混合检索，命中返回<strong class="text-slate-200">整章正文</strong>；查询次数达到阈值后可自动向「热」晋升。
