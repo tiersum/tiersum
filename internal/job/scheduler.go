@@ -112,14 +112,3 @@ func (s *Scheduler) executeJob(job Job) {
 		s.logger.Debug("job completed", zap.String("name", job.Name()))
 	}
 }
-
-// ExecuteNow executes a job immediately (manual trigger)
-func (s *Scheduler) ExecuteNow(jobName string) {
-	for _, job := range s.jobs {
-		if job.Name() == jobName {
-			s.executeJob(job)
-			return
-		}
-	}
-	s.logger.Warn("job not found", zap.String("name", jobName))
-}

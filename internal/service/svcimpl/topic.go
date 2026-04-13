@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -136,48 +135,7 @@ func (s *TopicSvc) ListTopics(ctx context.Context) ([]types.Topic, error) {
 	return s.topicRepo.List(ctx)
 }
 
-// ListTagsByTopic returns catalog tags for one topic.
-func (s *TopicSvc) ListTagsByTopic(ctx context.Context, topicID string) ([]types.Tag, error) {
-	return s.tagRepo.ListByTopic(ctx, topicID)
-}
-
-// FilterTagsByQuery uses the LLM to score catalog tags for a query.
-func (s *TopicSvc) FilterTagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
-	if len(tags) == 0 {
-		return nil, nil
-	}
-
-	var tagList strings.Builder
-	for _, tag := range tags {
-		tagList.WriteString(fmt.Sprintf("- %s (used in %d documents)\n", tag.Name, tag.DocumentCount))
-	}
-
-	prompt := fmt.Sprintf(`Given the user query: "%s"
-
-Select the most relevant tags from the list below. Return a JSON array of objects with fields "tag" and "relevance" (0.0-1.0 score).
-Only include tags with relevance >= 0.6. Sort by relevance descending.
-
-Available tags:
-%s
-
-Response format (JSON only):
-[
-  {"tag": "tag-name", "relevance": 0.95},
-  {"tag": "another-tag", "relevance": 0.82}
-]`, query, tagList.String())
-
-	metrics.RecordLLMCall(metrics.PathTagFilter, estimateTokens(prompt))
-
-	response, err := s.provider.Generate(ctx, prompt, 1500)
-	if err != nil {
-		s.logger.Error("LLM tag filter failed", zap.Error(err))
-		return s.fallbackTagFilter(tags), nil
-	}
-
-	return s.parseTagFilterResults(response), nil
-}
-
-func (s *TopicSvc) performGrouping(_ context.Context, tags []string) ([]types.Topic, error) {
+func (s *TopicSvc) performGrouping(ctx context.Context, tags []string) ([]types.Topic, error) {
 	if len(tags) == 0 {
 		return nil, nil
 	}
@@ -254,39 +212,6 @@ func (s *TopicSvc) parseGroupResponse(response string) ([]types.Topic, error) {
 	}
 
 	return topics, nil
-}
-
-func (s *TopicSvc) parseTagFilterResults(response string) []types.TagFilterResult {
-	jsonStart := strings.Index(response, "[")
-	jsonEnd := strings.LastIndex(response, "]")
-	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
-		return nil
-	}
-
-	jsonStr := response[jsonStart : jsonEnd+1]
-
-	var results []types.TagFilterResult
-	if err := json.Unmarshal([]byte(jsonStr), &results); err != nil {
-		s.logger.Warn("failed to parse tag filter results", zap.Error(err))
-		return nil
-	}
-
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Relevance > results[j].Relevance
-	})
-
-	return results
-}
-
-func (s *TopicSvc) fallbackTagFilter(tags []types.Tag) []types.TagFilterResult {
-	results := make([]types.TagFilterResult, len(tags))
-	for i, tag := range tags {
-		results[i] = types.TagFilterResult{
-			Tag:       tag.Name,
-			Relevance: 0.5,
-		}
-	}
-	return results
 }
 
 var _ service.ITopicService = (*TopicSvc)(nil)

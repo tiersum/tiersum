@@ -97,7 +97,6 @@ deployments/
 internal/
   api/                       # Layer 1: API Layer
     handler.go               # REST handlers (depends on service.* only, no storage repos)
-    auth.go                  # BFFAuth noop (reserved); real /bff/v1 gate is BFFSessionMiddleware in main.go
     auth_bff_handlers.go     # BFF-only JSON: bootstrap, login, /me/*, /admin/*
     bff_session_middleware.go # Browser session cookie gate for /bff/v1 (public auth paths exempt)
     program_auth_middleware.go # DB API key + scope gate for /api/v1
@@ -117,7 +116,7 @@ internal/
       document.go            # DocumentSvc implements IDocumentService
       retrieval.go           # RetrievalSvc implements IRetrievalService (tags/summaries/hot/cold reads for HTTP)
       query.go               # QuerySvc implements IQueryService
-      tag_grouping.go        # TagGroupSvc implements ITagGroupService
+      topic.go               # TopicSvc implements ITopicService (LLM regroup + topics)
       document_maintenance.go # DocumentMaintenanceSvc implements IDocumentMaintenanceService (jobs)
       indexer.go             # IndexerSvc implements IIndexer
       summarizer.go          # SummarizerSvc implements ISummarizer
@@ -127,7 +126,7 @@ internal/
     interface.go             # I-prefixed storage interfaces
     auth_entities.go         # Auth row structs (users, sessions, api_keys, …)
     db/                      # Database repository implementations
-      repository.go          # DocumentRepo, SummaryRepo, TagRepo, TagGroupRepo
+      repository.go          # DocumentRepo, SummaryRepo, TagRepo, TopicRepo
       auth_repo.go            # system_state, users, browser_sessions, api_keys, audit
       schema.go              # Database schema definitions
       migrator.go            # Schema migration manager
@@ -146,7 +145,7 @@ internal/
       openai.go              # OpenAIProvider implements ILLMProvider
   job/                       # Job Layer (background tasks; depends on internal/service only)
     scheduler.go             # Job scheduler
-    jobs.go                  # TagGroupJob
+    jobs.go                  # TopicRegroupJob
     promote_job.go           # Schedules IDocumentMaintenanceService.RunColdPromotionSweep
     promote_consumer.go      # Async queue → PromoteColdDocumentByID
     hotscore_job.go          # Schedules RecalculateDocumentHotScores
@@ -180,7 +179,7 @@ Layer 3: Storage Layer (internal/storage/)
     ↓ uses
 Layer 4: Client Layer (internal/client/) — third-party APIs (e.g. LLM); not cold-index embeddings
 
-Job Layer (same dependency rule as API): Service Layer only (`internal/service`, e.g. `ITagGroupService`, `IDocumentMaintenanceService`)
+Job Layer (same dependency rule as API): Service Layer only (`internal/service`, e.g. `ITopicService`, `IDocumentMaintenanceService`)
 ```
 
 ### Key Rules
@@ -452,7 +451,7 @@ PromoteJob (every 5 min) → Full LLM analysis → hot
 
 | Job             | File              | Interval   | Purpose                                                          |
 | --------------- | ----------------- | ---------- | ---------------------------------------------------------------- |
-| **TagGroupJob** | `jobs.go`         | 30 minutes | LLM-based tag grouping into L1 groups                            |
+| **TopicRegroupJob** | `jobs.go`     | 30 minutes | When `ShouldRefresh`, `ITopicService.RegroupTags` (LLM topics)   |
 | **PromoteJob**  | `promote_job.go`  | 5 minutes  | Delegates to `IDocumentMaintenanceService.RunColdPromotionSweep` (cold→hot when `query_count` ≥ threshold) |
 | **HotScoreJob** | `hotscore_job.go` | 1 hour     | Delegates to `IDocumentMaintenanceService.RecalculateDocumentHotScores` |
 
@@ -469,7 +468,7 @@ PromoteJob (every 5 min) → Full LLM analysis → hot
 
 ### Core API flows (algorithms)
 
-Endpoints that are more than simple CRUD — ingest tiering, progressive query, tag grouping, hot/cold retrieval, hybrid cold search — are documented in **[docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md)** (call chain from REST handlers into services and storage).
+Endpoints that are more than simple CRUD — ingest tiering, progressive query, topic regrouping, hot/cold retrieval, hybrid cold search — are documented in **[docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md)** (call chain from REST handlers into services and storage).
 
 ### REST API
 
@@ -483,13 +482,13 @@ The **embedded Vue UI** (`cmd/web/js/`) calls the same handlers under **`/bff/v1
 | GET    | `/api/v1/documents/:id/summaries` | Get document summaries                                                                |
 | GET    | `/api/v1/documents/:id/chapters`  | List chapter summaries for a document                                                 |
 | POST   | `/api/v1/query/progressive`       | Progressive query (recommended)                                                       |
-| GET    | `/api/v1/tags`                    | List tags (optional `group_ids=comma&max_results=100`)                                |
-| GET    | `/api/v1/tags/groups`             | List tag groups (L1)                                                                  |
+| GET    | `/api/v1/tags`                    | List tags (optional `topic_ids=comma&max_results`)                                     |
+| GET    | `/api/v1/topics`                  | List topics (themes)                                                                  |
 | GET    | `/api/v1/hot/doc_summaries`       | Hot/warming docs matching `tags`; document-level summary only (`tags`, `max_results`) |
 | GET    | `/api/v1/hot/doc_chapters`        | Chapter summaries for `doc_ids` (comma-separated, `max_results` caps doc count)       |
 | GET    | `/api/v1/hot/doc_source`          | Original text for `chapter_paths` (comma-separated, `max_results`)                    |
 | GET    | `/api/v1/cold/doc_source`         | Cold chapter hits via cold index (`q` comma-separated terms, `max_results`; JSON includes `path` per chapter) |
-| POST   | `/api/v1/tags/group`              | Trigger tag grouping                                                                  |
+| POST   | `/api/v1/topics/regroup`          | LLM regroup catalog tags into topics                                                  |
 | GET    | `/api/v1/quota`                   | Check quota status                                                                    |
 | GET    | `/api/v1/monitoring`              | JSON monitoring snapshot (version, document counts, cold index size + Bleve inverted + HNSW vector stats, quota) |
 | GET    | `/metrics`                        | Prometheus metrics (root path; **not** under `/api/v1`; public) |

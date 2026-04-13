@@ -141,14 +141,6 @@ func (m *mockTopicService) ListTopics(ctx context.Context) ([]types.Topic, error
 	return m.topics, nil
 }
 
-func (m *mockTopicService) ListTagsByTopic(ctx context.Context, topicID string) ([]types.Tag, error) {
-	return nil, nil
-}
-
-func (m *mockTopicService) FilterTagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
-	return nil, nil
-}
-
 type mockRetrieval struct {
 	err error
 }

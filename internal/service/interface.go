@@ -67,8 +67,6 @@ type ITopicService interface {
 	RegroupTags(ctx context.Context) error
 	ShouldRefresh(ctx context.Context) (bool, error)
 	ListTopics(ctx context.Context) ([]types.Topic, error)
-	ListTagsByTopic(ctx context.Context, topicID string) ([]types.Tag, error)
-	FilterTagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error)
 }
 
 // IIndexer defines document indexing logic

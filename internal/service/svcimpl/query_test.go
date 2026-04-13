@@ -540,7 +540,7 @@ func TestQuerySvc_queryColdPath_NilIndex(t *testing.T) {
 	assert.Equal(t, 0, step.Output)
 }
 
-func TestQuerySvc_filterL1Groups(t *testing.T) {
+func TestQuerySvc_filterTopics(t *testing.T) {
 	ctx := context.Background()
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
@@ -560,7 +560,6 @@ func TestQuerySvc_filterL1Groups(t *testing.T) {
 		testLogger(),
 	)
 
-	// Create groups
 	topicRepo.Create(ctx, &types.Topic{
 		ID:   "group1",
 		Name: "Programming",
@@ -570,9 +569,9 @@ func TestQuerySvc_filterL1Groups(t *testing.T) {
 		Name: "Databases",
 	})
 
-	groups, err := svc.filterL1Groups(ctx, "programming languages")
+	topics, err := svc.filterTopics(ctx, "programming languages")
 	require.NoError(t, err)
-	assert.NotNil(t, groups)
+	assert.NotNil(t, topics)
 }
 
 func TestQuerySvc_getTagsFromTopics(t *testing.T) {

@@ -15,7 +15,7 @@ This document traces **non-trivial** REST endpoints: anything beyond simple list
 **MCP:** each tool calls **`MCPServer.mcpProgramGate`** with the same scope rules as REST; API key is read from **`TIERSUM_API_KEY`** or `mcp.api_key` in config.
 
 **Simple CRUD / pass-through (not detailed here)**  
-`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/documents/:id/summaries`, `GET /api/v1/tags/groups`, `GET /api/v1/quota`, **`GET /health`** (root JSON liveness), and **`GET /metrics`** (root Prometheus text) — mostly read from DB or Prometheus without multi-step domain logic. **`/health`** and **`/metrics`** remain public.
+`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/documents/:id/summaries`, `GET /api/v1/topics`, `GET /api/v1/quota`, **`GET /health`** (root JSON liveness), and **`GET /metrics`** (root Prometheus text) — mostly read from DB or Prometheus without multi-step domain logic. **`/health`** and **`/metrics`** remain public.
 
 `GET /api/v1/documents/:id/chapters` is detailed below (markdown fallback when DB has no chapter-tier rows).
 
@@ -85,10 +85,10 @@ Results are **merged** (`mergeHotAndColdResults`): hot entries win by document i
 
 ### 2.2 Hot path (`queryHotPath`)
 
-1. `**filterL2Tags(question)`** — adaptive:
-  - If global tag count **< `L2TagThreshold` (200)**: LLM `**FilterL2TagsByQuery`** on all L2 tags (`filterL2TagsDirect`).  
-  - Else: LLM `**FilterL1GroupsByQuery`** → pick groups with relevance **≥ 0.5**, up to **3** → load L2 tags in those groups → `**FilterL2TagsByQuery`** on that subset (`filterL2TagsTwoLevel`).  
-  - Relevant tag names: filter results with relevance **≥ 0.5**. Fallbacks if LLM or repos fail.
+1. `**filterCatalogTags(question)`** — adaptive (`**CatalogTagThreshold**` = 200 in `query.go`):
+  - If global tag count **< threshold**: `**filterTagsDirect`** — LLM `**Summarizer.FilterTagsByQuery**` on all catalog tags.  
+  - Else: `**filterTagsViaTopics`** — `**filterTopics**` (`**Summarizer.FilterTopicsByQuery`** on topics, relevance **≥ 0.5**, up to **3**) → `**getTagsFromTopics**` → `**filterTagsDirect**` on that tag subset.  
+  - Relevant tag names: filter results with relevance **≥ 0.5** (`**extractRelevantTags**`). Fallbacks if LLM or repos fail.
 2. `**queryAndFilterDocuments`**
   - If no tag names: `**DocRepo.ListAll(limit)`** as fallback.  
   - Else: `**DocRepo.ListByTags`** (OR over tags).  
@@ -114,17 +114,19 @@ Results are **merged** (`mergeHotAndColdResults`): hot entries win by document i
 
 ---
 
-## 3. `POST /api/v1/tags/group` — Tag grouping (L1)
+## 3. `POST /api/v1/topics/regroup` — Topic regrouping (catalog tags → themes)
 
-**Handler:** `ExecuteTriggerTagGroup` → `TagGroupSvc.GroupTags` (`internal/service/svcimpl/tag_grouping.go`).
+**Handler:** `ExecuteTriggerTopicRegroup` → `TopicSvc.RegroupTags` (`internal/service/svcimpl/topic.go`).
 
 1. `**TagRepo.List`** all global tags.
-2. `**performGrouping`**: LLM returns JSON groups → `[]TagGroup` (name, description, member tag names).
-3. `**GroupRepo.DeleteAll`** then create each group.
-4. For each tag name in a group: `**GetByName**`, set `GroupID`, `**TagRepo.Create**` (implementation note: relies on create path for assignment).
+2. `**performGrouping`**: LLM returns JSON topics → `[]Topic` (name, description, member tag names).
+3. `**TopicRepo.DeleteAll`** then create each topic row.
+4. For each tag name in a topic: `**TagRepo.GetByName**`, set `TopicID`, `**TagRepo.Create**` (implementation note: relies on create path for assignment).
 5. Updates in-memory refresh bookkeeping for `**ShouldRefresh**`.
 
-Scheduled `**TagGroupJob**` runs the same service on an interval.
+`GET /api/v1/topics` lists persisted topics (`**TopicSvc.ListTopics**` → `**TopicRepo.List**`).
+
+Scheduled `**TopicRegroupJob**` (`internal/job/jobs.go`) runs the same regroup path on an interval when `**ShouldRefresh**` is true.
 
 ---
 
@@ -164,9 +166,9 @@ Scheduled `**TagGroupJob**` runs the same service on an interval.
 
 **Handler:** `ExecuteListTags`.
 
-- `**IRetrievalService.ListTags**`: if `**group_ids**` non-empty, `**ListByGroupIDs**` with `max_results` (defaults/clamps per handler); else `**TagRepo.List**` with optional cap from `max_results` (implemented in `**RetrievalSvc**`).
+- `**IRetrievalService.ListTags**`: if `**topic_ids**` non-empty, `**TagRepo.ListByTopicIDs**` with `max_results` (defaults/clamps per handler); else `**TagRepo.List**` with optional cap from `max_results` (implemented in `**RetrievalSvc**`).
 
-No LLM; included because behavior differs from a single-table dump when `group_ids` is set.
+No LLM; included because behavior differs from a single-table dump when `topic_ids` is set.
 
 ---
 
@@ -179,7 +181,7 @@ No LLM; included because behavior differs from a single-table dump when `group_i
 | Ingest + tiering          | `internal/service/svcimpl/document.go`, `internal/config/tiering.go`                   |
 | Progressive query         | `internal/service/svcimpl/query.go`, `progressive_answer.go`                           |
 | Summaries persistence     | `internal/service/svcimpl/indexer.go`, `internal/storage/db/repository.go`             |
-| Tag grouping              | `internal/service/svcimpl/tag_grouping.go`                                             |
+| Topic regroup + list      | `internal/service/svcimpl/topic.go`, `internal/job/jobs.go` (`TopicRegroupJob`)       |
 | Cold index (Bleve + HNSW)   | `internal/storage/coldindex/index.go`                                                     |
 | Cold index algorithms     | [COLD_INDEX.md](COLD_INDEX.md), [COLD_INDEX_zh.md](COLD_INDEX_zh.md)                    |
 | Cold embeddings           | `coldindex.NewTextEmbedderFromViper` + `**coldindex.Index.SetTextEmbedder**` in `cmd/main.go`; `**storage.IColdIndex**` exposes only documents + text `**Search**` / `**ColdIndexHit**` |

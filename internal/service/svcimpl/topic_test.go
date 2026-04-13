@@ -240,118 +240,6 @@ func TestTopicSvc_ListTopics(t *testing.T) {
 	assert.Len(t, groups, 2)
 }
 
-func TestTopicSvc_ListTagsByTopic(t *testing.T) {
-	ctx := context.Background()
-	tagRepo := NewMockTagRepository()
-	topicRepo := NewMockTopicRepository()
-	provider := NewMockLLMProvider()
-
-	svc := NewTopicSvc(
-		tagRepo,
-		topicRepo,
-		provider,
-		testLogger(),
-	)
-
-	// Create tags in a group
-	tagRepo.Create(ctx, &types.Tag{
-		ID:      "tag1",
-		Name:    "golang",
-		TopicID: "group1",
-	})
-	tagRepo.Create(ctx, &types.Tag{
-		ID:      "tag2",
-		Name:    "python",
-		TopicID: "group1",
-	})
-	tagRepo.Create(ctx, &types.Tag{
-		ID:      "tag3",
-		Name:    "postgres",
-		TopicID: "group2",
-	})
-
-	tags, err := svc.ListTagsByTopic(ctx, "group1")
-	require.NoError(t, err)
-	assert.Len(t, tags, 2)
-}
-
-func TestTopicSvc_FilterTagsByQuery(t *testing.T) {
-	ctx := context.Background()
-	tagRepo := NewMockTagRepository()
-	topicRepo := NewMockTopicRepository()
-	provider := NewMockLLMProvider()
-
-	svc := NewTopicSvc(
-		tagRepo,
-		topicRepo,
-		provider,
-		testLogger(),
-	)
-
-	tags := []types.Tag{
-		{ID: "tag1", Name: "golang", DocumentCount: 10},
-		{ID: "tag2", Name: "python", DocumentCount: 5},
-	}
-
-	// Set up mock LLM response
-	provider.SetResponse(`[
-		{"tag": "golang", "relevance": 0.95},
-		{"tag": "python", "relevance": 0.7}
-	]`)
-
-	results, err := svc.FilterTagsByQuery(ctx, "programming languages", tags)
-	require.NoError(t, err)
-	assert.Len(t, results, 2)
-	assert.Equal(t, "golang", results[0].Tag)
-	assert.Equal(t, 0.95, results[0].Relevance)
-}
-
-func TestTopicSvc_FilterTagsByQuery_EmptyTags(t *testing.T) {
-	ctx := context.Background()
-	tagRepo := NewMockTagRepository()
-	topicRepo := NewMockTopicRepository()
-	provider := NewMockLLMProvider()
-
-	svc := NewTopicSvc(
-		tagRepo,
-		topicRepo,
-		provider,
-		testLogger(),
-	)
-
-	results, err := svc.FilterTagsByQuery(ctx, "query", nil)
-	require.NoError(t, err)
-	assert.Nil(t, results)
-}
-
-func TestTopicSvc_FilterTagsByQuery_LLMError(t *testing.T) {
-	ctx := context.Background()
-	tagRepo := NewMockTagRepository()
-	topicRepo := NewMockTopicRepository()
-	provider := NewMockLLMProvider()
-
-	svc := NewTopicSvc(
-		tagRepo,
-		topicRepo,
-		provider,
-		testLogger(),
-	)
-
-	tags := []types.Tag{
-		{ID: "tag1", Name: "golang"},
-	}
-
-	// Set error on provider
-	provider.SetError(errors.New("llm error"))
-
-	// Should fallback to equal relevance
-	results, err := svc.FilterTagsByQuery(ctx, "query", tags)
-	require.NoError(t, err)
-	assert.Len(t, results, 1)
-	assert.Equal(t, "golang", results[0].Tag)
-	assert.Equal(t, 0.5, results[0].Relevance)
-}
-
 func TestTopicSvc_performGrouping(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
@@ -376,7 +264,7 @@ func TestTopicSvc_performGrouping(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, groups, 1)
 	assert.Equal(t, "Languages", groups[0].Name)
-	assert.Equal(t, []string{"golang", "python", "javascript"}, groups[0].Tags)
+	assert.Equal(t, []string{"golang", "python", "javascript"}, groups[0].TagNames)
 }
 
 func TestTopicSvc_performGrouping_EmptyTags(t *testing.T) {
@@ -474,83 +362,6 @@ func TestTopicSvc_parseGroupResponse(t *testing.T) {
 				assert.Len(t, groups, tt.wantLen)
 			}
 		})
-	}
-}
-
-func TestTopicSvc_parseTagFilterResults(t *testing.T) {
-	tagRepo := NewMockTagRepository()
-	topicRepo := NewMockTopicRepository()
-	provider := NewMockLLMProvider()
-
-	svc := NewTopicSvc(
-		tagRepo,
-		topicRepo,
-		provider,
-		testLogger(),
-	)
-
-	tests := []struct {
-		name     string
-		response string
-		wantLen  int
-		firstTag string
-	}{
-		{
-			name:     "valid response",
-			response: `[{"tag": "golang", "relevance": 0.9}, {"tag": "python", "relevance": 0.7}]`,
-			wantLen:  2,
-			firstTag: "golang",
-		},
-		{
-			name:     "sorted by relevance",
-			response: `[{"tag": "python", "relevance": 0.7}, {"tag": "golang", "relevance": 0.9}]`,
-			wantLen:  2,
-			firstTag: "golang",
-		},
-		{
-			name:     "invalid json",
-			response: "not json",
-			wantLen:  0,
-		},
-		{
-			name:     "no json array",
-			response: "{}",
-			wantLen:  0,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			results := svc.parseTagFilterResults(tt.response)
-			assert.Len(t, results, tt.wantLen)
-			if tt.wantLen > 0 {
-				assert.Equal(t, tt.firstTag, results[0].Tag)
-			}
-		})
-	}
-}
-
-func TestTopicSvc_fallbackTagFilter(t *testing.T) {
-	tagRepo := NewMockTagRepository()
-	topicRepo := NewMockTopicRepository()
-	provider := NewMockLLMProvider()
-
-	svc := NewTopicSvc(
-		tagRepo,
-		topicRepo,
-		provider,
-		testLogger(),
-	)
-
-	tags := []types.Tag{
-		{ID: "tag1", Name: "golang"},
-		{ID: "tag2", Name: "python"},
-	}
-
-	results := svc.fallbackTagFilter(tags)
-	assert.Len(t, results, 2)
-	for _, r := range results {
-		assert.Equal(t, 0.5, r.Relevance)
 	}
 }
 

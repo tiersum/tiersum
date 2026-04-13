@@ -498,7 +498,7 @@ db/
 │   │   └── svcimpl/            # Implementations
 │   │       ├── document.go     # Hot/cold tiering
 │   │       ├── query.go        # Progressive query
-│   │       ├── tag_grouping.go # LLM tag grouping (L1)
+│   │       ├── topic.go        # LLM topic regrouping + topics
 │   │       ├── indexer.go      # Summary indexing
 │   │       ├── summarizer.go   # LLM analysis
 │   │       └── quota.go        # Rate limiting
@@ -518,7 +518,7 @@ db/
 │   │       └── openai.go       # OpenAI/Anthropic
 │   ├── job/                    # Background tasks
 │   │   ├── scheduler.go
-│   │   ├── jobs.go             # Indexer, TagGroup
+│   │   ├── jobs.go             # Topic regroup, promote, hot score
 │   │   ├── promote_job.go      # Cold→Hot promotion
 │   │   └── hotscore_job.go     # Hot score calc
 │   └── di/                     # Dependency injection
