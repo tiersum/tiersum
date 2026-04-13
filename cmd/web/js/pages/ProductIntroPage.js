@@ -69,7 +69,7 @@ export const ProductIntroPage = {
                         <h2 class="text-xl font-semibold text-slate-100 border-b border-slate-800 pb-2">为何选择 TierSum</h2>
                         <p>
                             常见检索会把长文切成大量小块再做相似度匹配，容易<strong class="text-slate-200">丢失结构与语境</strong>。
-                            TierSum 用<strong class="text-slate-200">分层摘要</strong>（文档 → 章节 → 原文）保留知识结构，并配合<strong class="text-slate-200">标签与主题（topics）</strong>做可解释的导航与筛选，
+                            TierSum 用<strong class="text-slate-200">分层摘要</strong>（文档 → 章节 → 原文）保留知识结构，并配合<strong class="text-slate-200">标签与主题</strong>做可解释的导航与筛选，
                             而不是只靠向量「猜」片段边界。
                         </p>
                         <p class="rounded-lg border border-slate-700/80 bg-slate-900/60 px-4 py-3 text-slate-200">
@@ -95,7 +95,7 @@ export const ProductIntroPage = {
                             <strong class="text-slate-100">热与冷都以章节为中心：</strong>检索、排序与展示都建立在 <strong>完整 Markdown 章节</strong> 上，沿标题结构保持语义边界，避免任意碎片破坏语境。
                         </p>
                         <p>
-                            <strong class="text-emerald-300/90">热文档</strong>在章节粒度上增加 LLM 摘要与打标签，并支持 progressive 查询逐步收窄到相关章节；通常受<strong class="text-slate-200">每小时配额</strong>约束以控制成本。
+                            <strong class="text-emerald-300/90">热文档</strong>在章节粒度上增加 LLM 摘要与打标签，并支持<strong class="text-slate-200">渐进式查询</strong>，沿标签 → 文档 → 章节逐步收窄到相关章节；通常受<strong class="text-slate-200">每小时配额</strong>约束以控制成本。
                         </p>
                         <p>
                             <strong class="text-sky-300/90">冷文档</strong>入库时几乎不做完整 LLM 分析，但同样按 <strong class="text-slate-200">章节</strong> 建索引，用 <strong class="text-slate-200">BM25 + 向量</strong> 混合检索，命中返回<strong class="text-slate-200">整章正文</strong>；查询次数达到阈值后可自动向「热」晋升。
