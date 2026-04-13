@@ -1,3 +1,10 @@
+# macOS
+.DS_Store
+**/.DS_Store
+
+# `make build` binary output (see Makefile)
+/build/
+
 /data/tiersum.db
 /data/tiersum.db-shm
 /data/tiersum.db-wal
