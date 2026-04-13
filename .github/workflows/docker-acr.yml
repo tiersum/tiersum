@@ -1,15 +1,13 @@
-# Build and push TierSum Linux images (amd64 + arm64) to Alibaba Cloud Container Registry (ACR).
+# Build and push TierSum Linux images to Alibaba Cloud ACR — one native runner per arch (no QEMU).
 #
-# Required repository secrets (Settings → Secrets and variables → Actions):
-#   ACR_USERNAME   — e.g. luodaijun-9030 (RAM / ACR login name)
-#   ACR_PASSWORD   — ACR password or long-lived token (never commit)
-#   ACR_NAMESPACE  — ACR namespace shown in console (命名空间), not the registry hostname
+# Tags pushed (replace <ns> with your ACR_NAMESPACE secret):
+#   main branch  →  <registry>/<ns>/tiersum:latest-amd64  and  ...:latest-arm64
+#   tag v1.2.3   →  .../tiersum:v1.2.3-amd64  and  .../tiersum:v1.2.3-arm64
 #
-# Registry host is fixed below (personal instance). Image path:
-#   <REGISTRY>/<ACR_NAMESPACE>/tiersum:<tag>
+# Required secrets: ACR_USERNAME, ACR_PASSWORD, ACR_NAMESPACE (see deployments/docker/README.md)
 #
-# Local login (same credentials as CI):
-#   docker login --username=YOUR_USER crpi-gp9w4rgj2tki21xk.cn-hangzhou.personal.cr.aliyuncs.com
+# Arm job uses GitHub-hosted ubuntu-24.04-arm64. If unavailable on your plan, remove the arm64
+# matrix row or switch to a self-hosted arm64 runner.
 
 name: Docker (ACR)
 
@@ -30,13 +28,22 @@ permissions:
 
 jobs:
   build-push:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            tag_suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm64
+            tag_suffix: arm64
+
+    runs-on: ${{ matrix.runner }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -48,25 +55,29 @@ jobs:
           username: ${{ secrets.ACR_USERNAME }}
           password: ${{ secrets.ACR_PASSWORD }}
 
-      - name: Docker metadata (tags)
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha,prefix=sha-
+      - name: Image tag (per branch / tag / arch)
+        id: tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          NS="${{ secrets.ACR_NAMESPACE }}"
+          BASE="${{ env.REGISTRY }}/${NS}/${{ env.IMAGE_NAME }}"
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            echo "primary=${BASE}:${GITHUB_REF_NAME}-${{ matrix.tag_suffix }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "primary=${BASE}:latest-${{ matrix.tag_suffix }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "sha=${BASE}:sha-${GITHUB_SHA:0:12}-${{ matrix.tag_suffix }}" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           file: deployments/docker/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ steps.tag.outputs.primary }}
+            ${{ steps.tag.outputs.sha }}
           build-args: |
             VERSION=${{ github.ref_name }}

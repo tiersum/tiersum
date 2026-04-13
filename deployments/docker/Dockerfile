@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
-# TierSum API server — multi-stage build (linux/amd64 + linux/arm64 via buildx TARGETARCH).
-# Runtime: ONNX + MiniLM fetched in image (same scripts as local dev).
+# TierSum API server — multi-stage build. Intended for native linux/amd64 or linux/arm64
+# (CI uses one runner per arch — no QEMU, no CGO cross-compiler).
+# Runtime: ONNX + MiniLM via make fetch-* (same as local dev).
 
 FROM golang:1.24-bookworm AS builder
 
@@ -17,12 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 		g++ \
 		libc6-dev \
 		libsqlite3-dev \
-	&& HOST_ARCH="$(dpkg --print-architecture)" \
-	&& if [ "$HOST_ARCH" = "amd64" ] && [ "$TARGETARCH" = "arm64" ]; then \
-		apt-get install -y --no-install-recommends \
-			gcc-aarch64-linux-gnu \
-			g++-aarch64-linux-gnu; \
-	fi \
 	&& rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
@@ -31,16 +26,11 @@ RUN go mod download
 COPY . .
 
 ARG VERSION=dev
-RUN set -eux; \
-	HOST_ARCH="$(dpkg --print-architecture)"; \
-	if [ "$HOST_ARCH" = "amd64" ] && [ "$TARGETARCH" = "arm64" ]; then \
-		export CC=aarch64-linux-gnu-gcc CXX=aarch64-linux-gnu-g++; \
-	fi; \
-	GOOS=linux GOARCH="${TARGETARCH}" \
-		go build -trimpath \
-		-ldflags="-w -s -X main.Version=${VERSION}" \
-		-o /out/tiersum \
-		./cmd
+RUN GOOS=linux GOARCH="${TARGETARCH}" \
+	go build -trimpath \
+	-ldflags="-w -s -X main.Version=${VERSION}" \
+	-o /out/tiersum \
+	./cmd
 
 FROM debian:bookworm-slim
 
