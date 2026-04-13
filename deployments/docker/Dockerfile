@@ -21,6 +21,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 	&& rm -rf /var/lib/apt/lists/*
 
 COPY go.mod go.sum ./
+# go.mod replace github.com/google/renameio => ./pkg/patchrenameio must exist before go mod download
+COPY pkg/patchrenameio ./pkg/patchrenameio
 RUN go mod download
 
 COPY . .
