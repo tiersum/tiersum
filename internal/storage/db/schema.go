@@ -31,7 +31,7 @@ var SchemaVersions = []SchemaVersion{
 	},
 	{
 		Version:  5,
-		Name:     "Add tag groups and remove topics",
+		Name:     "Topics + catalog tags (remove legacy topic_summaries)",
 		SQLite:   sqliteSchemaV5,
 		Postgres: postgresSchemaV5,
 	},
@@ -285,33 +285,33 @@ CREATE INDEX idx_summaries_document_id ON summaries(document_id);
 CREATE INDEX idx_summaries_tier ON summaries(tier);
 CREATE INDEX idx_summaries_path ON summaries(path);
 
--- Tag groups table (Level 1 categories)
-CREATE TABLE IF NOT EXISTS tag_groups (
+-- Topics (themes): LLM clusters of catalog tags
+CREATE TABLE IF NOT EXISTS topics (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
     description TEXT,
-    tags TEXT, -- JSON array of tags in this group
+    tag_names TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_tag_groups_name ON tag_groups(name);
+CREATE INDEX idx_topics_name ON topics(name);
 
--- Global tags table (Level 2 tags)
-CREATE TABLE IF NOT EXISTS global_tags (
+-- Catalog tags (deduplicated names + optional topic link)
+CREATE TABLE IF NOT EXISTS tags (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
-    group_id TEXT REFERENCES tag_groups(id) ON DELETE SET NULL,
+    topic_id TEXT REFERENCES topics(id) ON DELETE SET NULL,
     document_count INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_global_tags_name ON global_tags(name);
-CREATE INDEX idx_global_tags_group_id ON global_tags(group_id);
+CREATE INDEX idx_tags_name ON tags(name);
+CREATE INDEX idx_tags_topic_id ON tags(topic_id);
 
--- Tag group refresh log (optional bookkeeping for grouping runs)
-CREATE TABLE IF NOT EXISTS tag_group_refresh_log (
+-- Topic regroup bookkeeping (optional)
+CREATE TABLE IF NOT EXISTS topic_regroup_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     tag_count_before INTEGER,
     tag_count_after INTEGER,
@@ -338,33 +338,30 @@ ALTER TABLE summaries ADD CONSTRAINT summaries_tier_check
 -- Update existing paragraph/topic entries to chapter
 UPDATE summaries SET tier = 'chapter' WHERE tier IN ('paragraph', 'topic');
 
--- Tag groups table (Level 1 categories)
-CREATE TABLE IF NOT EXISTS tag_groups (
+CREATE TABLE IF NOT EXISTS topics (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(200) NOT NULL UNIQUE,
     description TEXT,
-    tags TEXT[],
+    tag_names TEXT[],
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_tag_groups_name ON tag_groups(name);
+CREATE INDEX idx_topics_name ON topics(name);
 
--- Global tags table (Level 2 tags)
-CREATE TABLE IF NOT EXISTS global_tags (
+CREATE TABLE IF NOT EXISTS tags (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name VARCHAR(100) NOT NULL UNIQUE,
-    group_id UUID REFERENCES tag_groups(id) ON DELETE SET NULL,
+    topic_id UUID REFERENCES topics(id) ON DELETE SET NULL,
     document_count INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_global_tags_name ON global_tags(name);
-CREATE INDEX idx_global_tags_group_id ON global_tags(group_id);
+CREATE INDEX idx_tags_name ON tags(name);
+CREATE INDEX idx_tags_topic_id ON tags(topic_id);
 
--- Tag group refresh log
-CREATE TABLE IF NOT EXISTS tag_group_refresh_log (
+CREATE TABLE IF NOT EXISTS topic_regroup_log (
     id SERIAL PRIMARY KEY,
     tag_count_before INTEGER,
     tag_count_after INTEGER,
@@ -373,14 +370,13 @@ CREATE TABLE IF NOT EXISTS tag_group_refresh_log (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
--- Triggers for updated_at
-CREATE TRIGGER update_tag_groups_updated_at
-    BEFORE UPDATE ON tag_groups
+CREATE TRIGGER update_topics_updated_at
+    BEFORE UPDATE ON topics
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 
-CREATE TRIGGER update_global_tags_updated_at
-    BEFORE UPDATE ON global_tags
+CREATE TRIGGER update_tags_updated_at
+    BEFORE UPDATE ON tags
     FOR EACH ROW
     EXECUTE FUNCTION update_updated_at_column();
 `

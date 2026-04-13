@@ -24,12 +24,12 @@ func parseCommaSeparated(s string) []string {
 	return out
 }
 
-// ListTags handles GET /tags with optional group_ids and max_results.
+// ListTags handles GET /tags with optional topic_ids and max_results.
 func (h *Handler) ListTags(c *gin.Context) {
 	ctx := c.Request.Context()
-	groupIDs := parseCommaSeparated(c.Query("group_ids"))
+	topicIDs := parseCommaSeparated(c.Query("topic_ids"))
 	maxRaw := strings.TrimSpace(c.Query(maxResultsQueryParam))
-	status, body := h.ExecuteListTags(ctx, groupIDs, maxRaw)
+	status, body := h.ExecuteListTags(ctx, topicIDs, maxRaw)
 	c.JSON(status, body)
 }
 

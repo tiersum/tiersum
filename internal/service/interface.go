@@ -45,7 +45,7 @@ type IHotIngestProcessor interface {
 // IRetrievalService exposes read operations used only by the HTTP/MCP API layer.
 // It composes storage so handlers do not depend on repository or cold-index interfaces.
 type IRetrievalService interface {
-	ListTags(ctx context.Context, groupIDs []string, byGroupLimit int, listAllCap int) ([]types.Tag, error)
+	ListTags(ctx context.Context, topicIDs []string, byTopicLimit int, listAllCap int) ([]types.Tag, error)
 	ListSummariesForDocument(ctx context.Context, documentID string) ([]types.Summary, error)
 	ListChapterSummariesForDocument(ctx context.Context, documentID string) ([]types.Summary, error)
 	// MarkdownChaptersForDocument returns markdown-split sections for detail UI when DB chapter summaries are absent.
@@ -62,19 +62,13 @@ type IRetrievalService interface {
 	ColdIndexInvertedStats() storage.ColdIndexInvertedStats
 }
 
-// ITagGroupService defines tag grouping business logic
-type ITagGroupService interface {
-	// GroupTags performs LLM-based grouping of all global tags
-	// Creates Level 1 groups from Level 2 tags
-	GroupTags(ctx context.Context) error
-	// ShouldRefresh checks if grouping should be performed based on tag count change
+// ITopicService runs LLM regrouping of catalog tags into themes (topics) and related reads.
+type ITopicService interface {
+	RegroupTags(ctx context.Context) error
 	ShouldRefresh(ctx context.Context) (bool, error)
-	// GetL1Groups retrieves all Level 1 groups
-	GetL1Groups(ctx context.Context) ([]types.TagGroup, error)
-	// GetL2TagsByGroup retrieves Level 2 tags belonging to a group
-	GetL2TagsByGroup(ctx context.Context, groupID string) ([]types.Tag, error)
-	// FilterL2TagsByQuery uses LLM to filter L2 tags based on query
-	FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error)
+	ListTopics(ctx context.Context) ([]types.Topic, error)
+	ListTagsByTopic(ctx context.Context, topicID string) ([]types.Tag, error)
+	FilterTagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error)
 }
 
 // IIndexer defines document indexing logic

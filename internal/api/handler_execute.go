@@ -170,40 +170,40 @@ func (h *Handler) ExecuteProgressiveQuery(ctx context.Context, req types.Progres
 	return http.StatusOK, response
 }
 
-// ExecuteListTagGroups matches GET /api/v1/tags/groups.
-func (h *Handler) ExecuteListTagGroups(ctx context.Context) (int, any) {
-	if h.TagGroupService == nil {
-		return http.StatusServiceUnavailable, gin.H{"error": "tag grouping service not available"}
+// ExecuteListTopics matches GET /api/v1/topics.
+func (h *Handler) ExecuteListTopics(ctx context.Context) (int, any) {
+	if h.TopicService == nil {
+		return http.StatusServiceUnavailable, gin.H{"error": "topic service not available"}
 	}
-	groups, err := h.TagGroupService.GetL1Groups(ctx)
+	topics, err := h.TopicService.ListTopics(ctx)
 	if err != nil {
-		h.Logger.Error("failed to list tag groups", zap.Error(err))
+		h.Logger.Error("failed to list topics", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": err.Error()}
 	}
-	if groups == nil {
-		groups = []types.TagGroup{}
+	if topics == nil {
+		topics = []types.Topic{}
 	}
-	return http.StatusOK, gin.H{"groups": groups}
+	return http.StatusOK, gin.H{"topics": topics}
 }
 
-// ExecuteTriggerTagGroup matches POST /api/v1/tags/group.
-func (h *Handler) ExecuteTriggerTagGroup(ctx context.Context) (int, any) {
-	if h.TagGroupService == nil {
-		return http.StatusServiceUnavailable, gin.H{"error": "tag grouping service not available"}
+// ExecuteTriggerTopicRegroup matches POST /api/v1/topics/regroup.
+func (h *Handler) ExecuteTriggerTopicRegroup(ctx context.Context) (int, any) {
+	if h.TopicService == nil {
+		return http.StatusServiceUnavailable, gin.H{"error": "topic service not available"}
 	}
-	if err := h.TagGroupService.GroupTags(ctx); err != nil {
-		h.Logger.Error("failed to group tags", zap.Error(err))
+	if err := h.TopicService.RegroupTags(ctx); err != nil {
+		h.Logger.Error("failed to regroup tags into topics", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": err.Error()}
 	}
-	return http.StatusOK, gin.H{"message": "tag grouping triggered"}
+	return http.StatusOK, gin.H{"message": "topic regrouping completed"}
 }
 
-// ExecuteListTags matches GET /api/v1/tags (group_ids optional; max_results optional string like the query param).
-func (h *Handler) ExecuteListTags(ctx context.Context, groupIDs []string, maxResultsQuery string) (int, any) {
-	byGroupLimit := 0
+// ExecuteListTags matches GET /api/v1/tags (topic_ids optional; max_results optional string like the query param).
+func (h *Handler) ExecuteListTags(ctx context.Context, topicIDs []string, maxResultsQuery string) (int, any) {
+	byTopicLimit := 0
 	listAllCap := 0
-	if len(groupIDs) > 0 {
-		byGroupLimit = parseMaxResultsFromString(maxResultsQuery, 100, 10000)
+	if len(topicIDs) > 0 {
+		byTopicLimit = parseMaxResultsFromString(maxResultsQuery, 100, 10000)
 	} else {
 		if raw := strings.TrimSpace(maxResultsQuery); raw != "" {
 			if capN, e := strconv.Atoi(raw); e == nil && capN > 0 {
@@ -214,7 +214,7 @@ func (h *Handler) ExecuteListTags(ctx context.Context, groupIDs []string, maxRes
 			}
 		}
 	}
-	tags, err := h.Retrieval.ListTags(ctx, groupIDs, byGroupLimit, listAllCap)
+	tags, err := h.Retrieval.ListTags(ctx, topicIDs, byTopicLimit, listAllCap)
 	if err != nil {
 		h.Logger.Error("failed to list tags", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": err.Error()}

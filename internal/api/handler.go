@@ -22,13 +22,13 @@ type QuotaSnapshot interface {
 
 // Handler holds API dependencies
 type Handler struct {
-	DocService      service.IDocumentService
-	QueryService    service.IQueryService
-	TagGroupService service.ITagGroupService
-	Retrieval       service.IRetrievalService
-	Quota           QuotaSnapshot
-	OtelSpans       storage.IOtelSpanRepository
-	Logger          *zap.Logger
+	DocService   service.IDocumentService
+	QueryService service.IQueryService
+	TopicService service.ITopicService
+	Retrieval    service.IRetrievalService
+	Quota        QuotaSnapshot
+	OtelSpans    storage.IOtelSpanRepository
+	Logger       *zap.Logger
 	// ServerVersion is the release/build label (e.g. from main.Version ldflags). Empty uses moduleVersion().
 	ServerVersion string
 }
@@ -37,7 +37,7 @@ type Handler struct {
 func NewHandler(
 	docService service.IDocumentService,
 	queryService service.IQueryService,
-	tagGroupService service.ITagGroupService,
+	topicService service.ITopicService,
 	retrieval service.IRetrievalService,
 	quota QuotaSnapshot,
 	otelSpans storage.IOtelSpanRepository,
@@ -45,14 +45,14 @@ func NewHandler(
 	serverVersion string,
 ) *Handler {
 	return &Handler{
-		DocService:      docService,
-		QueryService:    queryService,
-		TagGroupService: tagGroupService,
-		Retrieval:       retrieval,
-		Quota:           quota,
-		OtelSpans:       otelSpans,
-		Logger:          logger,
-		ServerVersion:   strings.TrimSpace(serverVersion),
+		DocService:    docService,
+		QueryService:  queryService,
+		TopicService:  topicService,
+		Retrieval:     retrieval,
+		Quota:         quota,
+		OtelSpans:     otelSpans,
+		Logger:        logger,
+		ServerVersion: strings.TrimSpace(serverVersion),
 	}
 }
 
@@ -71,7 +71,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup, traceMiddleware gin.Ha
 
 	// Simple list reads
 	router.GET("/tags", h.ListTags)
-	router.GET("/tags/groups", h.ListTagGroups)
+	router.GET("/topics", h.ListTopics)
 	router.GET("/documents/:id/summaries", h.GetDocumentSummaries)
 	router.GET("/quota", h.GetQuota)
 	router.GET("/monitoring", h.GetMonitoring)
@@ -84,7 +84,7 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup, traceMiddleware gin.Ha
 	}
 
 	core.POST("/query/progressive", h.ProgressiveQuery)
-	core.POST("/tags/group", h.TriggerTagGroup)
+	core.POST("/topics/regroup", h.TriggerTopicRegroup)
 	hot := core.Group("/hot")
 	{
 		hot.GET("/doc_summaries", h.HotDocSummaries)
@@ -141,15 +141,15 @@ func (h *Handler) ProgressiveQuery(c *gin.Context) {
 	c.JSON(status, body)
 }
 
-// ListTagGroups lists all tag groups (Level 1 categories)
-func (h *Handler) ListTagGroups(c *gin.Context) {
-	status, body := h.ExecuteListTagGroups(c.Request.Context())
+// ListTopics lists all topics (themes).
+func (h *Handler) ListTopics(c *gin.Context) {
+	status, body := h.ExecuteListTopics(c.Request.Context())
 	c.JSON(status, body)
 }
 
-// TriggerTagGroup manually triggers tag grouping
-func (h *Handler) TriggerTagGroup(c *gin.Context) {
-	status, body := h.ExecuteTriggerTagGroup(c.Request.Context())
+// TriggerTopicRegroup runs LLM regrouping of catalog tags into topics.
+func (h *Handler) TriggerTopicRegroup(c *gin.Context) {
+	status, body := h.ExecuteTriggerTopicRegroup(c.Request.Context())
 	c.JSON(status, body)
 }
 

@@ -353,7 +353,7 @@ func (m *MockTagRepository) List(ctx context.Context) ([]types.Tag, error) {
 	return result, nil
 }
 
-func (m *MockTagRepository) ListByGroup(ctx context.Context, groupID string) ([]types.Tag, error) {
+func (m *MockTagRepository) ListByTopic(ctx context.Context, topicID string) ([]types.Tag, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -361,26 +361,26 @@ func (m *MockTagRepository) ListByGroup(ctx context.Context, groupID string) ([]
 	defer m.mu.RUnlock()
 	var result []types.Tag
 	for _, tag := range m.tags {
-		if tag.GroupID == groupID {
+		if tag.TopicID == topicID {
 			result = append(result, *tag)
 		}
 	}
 	return result, nil
 }
 
-func (m *MockTagRepository) ListByGroupIDs(ctx context.Context, groupIDs []string, limit int) ([]types.Tag, error) {
+func (m *MockTagRepository) ListByTopicIDs(ctx context.Context, topicIDs []string, limit int) ([]types.Tag, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	want := make(map[string]struct{}, len(groupIDs))
-	for _, id := range groupIDs {
+	want := make(map[string]struct{}, len(topicIDs))
+	for _, id := range topicIDs {
 		want[id] = struct{}{}
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	var result []types.Tag
 	for _, tag := range m.tags {
-		if _, ok := want[tag.GroupID]; ok {
+		if _, ok := want[tag.TopicID]; ok {
 			result = append(result, *tag)
 			if limit > 0 && len(result) >= limit {
 				break
@@ -421,78 +421,78 @@ func (m *MockTagRepository) GetCount(ctx context.Context) (int, error) {
 	return len(m.tags), nil
 }
 
-// MockTagGroupRepository is a mock implementation of storage.ITagGroupRepository
-type MockTagGroupRepository struct {
+// MockTopicRepository is a mock implementation of storage.ITopicRepository
+type MockTopicRepository struct {
 	mu     sync.RWMutex
-	groups map[string]*types.TagGroup
+	topics map[string]*types.Topic
 	err    error
 }
 
-func NewMockTagGroupRepository() *MockTagGroupRepository {
-	return &MockTagGroupRepository{
-		groups: make(map[string]*types.TagGroup),
+func NewMockTopicRepository() *MockTopicRepository {
+	return &MockTopicRepository{
+		topics: make(map[string]*types.Topic),
 	}
 }
 
-func (m *MockTagGroupRepository) SetError(err error) {
+func (m *MockTopicRepository) SetError(err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.err = err
 }
 
-func (m *MockTagGroupRepository) Create(ctx context.Context, group *types.TagGroup) error {
+func (m *MockTopicRepository) Create(ctx context.Context, topic *types.Topic) error {
 	if m.err != nil {
 		return m.err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	key := group.ID
+	key := topic.ID
 	if key == "" {
-		key = group.Name
+		key = topic.Name
 	}
-	m.groups[key] = group
+	m.topics[key] = topic
 	return nil
 }
 
-func (m *MockTagGroupRepository) GetByID(ctx context.Context, id string) (*types.TagGroup, error) {
+func (m *MockTopicRepository) GetByID(ctx context.Context, id string) (*types.Topic, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.groups[id], nil
+	return m.topics[id], nil
 }
 
-func (m *MockTagGroupRepository) List(ctx context.Context) ([]types.TagGroup, error) {
+func (m *MockTopicRepository) List(ctx context.Context) ([]types.Topic, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	var result []types.TagGroup
-	for _, g := range m.groups {
+	var result []types.Topic
+	for _, g := range m.topics {
 		result = append(result, *g)
 	}
 	return result, nil
 }
 
-func (m *MockTagGroupRepository) DeleteAll(ctx context.Context) error {
+func (m *MockTopicRepository) DeleteAll(ctx context.Context) error {
 	if m.err != nil {
 		return m.err
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.groups = make(map[string]*types.TagGroup)
+	m.topics = make(map[string]*types.Topic)
 	return nil
 }
 
-func (m *MockTagGroupRepository) GetCount(ctx context.Context) (int, error) {
+func (m *MockTopicRepository) GetCount(ctx context.Context) (int, error) {
 	if m.err != nil {
 		return 0, m.err
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return len(m.groups), nil
+	return len(m.topics), nil
 }
 
 // MockColdIndex is a mock implementation of storage.IColdIndex
@@ -761,8 +761,8 @@ func (m *MockSummarizer) FilterChapters(ctx context.Context, query string, chapt
 	return results, nil
 }
 
-// FilterL2TagsByQuery implements the extended interface for tag filtering
-func (m *MockSummarizer) FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
+// FilterTagsByQuery implements the extended interface for tag filtering.
+func (m *MockSummarizer) FilterTagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -781,13 +781,13 @@ func (m *MockSummarizer) FilterL2TagsByQuery(ctx context.Context, query string, 
 	return results, nil
 }
 
-// FilterL1GroupsByQuery implements the extended interface for group filtering
-func (m *MockSummarizer) FilterL1GroupsByQuery(ctx context.Context, query string, groups []types.TagGroup) ([]types.LLMFilterResult, error) {
+// FilterTopicsByQuery implements the extended interface for topic filtering.
+func (m *MockSummarizer) FilterTopicsByQuery(ctx context.Context, query string, topics []types.Topic) ([]types.LLMFilterResult, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	results := make([]types.LLMFilterResult, 0)
-	for _, g := range groups {
+	for _, g := range topics {
 		results = append(results, types.LLMFilterResult{
 			ID:        g.ID,
 			Relevance: 0.85,

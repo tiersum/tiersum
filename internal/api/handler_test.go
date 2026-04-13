@@ -121,31 +121,31 @@ func (m *mockQueryService) ProgressiveQuery(ctx context.Context, req types.Progr
 	}, nil
 }
 
-type mockTagGroupService struct {
-	groups []types.TagGroup
+type mockTopicService struct {
+	topics []types.Topic
 	err    error
 }
 
-func (m *mockTagGroupService) GroupTags(ctx context.Context) error {
+func (m *mockTopicService) RegroupTags(ctx context.Context) error {
 	return m.err
 }
 
-func (m *mockTagGroupService) ShouldRefresh(ctx context.Context) (bool, error) {
+func (m *mockTopicService) ShouldRefresh(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-func (m *mockTagGroupService) GetL1Groups(ctx context.Context) ([]types.TagGroup, error) {
+func (m *mockTopicService) ListTopics(ctx context.Context) ([]types.Topic, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	return m.groups, nil
+	return m.topics, nil
 }
 
-func (m *mockTagGroupService) GetL2TagsByGroup(ctx context.Context, groupID string) ([]types.Tag, error) {
+func (m *mockTopicService) ListTagsByTopic(ctx context.Context, topicID string) ([]types.Tag, error) {
 	return nil, nil
 }
 
-func (m *mockTagGroupService) FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
+func (m *mockTopicService) FilterTagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
 	return nil, nil
 }
 
@@ -153,7 +153,7 @@ type mockRetrieval struct {
 	err error
 }
 
-func (m *mockRetrieval) ListTags(ctx context.Context, groupIDs []string, byGroupLimit int, listAllCap int) ([]types.Tag, error) {
+func (m *mockRetrieval) ListTags(ctx context.Context, topicIDs []string, byTopicLimit int, listAllCap int) ([]types.Tag, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -218,14 +218,14 @@ func setupTestHandler() (*Handler, *gin.Engine) {
 	router := gin.New()
 
 	handler := &Handler{
-		DocService:      newMockDocService(),
-		QueryService:    &mockQueryService{},
-		TagGroupService: &mockTagGroupService{},
-		Retrieval:       &mockRetrieval{},
-		Quota:           nil,
-		OtelSpans:       nil,
-		Logger:          zap.NewNop(),
-		ServerVersion:   "test",
+		DocService:    newMockDocService(),
+		QueryService:  &mockQueryService{},
+		TopicService:  &mockTopicService{},
+		Retrieval:     &mockRetrieval{},
+		Quota:         nil,
+		OtelSpans:     nil,
+		Logger:        zap.NewNop(),
+		ServerVersion: "test",
 	}
 
 	api := router.Group("/api/v1")
@@ -379,11 +379,11 @@ func TestGetDocument(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
-func TestListTagGroups(t *testing.T) {
+func TestListTopics(t *testing.T) {
 	_, router := setupTestHandler()
 
 	w := httptest.NewRecorder()
-	httpReq, _ := http.NewRequest("GET", "/api/v1/tags/groups", nil)
+	httpReq, _ := http.NewRequest("GET", "/api/v1/topics", nil)
 
 	router.ServeHTTP(w, httpReq)
 

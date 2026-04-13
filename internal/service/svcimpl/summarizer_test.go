@@ -202,13 +202,13 @@ func TestSummarizerSvc_FilterChapters_Empty(t *testing.T) {
 	assert.Nil(t, results)
 }
 
-func TestSummarizerSvc_FilterL1GroupsByQuery(t *testing.T) {
+func TestSummarizerSvc_FilterTopicsByQuery(t *testing.T) {
 	ctx := context.Background()
 	provider := NewMockLLMProvider()
 
 	summarizer := NewSummarizerSvc(provider, testLogger())
 
-	groups := []types.TagGroup{
+	groups := []types.Topic{
 		{ID: "group1", Name: "Programming Languages", Description: "Programming languages"},
 		{ID: "group2", Name: "Databases", Description: "Database systems"},
 	}
@@ -218,43 +218,43 @@ func TestSummarizerSvc_FilterL1GroupsByQuery(t *testing.T) {
 		{"id": "group1", "relevance": 0.95}
 	]`)
 
-	results, err := summarizer.FilterL1GroupsByQuery(ctx, "programming", groups)
+	results, err := summarizer.FilterTopicsByQuery(ctx, "programming", groups)
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.Equal(t, "group1", results[0].ID)
 }
 
-func TestSummarizerSvc_FilterL1GroupsByQuery_Empty(t *testing.T) {
+func TestSummarizerSvc_FilterTopicsByQuery_Empty(t *testing.T) {
 	ctx := context.Background()
 	provider := NewMockLLMProvider()
 
 	summarizer := NewSummarizerSvc(provider, testLogger())
 
-	results, err := summarizer.FilterL1GroupsByQuery(ctx, "query", nil)
+	results, err := summarizer.FilterTopicsByQuery(ctx, "query", nil)
 	require.NoError(t, err)
 	assert.Nil(t, results)
 }
 
-func TestSummarizerSvc_FilterL1GroupsByQuery_LLMError(t *testing.T) {
+func TestSummarizerSvc_FilterTopicsByQuery_LLMError(t *testing.T) {
 	ctx := context.Background()
 	provider := NewMockLLMProvider()
 
 	summarizer := NewSummarizerSvc(provider, testLogger())
 
-	groups := []types.TagGroup{
+	groups := []types.Topic{
 		{ID: "group1", Name: "Languages"},
 	}
 
 	// Set error - should fallback
 	provider.SetError(errors.New("llm error"))
 
-	results, err := summarizer.FilterL1GroupsByQuery(ctx, "query", groups)
+	results, err := summarizer.FilterTopicsByQuery(ctx, "query", groups)
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.Equal(t, 0.5, results[0].Relevance)
 }
 
-func TestSummarizerSvc_FilterL2TagsByQuery(t *testing.T) {
+func TestSummarizerSvc_FilterTagsByQuery(t *testing.T) {
 	ctx := context.Background()
 	provider := NewMockLLMProvider()
 
@@ -271,19 +271,19 @@ func TestSummarizerSvc_FilterL2TagsByQuery(t *testing.T) {
 		{"tag": "python", "relevance": 0.7}
 	]`)
 
-	results, err := summarizer.FilterL2TagsByQuery(ctx, "programming", tags)
+	results, err := summarizer.FilterTagsByQuery(ctx, "programming", tags)
 	require.NoError(t, err)
 	assert.Len(t, results, 2)
 	assert.Equal(t, "golang", results[0].Tag)
 }
 
-func TestSummarizerSvc_FilterL2TagsByQuery_Empty(t *testing.T) {
+func TestSummarizerSvc_FilterTagsByQuery_Empty(t *testing.T) {
 	ctx := context.Background()
 	provider := NewMockLLMProvider()
 
 	summarizer := NewSummarizerSvc(provider, testLogger())
 
-	results, err := summarizer.FilterL2TagsByQuery(ctx, "query", nil)
+	results, err := summarizer.FilterTagsByQuery(ctx, "query", nil)
 	require.NoError(t, err)
 	assert.Nil(t, results)
 }
@@ -293,15 +293,15 @@ func TestSummarizerSvc_extractChapters(t *testing.T) {
 	summarizer := NewSummarizerSvc(provider, testLogger())
 
 	tests := []struct {
-		name     string
-		content  string
-		expected int
+		name       string
+		content    string
+		expected   int
 		firstTitle string
 	}{
 		{
-			name:     "no headings",
-			content:  "Just some plain text without any headings",
-			expected: 1,
+			name:       "no headings",
+			content:    "Just some plain text without any headings",
+			expected:   1,
 			firstTitle: "Content",
 		},
 		{
@@ -309,7 +309,7 @@ func TestSummarizerSvc_extractChapters(t *testing.T) {
 			content: `# Main Title
 
 This is the content`,
-			expected: 1,
+			expected:   1,
 			firstTitle: "Main Title",
 		},
 		{
@@ -325,7 +325,7 @@ Chapter 1 content
 ## Chapter 2
 
 Chapter 2 content`,
-			expected: 3,
+			expected:   3,
 			firstTitle: "Title",
 		},
 		{
@@ -341,7 +341,7 @@ More content
 ### Level 3
 
 Even more`,
-			expected: 3,
+			expected:   3,
 			firstTitle: "Level 1",
 		},
 	}
@@ -502,16 +502,16 @@ func TestSummarizerSvc_fallbackFilterChapters(t *testing.T) {
 	}
 }
 
-func TestSummarizerSvc_fallbackFilterGroups(t *testing.T) {
+func TestSummarizerSvc_fallbackFilterTopics(t *testing.T) {
 	provider := NewMockLLMProvider()
 	summarizer := NewSummarizerSvc(provider, testLogger())
 
-	groups := []types.TagGroup{
+	groups := []types.Topic{
 		{ID: "group1", Name: "Languages"},
 		{ID: "group2", Name: "Databases"},
 	}
 
-	results := summarizer.fallbackFilterGroups(groups)
+	results := summarizer.fallbackFilterTopics(groups)
 
 	assert.Len(t, results, 2)
 	for _, r := range results {
@@ -572,28 +572,28 @@ func TestSummarizerSvc_fallbackTagFilter(t *testing.T) {
 
 func TestTruncateString(t *testing.T) {
 	tests := []struct {
-		input   string
-		maxLen  int
+		input    string
+		maxLen   int
 		expected string
 	}{
 		{
-			input:   "short",
-			maxLen:  100,
+			input:    "short",
+			maxLen:   100,
 			expected: "short",
 		},
 		{
-			input:   makeString(200),
-			maxLen:  100,
+			input:    makeString(200),
+			maxLen:   100,
 			expected: makeString(100) + "...",
 		},
 		{
-			input:   "exact",
-			maxLen:  5,
+			input:    "exact",
+			maxLen:   5,
 			expected: "exact",
 		},
 		{
-			input:   "",
-			maxLen:  10,
+			input:    "",
+			maxLen:   10,
 			expected: "",
 		},
 	}

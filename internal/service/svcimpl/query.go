@@ -23,17 +23,17 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-// L2TagThreshold is the threshold for adaptive L1/L2 filtering
-// If L2 tag count < threshold: directly filter all L2 tags with LLM (skip L1)
-// If L2 tag count >= threshold: use L1 -> L2 two-level filtering
-const L2TagThreshold = 200
+// CatalogTagThreshold controls adaptive topic→tag filtering for progressive query.
+// Below threshold: LLM filters all catalog tags directly (skip topics).
+// At or above: LLM picks topics first, then filters tags within those topics.
+const CatalogTagThreshold = 200
 
 // QuerySvc implements service.IQueryService
 type QuerySvc struct {
 	docRepo     storage.IDocumentRepository
 	summaryRepo storage.ISummaryRepository
 	tagRepo     storage.ITagRepository
-	groupRepo   storage.ITagGroupRepository
+	topicRepo   storage.ITopicRepository
 	summarizer  service.ISummarizer
 	coldIndex   storage.IColdIndex
 	llm         client.ILLMProvider
@@ -45,7 +45,7 @@ func NewQuerySvc(
 	docRepo storage.IDocumentRepository,
 	summaryRepo storage.ISummaryRepository,
 	tagRepo storage.ITagRepository,
-	groupRepo storage.ITagGroupRepository,
+	topicRepo storage.ITopicRepository,
 	summarizer service.ISummarizer,
 	coldIndex storage.IColdIndex,
 	llm client.ILLMProvider,
@@ -55,7 +55,7 @@ func NewQuerySvc(
 		docRepo:     docRepo,
 		summaryRepo: summaryRepo,
 		tagRepo:     tagRepo,
-		groupRepo:   groupRepo,
+		topicRepo:   topicRepo,
 		summarizer:  summarizer,
 		coldIndex:   coldIndex,
 		llm:         llm,
@@ -63,9 +63,9 @@ func NewQuerySvc(
 	}
 }
 
-// ProgressiveQuery implements the two-level tag-based progressive query
-// 1 Query L1 tag groups + keyword -> LLM filter -> L2 tags
-// 2 L2 tags -> query top 100 doc summaries -> LLM filter -> docs
+// ProgressiveQuery implements topic- and tag-based progressive retrieval.
+// 1 Topics (optional) + keyword -> LLM filter -> catalog tags
+// 2 Tags -> query doc summaries -> LLM filter -> docs
 // 3 Docs -> query chapter summaries -> LLM filter -> chapters
 // 4 Chapters -> query source content
 // 5 Cold docs -> BM25 + vector search (parallel with hot path)
@@ -207,37 +207,37 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 	start := time.Now()
 	var steps []types.ProgressiveQueryStep
 
-	// Step 1: Get L1 tag groups and filter to get relevant L2 tags
+	// Step 1: Filter catalog tags for the question (optionally via topics).
 	step1Start := time.Now()
-	var l2Tags []string
-	err := withOptionalSpan(ctx, "filter_l2_tags", func(c context.Context, sp trace.Span) error {
+	var tagNames []string
+	err := withOptionalSpan(ctx, "filter_tags", func(c context.Context, sp trace.Span) error {
 		var e error
-		l2Tags, e = s.filterL2Tags(c, req.Question)
+		tagNames, e = s.filterCatalogTags(c, req.Question)
 		if sp != nil && e == nil {
 			sp.SetAttributes(
 				attribute.String("tier.request.question", truncateTraceStr(req.Question, traceMaxReqBytes)),
-				attribute.Int("tier.response.l2_tags_count", len(l2Tags)),
+				attribute.Int("tier.response.tags_count", len(tagNames)),
 			)
 		}
 		return e
 	})
 	if err != nil {
-		s.logger.Error("failed to filter L2 tags", zap.Error(err))
-		return nil, nil, fmt.Errorf("filter L2 tags: %w", err)
+		s.logger.Error("failed to filter catalog tags", zap.Error(err))
+		return nil, nil, fmt.Errorf("filter catalog tags: %w", err)
 	}
 	steps = append(steps, types.ProgressiveQueryStep{
-		Step:     "L2_tags",
+		Step:     "tags",
 		Input:    req.Question,
-		Output:   l2Tags,
+		Output:   tagNames,
 		Duration: time.Since(step1Start).Milliseconds(),
 	})
 
-	// Step 2: Query documents by L2 tags and filter
+	// Step 2: Query documents by tags and filter
 	step2Start := time.Now()
 	var docs []types.Document
 	err = withOptionalSpan(ctx, "query_and_filter_documents", func(c context.Context, sp trace.Span) error {
 		var e error
-		docs, e = s.queryAndFilterDocuments(c, req.Question, l2Tags, req.MaxResults)
+		docs, e = s.queryAndFilterDocuments(c, req.Question, tagNames, req.MaxResults)
 		if sp != nil && e == nil {
 			sp.SetAttributes(
 				attribute.String("tier.request.question", truncateTraceStr(req.Question, traceMaxReqBytes)),
@@ -253,7 +253,7 @@ func (s *QuerySvc) queryHotPath(ctx context.Context, req types.ProgressiveQueryR
 	}
 	steps = append(steps, types.ProgressiveQueryStep{
 		Step:     "documents",
-		Input:    l2Tags,
+		Input:    tagNames,
 		Output:   len(docs),
 		Duration: time.Since(step2Start).Milliseconds(),
 	})
@@ -449,169 +449,144 @@ func (s *QuerySvc) trackDocumentAccess(ctx context.Context, docs []types.Documen
 	}
 }
 
-// filterL2Tags gets all L2 tags and filters them by query using LLM
-// Implements adaptive two-level filtering:
-// - If L2 tag count < L2TagThreshold: directly filter all L2 tags with LLM (skip L1)
-// - If L2 tag count >= L2TagThreshold: use L1 -> L2 two-level filtering
-func (s *QuerySvc) filterL2Tags(ctx context.Context, query string) ([]string, error) {
-	// Get all global tags (L2 tags)
+// filterCatalogTags lists catalog tags and filters them for the query (adaptive topic narrowing).
+func (s *QuerySvc) filterCatalogTags(ctx context.Context, query string) ([]string, error) {
 	allTags, err := s.tagRepo.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list global tags: %w", err)
+		return nil, fmt.Errorf("list catalog tags: %w", err)
 	}
 
 	if len(allTags) == 0 {
 		return nil, nil
 	}
 
-	// Adaptive filtering based on tag count
-	if len(allTags) < L2TagThreshold {
-		// Direct L2 filtering: skip L1, filter all L2 tags directly
-		s.logger.Info("adaptive filtering: direct L2 filter (tag count below threshold)",
+	if len(allTags) < CatalogTagThreshold {
+		s.logger.Info("adaptive filtering: direct tag filter (count below threshold)",
 			zap.Int("tag_count", len(allTags)),
-			zap.Int("threshold", L2TagThreshold))
-		return s.filterL2TagsDirect(ctx, query, allTags)
+			zap.Int("threshold", CatalogTagThreshold))
+		return s.filterTagsDirect(ctx, query, allTags)
 	}
 
-	// Two-level filtering: L1 -> L2
-	s.logger.Info("adaptive filtering: L1 -> L2 two-level filter (tag count above threshold)",
+	s.logger.Info("adaptive filtering: topic then tag filter (count at or above threshold)",
 		zap.Int("tag_count", len(allTags)),
-		zap.Int("threshold", L2TagThreshold))
-	return s.filterL2TagsTwoLevel(ctx, query)
+		zap.Int("threshold", CatalogTagThreshold))
+	return s.filterTagsViaTopics(ctx, query)
 }
 
-// filterL2TagsDirect directly filters all L2 tags using LLM (skip L1)
-func (s *QuerySvc) filterL2TagsDirect(ctx context.Context, query string, tags []types.Tag) ([]string, error) {
-	// Try to filter using LLM via type assertion
+func (s *QuerySvc) filterTagsDirect(ctx context.Context, query string, tags []types.Tag) ([]string, error) {
 	type filterer interface {
-		FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error)
+		FilterTagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error)
 	}
 
 	f, ok := s.summarizer.(filterer)
 	if !ok {
-		s.logger.Warn("summarizer does not support FilterL2TagsByQuery, returning all tags")
+		s.logger.Warn("summarizer does not support FilterTagsByQuery, returning all tags")
 		return s.extractTagNames(tags), nil
 	}
 
-	filterResults, err := f.FilterL2TagsByQuery(ctx, query, tags)
+	filterResults, err := f.FilterTagsByQuery(ctx, query, tags)
 	if err != nil {
 		s.logger.Warn("LLM tag filter failed, using all tags", zap.Error(err))
 		return s.extractTagNames(tags), nil
 	}
 
-	// Extract tag names from filter results
 	return s.extractRelevantTags(filterResults), nil
 }
 
-// filterL2TagsTwoLevel performs L1 -> L2 two-level filtering
-// 1. Select 1-3 relevant L1 groups using LLM
-// 2. Collect all L2 tags from selected groups
-// 3. Filter those L2 tags with LLM
-func (s *QuerySvc) filterL2TagsTwoLevel(ctx context.Context, query string) ([]string, error) {
-	// Step 1: Get all L1 groups and filter to select 1-3 most relevant
-	selectedGroups, err := s.filterL1Groups(ctx, query)
+func (s *QuerySvc) filterTagsViaTopics(ctx context.Context, query string) ([]string, error) {
+	selectedTopics, err := s.filterTopics(ctx, query)
 	if err != nil {
-		s.logger.Warn("L1 group filter failed, falling back to direct L2 filter", zap.Error(err))
-		// Fallback: get all tags and filter directly
+		s.logger.Warn("topic filter failed, falling back to direct tag filter", zap.Error(err))
 		allTags, _ := s.tagRepo.List(ctx)
-		return s.filterL2TagsDirect(ctx, query, allTags)
+		return s.filterTagsDirect(ctx, query, allTags)
 	}
 
-	if len(selectedGroups) == 0 {
-		s.logger.Warn("no L1 groups selected, falling back to direct L2 filter")
+	if len(selectedTopics) == 0 {
+		s.logger.Warn("no topics selected, falling back to direct tag filter")
 		allTags, _ := s.tagRepo.List(ctx)
-		return s.filterL2TagsDirect(ctx, query, allTags)
+		return s.filterTagsDirect(ctx, query, allTags)
 	}
 
-	s.logger.Info("L1 groups selected", zap.Int("count", len(selectedGroups)))
+	s.logger.Info("topics selected", zap.Int("count", len(selectedTopics)))
 
-	// Step 2: Get all L2 tags from selected groups
-	groupIDs := make([]string, len(selectedGroups))
-	for i, g := range selectedGroups {
-		groupIDs[i] = g.ID
+	topicIDs := make([]string, len(selectedTopics))
+	for i, g := range selectedTopics {
+		topicIDs[i] = g.ID
 	}
 
-	l2Tags, err := s.getL2TagsFromGroups(ctx, groupIDs)
+	tagsInTopics, err := s.getTagsFromTopics(ctx, topicIDs)
 	if err != nil {
-		s.logger.Warn("failed to get L2 tags from groups, falling back to direct L2 filter", zap.Error(err))
+		s.logger.Warn("failed to get tags from topics, falling back to direct tag filter", zap.Error(err))
 		allTags, _ := s.tagRepo.List(ctx)
-		return s.filterL2TagsDirect(ctx, query, allTags)
+		return s.filterTagsDirect(ctx, query, allTags)
 	}
 
-	if len(l2Tags) == 0 {
-		s.logger.Warn("no L2 tags found in selected groups, falling back to direct L2 filter")
+	if len(tagsInTopics) == 0 {
+		s.logger.Warn("no tags in selected topics, falling back to direct tag filter")
 		allTags, _ := s.tagRepo.List(ctx)
-		return s.filterL2TagsDirect(ctx, query, allTags)
+		return s.filterTagsDirect(ctx, query, allTags)
 	}
 
-	s.logger.Info("L2 tags collected from selected groups", zap.Int("count", len(l2Tags)))
+	s.logger.Info("tags collected from selected topics", zap.Int("count", len(tagsInTopics)))
 
-	// Step 3: Filter the collected L2 tags with LLM
-	return s.filterL2TagsDirect(ctx, query, l2Tags)
+	return s.filterTagsDirect(ctx, query, tagsInTopics)
 }
 
-// filterL1Groups uses LLM to select 1-3 most relevant tag groups (L1) for the query
-func (s *QuerySvc) filterL1Groups(ctx context.Context, query string) ([]types.TagGroup, error) {
-	// Get all L1 groups
-	groups, err := s.groupRepo.List(ctx)
+func (s *QuerySvc) filterTopics(ctx context.Context, query string) ([]types.Topic, error) {
+	topics, err := s.topicRepo.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list tag groups: %w", err)
+		return nil, fmt.Errorf("list topics: %w", err)
 	}
 
-	if len(groups) == 0 {
+	if len(topics) == 0 {
 		return nil, nil
 	}
 
-	// Try to use LLM to filter groups via type assertion
-	type groupFilterer interface {
-		FilterL1GroupsByQuery(ctx context.Context, query string, groups []types.TagGroup) ([]types.LLMFilterResult, error)
+	type topicFilterer interface {
+		FilterTopicsByQuery(ctx context.Context, query string, topics []types.Topic) ([]types.LLMFilterResult, error)
 	}
 
-	f, ok := s.summarizer.(groupFilterer)
+	f, ok := s.summarizer.(topicFilterer)
 	if !ok {
-		s.logger.Warn("summarizer does not support FilterL1GroupsByQuery, returning all groups")
-		return groups, nil
+		s.logger.Warn("summarizer does not support FilterTopicsByQuery, returning all topics")
+		return topics, nil
 	}
 
-	filterResults, err := f.FilterL1GroupsByQuery(ctx, query, groups)
+	filterResults, err := f.FilterTopicsByQuery(ctx, query, topics)
 	if err != nil {
-		s.logger.Warn("LLM group filter failed, returning all groups", zap.Error(err))
-		return groups, nil
+		s.logger.Warn("LLM topic filter failed, returning all topics", zap.Error(err))
+		return topics, nil
 	}
 
-	// Build group map for lookup
-	groupMap := make(map[string]types.TagGroup)
-	for _, g := range groups {
-		groupMap[g.ID] = g
+	topicMap := make(map[string]types.Topic)
+	for _, g := range topics {
+		topicMap[g.ID] = g
 	}
 
-	// Sort by relevance descending
 	sort.Slice(filterResults, func(i, j int) bool {
 		return filterResults[i].Relevance > filterResults[j].Relevance
 	})
 
-	// Select top 1-3 groups with relevance >= 0.5
-	var selectedGroups []types.TagGroup
+	var selected []types.Topic
 	for _, fr := range filterResults {
-		if fr.Relevance >= 0.5 && len(selectedGroups) < 3 {
-			if g, ok := groupMap[fr.ID]; ok {
-				selectedGroups = append(selectedGroups, g)
+		if fr.Relevance >= 0.5 && len(selected) < 3 {
+			if g, ok := topicMap[fr.ID]; ok {
+				selected = append(selected, g)
 			}
 		}
 	}
 
-	return selectedGroups, nil
+	return selected, nil
 }
 
-// getL2TagsFromGroups retrieves all L2 tags belonging to the given group IDs
-func (s *QuerySvc) getL2TagsFromGroups(ctx context.Context, groupIDs []string) ([]types.Tag, error) {
+func (s *QuerySvc) getTagsFromTopics(ctx context.Context, topicIDs []string) ([]types.Tag, error) {
 	var allTags []types.Tag
 	seenTags := make(map[string]bool)
 
-	for _, groupID := range groupIDs {
-		tags, err := s.tagRepo.ListByGroup(ctx, groupID)
+	for _, tid := range topicIDs {
+		tags, err := s.tagRepo.ListByTopic(ctx, tid)
 		if err != nil {
-			s.logger.Warn("failed to get tags by group", zap.String("group_id", groupID), zap.Error(err))
+			s.logger.Warn("failed to get tags by topic", zap.String("topic_id", tid), zap.Error(err))
 			continue
 		}
 
@@ -654,7 +629,7 @@ func (s *QuerySvc) queryAndFilterDocuments(ctx context.Context, query string, ta
 	var err error
 
 	if len(tags) == 0 {
-		// No L2 tag names after filtering (empty tag table, or LLM returned no tags above threshold).
+		// No tag names after filtering (empty catalog, or LLM returned no tags above threshold).
 		// Scope documents by listing up to limit; hot/cold paths still apply LLM or keyword filtering.
 		s.logger.Debug("progressive query: no tag filter results; listing documents as fallback",
 			zap.Int("limit", limit))

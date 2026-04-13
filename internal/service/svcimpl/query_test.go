@@ -24,7 +24,7 @@ func TestQuerySvc_ProgressiveQuery_EmptyTags(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -32,7 +32,7 @@ func TestQuerySvc_ProgressiveQuery_EmptyTags(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -56,7 +56,7 @@ func TestQuerySvc_ProgressiveQuery_WithHotDocs(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -64,7 +64,7 @@ func TestQuerySvc_ProgressiveQuery_WithHotDocs(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -72,7 +72,7 @@ func TestQuerySvc_ProgressiveQuery_WithHotDocs(t *testing.T) {
 	)
 
 	// Set up test data
-	tagRepo.Create(ctx, &types.Tag{ID: "tag1", Name: "golang", GroupID: "group1"})
+	tagRepo.Create(ctx, &types.Tag{ID: "tag1", Name: "golang", TopicID: "group1"})
 	docRepo.Create(ctx, &types.Document{
 		ID:     "doc1",
 		Title:  "Go Programming",
@@ -107,12 +107,12 @@ func TestQuerySvc_ProgressiveQuery_WithHotDocs(t *testing.T) {
 	assert.True(t, len(resp.Steps) > 0)
 }
 
-func TestQuerySvc_filterL2Tags_DirectFilter(t *testing.T) {
+func TestQuerySvc_filterCatalogTags_DirectFilter(t *testing.T) {
 	ctx := context.Background()
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -120,7 +120,7 @@ func TestQuerySvc_filterL2Tags_DirectFilter(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -137,17 +137,17 @@ func TestQuerySvc_filterL2Tags_DirectFilter(t *testing.T) {
 		{Tag: "tag1", Relevance: 0.8},
 	})
 
-	tags, err := svc.filterL2Tags(ctx, "test query")
+	tags, err := svc.filterCatalogTags(ctx, "test query")
 	require.NoError(t, err)
 	assert.Len(t, tags, 2)
 }
 
-func TestQuerySvc_filterL2Tags_TwoLevelFilter(t *testing.T) {
+func TestQuerySvc_filterCatalogTags_TwoLevelFilter(t *testing.T) {
 	ctx := context.Background()
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -155,7 +155,7 @@ func TestQuerySvc_filterL2Tags_TwoLevelFilter(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -163,10 +163,10 @@ func TestQuerySvc_filterL2Tags_TwoLevelFilter(t *testing.T) {
 	)
 
 	// Add groups
-	groupRepo.Create(ctx, &types.TagGroup{
-		ID:   "group1",
-		Name: "Programming",
-		Tags: []string{"golang", "python"},
+	topicRepo.Create(ctx, &types.Topic{
+		ID:       "group1",
+		Name:     "Programming",
+		TagNames: []string{"golang", "python"},
 	})
 
 	// Add more than threshold tags (two-level filter)
@@ -174,7 +174,7 @@ func TestQuerySvc_filterL2Tags_TwoLevelFilter(t *testing.T) {
 		tagRepo.Create(ctx, &types.Tag{
 			ID:      "tag" + string(rune('0'+i%10)),
 			Name:    "tag" + string(rune('0'+i%10)),
-			GroupID: "group1",
+			TopicID: "group1",
 		})
 	}
 
@@ -182,7 +182,7 @@ func TestQuerySvc_filterL2Tags_TwoLevelFilter(t *testing.T) {
 		{Tag: "golang", Relevance: 0.9},
 	})
 
-	tags, err := svc.filterL2Tags(ctx, "programming")
+	tags, err := svc.filterCatalogTags(ctx, "programming")
 	require.NoError(t, err)
 	assert.NotNil(t, tags)
 }
@@ -192,7 +192,7 @@ func TestQuerySvc_queryAndFilterDocuments(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -200,7 +200,7 @@ func TestQuerySvc_queryAndFilterDocuments(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -236,7 +236,7 @@ func TestQuerySvc_filterColdDocuments(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -244,7 +244,7 @@ func TestQuerySvc_filterColdDocuments(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -275,7 +275,7 @@ func TestQuerySvc_matchesColdDocument(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -283,7 +283,7 @@ func TestQuerySvc_matchesColdDocument(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -335,7 +335,7 @@ func TestQuerySvc_queryAndFilterChapters(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -343,7 +343,7 @@ func TestQuerySvc_queryAndFilterChapters(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -376,7 +376,7 @@ func TestQuerySvc_createColdDocumentChapter(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -384,7 +384,7 @@ func TestQuerySvc_createColdDocumentChapter(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -428,7 +428,7 @@ func TestQuerySvc_mergeHotAndColdResults(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -436,7 +436,7 @@ func TestQuerySvc_mergeHotAndColdResults(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -468,7 +468,7 @@ func TestQuerySvc_queryColdPath(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -476,7 +476,7 @@ func TestQuerySvc_queryColdPath(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -514,14 +514,14 @@ func TestQuerySvc_queryColdPath_NilIndex(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 
 	svc := NewQuerySvc(
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		nil, // nil index
 		nil,
@@ -545,7 +545,7 @@ func TestQuerySvc_filterL1Groups(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -553,7 +553,7 @@ func TestQuerySvc_filterL1Groups(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -561,11 +561,11 @@ func TestQuerySvc_filterL1Groups(t *testing.T) {
 	)
 
 	// Create groups
-	groupRepo.Create(ctx, &types.TagGroup{
+	topicRepo.Create(ctx, &types.Topic{
 		ID:   "group1",
 		Name: "Programming",
 	})
-	groupRepo.Create(ctx, &types.TagGroup{
+	topicRepo.Create(ctx, &types.Topic{
 		ID:   "group2",
 		Name: "Databases",
 	})
@@ -575,12 +575,12 @@ func TestQuerySvc_filterL1Groups(t *testing.T) {
 	assert.NotNil(t, groups)
 }
 
-func TestQuerySvc_getL2TagsFromGroups(t *testing.T) {
+func TestQuerySvc_getTagsFromTopics(t *testing.T) {
 	ctx := context.Background()
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -588,7 +588,7 @@ func TestQuerySvc_getL2TagsFromGroups(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -596,11 +596,11 @@ func TestQuerySvc_getL2TagsFromGroups(t *testing.T) {
 	)
 
 	// Create tags in groups
-	tagRepo.Create(ctx, &types.Tag{ID: "tag1", Name: "golang", GroupID: "group1"})
-	tagRepo.Create(ctx, &types.Tag{ID: "tag2", Name: "python", GroupID: "group1"})
-	tagRepo.Create(ctx, &types.Tag{ID: "tag3", Name: "postgres", GroupID: "group2"})
+	tagRepo.Create(ctx, &types.Tag{ID: "tag1", Name: "golang", TopicID: "group1"})
+	tagRepo.Create(ctx, &types.Tag{ID: "tag2", Name: "python", TopicID: "group1"})
+	tagRepo.Create(ctx, &types.Tag{ID: "tag3", Name: "postgres", TopicID: "group2"})
 
-	tags, err := svc.getL2TagsFromGroups(ctx, []string{"group1"})
+	tags, err := svc.getTagsFromTopics(ctx, []string{"group1"})
 	require.NoError(t, err)
 	assert.Len(t, tags, 2)
 }
@@ -609,7 +609,7 @@ func TestQuerySvc_extractTagNames(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -617,7 +617,7 @@ func TestQuerySvc_extractTagNames(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -637,7 +637,7 @@ func TestQuerySvc_extractRelevantTags(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -645,7 +645,7 @@ func TestQuerySvc_extractRelevantTags(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -666,7 +666,7 @@ func TestQuerySvc_buildResults(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -674,7 +674,7 @@ func TestQuerySvc_buildResults(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -743,7 +743,7 @@ func TestQuerySvc_filterHotDocuments_Error(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -751,7 +751,7 @@ func TestQuerySvc_filterHotDocuments_Error(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -769,12 +769,12 @@ func TestQuerySvc_filterHotDocuments_Error(t *testing.T) {
 	assert.Error(t, err)
 }
 
-func TestQuerySvc_filterL2TagsDirect_Error(t *testing.T) {
+func TestQuerySvc_filterTagsDirect_Error(t *testing.T) {
 	ctx := context.Background()
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 
@@ -782,7 +782,7 @@ func TestQuerySvc_filterL2TagsDirect_Error(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		nil,
@@ -797,7 +797,7 @@ func TestQuerySvc_filterL2TagsDirect_Error(t *testing.T) {
 	summarizer.SetError(errors.New("llm error"))
 
 	// Should fallback to returning all tags
-	result, err := svc.filterL2TagsDirect(ctx, "query", tags)
+	result, err := svc.filterTagsDirect(ctx, "query", tags)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"golang"}, result)
 }
@@ -817,13 +817,13 @@ func TestQuerySvc_ProgressiveQuery_AnswerFromLLM(t *testing.T) {
 	docRepo := NewMockDocumentRepository()
 	summaryRepo := NewMockSummaryRepository()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	summarizer := NewMockSummarizer()
 	coldIndex := NewMockColdIndex()
 	llm := NewMockLLMProvider()
 	llm.SetResponse("Synthetic answer with [^1^].")
 
-	tagRepo.Create(ctx, &types.Tag{ID: "tag1", Name: "golang", GroupID: "group1"})
+	tagRepo.Create(ctx, &types.Tag{ID: "tag1", Name: "golang", TopicID: "group1"})
 	docRepo.Create(ctx, &types.Document{
 		ID:     "doc1",
 		Title:  "Go Programming",
@@ -850,7 +850,7 @@ func TestQuerySvc_ProgressiveQuery_AnswerFromLLM(t *testing.T) {
 		docRepo,
 		summaryRepo,
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		summarizer,
 		coldIndex,
 		llm,
@@ -871,7 +871,7 @@ func progressiveQueryTestFixture(ctx context.Context) (
 	docRepo *MockDocumentRepository,
 	summaryRepo *MockSummaryRepository,
 	tagRepo *MockTagRepository,
-	groupRepo *MockTagGroupRepository,
+	topicRepo *MockTopicRepository,
 	summarizer *MockSummarizer,
 	coldIndex *MockColdIndex,
 	wrapped client.ILLMProvider,
@@ -879,14 +879,14 @@ func progressiveQueryTestFixture(ctx context.Context) (
 	docRepo = NewMockDocumentRepository()
 	summaryRepo = NewMockSummaryRepository()
 	tagRepo = NewMockTagRepository()
-	groupRepo = NewMockTagGroupRepository()
+	topicRepo = NewMockTopicRepository()
 	summarizer = NewMockSummarizer()
 	coldIndex = NewMockColdIndex()
 	inner := NewMockLLMProvider()
 	inner.SetResponse("Synthetic answer with [^1^].")
 	wrapped = NewOTelContextLLM(inner)
 
-	tagRepo.Create(ctx, &types.Tag{ID: "tag1", Name: "golang", GroupID: "group1"})
+	tagRepo.Create(ctx, &types.Tag{ID: "tag1", Name: "golang", TopicID: "group1"})
 	docRepo.Create(ctx, &types.Document{
 		ID: "doc1", Title: "Go Programming", Tags: []string{"golang"}, Status: types.DocStatusHot,
 	})
@@ -902,8 +902,8 @@ func progressiveQueryTestFixture(ctx context.Context) (
 
 func TestQuerySvc_ProgressiveQuery_TraceIDEmptyWithoutRecordingSpan(t *testing.T) {
 	ctx := context.Background()
-	docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped := progressiveQueryTestFixture(ctx)
-	svc := NewQuerySvc(docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped, testLogger())
+	docRepo, summaryRepo, tagRepo, topicRepo, summarizer, coldIndex, wrapped := progressiveQueryTestFixture(ctx)
+	svc := NewQuerySvc(docRepo, summaryRepo, tagRepo, topicRepo, summarizer, coldIndex, wrapped, testLogger())
 	resp, err := svc.ProgressiveQuery(ctx, types.ProgressiveQueryRequest{Question: "go programming", MaxResults: 10})
 	require.NoError(t, err)
 	assert.Empty(t, resp.TraceID)
@@ -915,8 +915,8 @@ func TestQuerySvc_ProgressiveQuery_TraceIDEmptyWhenServerDisallows(t *testing.T)
 	t.Cleanup(func() { viper.Set("query.allow_progressive_debug", prev) })
 
 	ctx := context.Background()
-	docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped := progressiveQueryTestFixture(ctx)
-	svc := NewQuerySvc(docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped, testLogger())
+	docRepo, summaryRepo, tagRepo, topicRepo, summarizer, coldIndex, wrapped := progressiveQueryTestFixture(ctx)
+	svc := NewQuerySvc(docRepo, summaryRepo, tagRepo, topicRepo, summarizer, coldIndex, wrapped, testLogger())
 	resp, err := svc.ProgressiveQuery(ctx, types.ProgressiveQueryRequest{
 		Question: "go programming", MaxResults: 10,
 	})
@@ -957,8 +957,8 @@ func TestQuerySvc_ProgressiveQuery_OtelSpansPersistedWhenTraceRecording(t *testi
 	})
 
 	ctx := recordingTraceContext(t)
-	docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped := progressiveQueryTestFixture(ctx)
-	svc := NewQuerySvc(docRepo, summaryRepo, tagRepo, groupRepo, summarizer, coldIndex, wrapped, testLogger())
+	docRepo, summaryRepo, tagRepo, topicRepo, summarizer, coldIndex, wrapped := progressiveQueryTestFixture(ctx)
+	svc := NewQuerySvc(docRepo, summaryRepo, tagRepo, topicRepo, summarizer, coldIndex, wrapped, testLogger())
 	resp, err := svc.ProgressiveQuery(ctx, types.ProgressiveQueryRequest{
 		Question: "go programming", MaxResults: 10,
 	})

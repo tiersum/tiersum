@@ -647,7 +647,7 @@ type TagRepo struct {
 	cache  storage.ICache
 }
 
-// NewTagRepo creates a new global tag repository
+// NewTagRepo creates a new catalog tag repository
 func NewTagRepo(db sqlDB, driver string, cache storage.ICache) *TagRepo {
 	return &TagRepo{
 		db:     db,
@@ -665,133 +665,133 @@ func (r *TagRepo) Create(ctx context.Context, tag *types.Tag) error {
 	tag.CreatedAt = now
 	tag.UpdatedAt = now
 
-	query := `INSERT INTO global_tags (id, name, group_id, document_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) 
+	query := `INSERT INTO tags (id, name, topic_id, document_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) 
 			  ON CONFLICT(name) DO UPDATE SET updated_at = ?`
 	if r.driver == "postgres" {
-		query = `INSERT INTO global_tags (id, name, group_id, document_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6) 
+		query = `INSERT INTO tags (id, name, topic_id, document_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6) 
 				 ON CONFLICT(name) DO UPDATE SET updated_at = $7`
 	}
 
-	_, err := r.db.ExecContext(ctx, query, tag.ID, tag.Name, tag.GroupID, tag.DocumentCount, tag.CreatedAt, tag.UpdatedAt, tag.UpdatedAt)
+	_, err := r.db.ExecContext(ctx, query, tag.ID, tag.Name, tag.TopicID, tag.DocumentCount, tag.CreatedAt, tag.UpdatedAt, tag.UpdatedAt)
 	if err != nil {
-		return fmt.Errorf("create global tag: %w", err)
+		return fmt.Errorf("create catalog tag: %w", err)
 	}
 	return nil
 }
 
 // GetByName implements ITagRepository.GetByName
 func (r *TagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error) {
-	query := `SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags WHERE name = ?`
+	query := `SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE name = ?`
 	if r.driver == "postgres" {
-		query = `SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags WHERE name = $1`
+		query = `SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE name = $1`
 	}
 
 	var t types.Tag
-	var grpID sql.NullString
+	var topicID sql.NullString
 	err := r.db.QueryRowContext(ctx, query, name).Scan(
-		&t.ID, &t.Name, &grpID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt,
+		&t.ID, &t.Name, &topicID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get global tag by name: %w", err)
+		return nil, fmt.Errorf("get catalog tag by name: %w", err)
 	}
 
-	if grpID.Valid {
-		t.GroupID = grpID.String
+	if topicID.Valid {
+		t.TopicID = topicID.String
 	}
 	return &t, nil
 }
 
 // List implements ITagRepository.List
 func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
-	query := `SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags ORDER BY name`
+	query := `SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags ORDER BY name`
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("list global tags: %w", err)
+		return nil, fmt.Errorf("list catalog tags: %w", err)
 	}
 	defer rows.Close()
 
 	var tags []types.Tag
 	for rows.Next() {
 		var t types.Tag
-		var grpID sql.NullString
-		if err := rows.Scan(&t.ID, &t.Name, &grpID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var topicRef sql.NullString
+		if err := rows.Scan(&t.ID, &t.Name, &topicRef, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
-		if grpID.Valid {
-			t.GroupID = grpID.String
+		if topicRef.Valid {
+			t.TopicID = topicRef.String
 		}
 		tags = append(tags, t)
 	}
 	return tags, rows.Err()
 }
 
-// ListByGroup implements ITagRepository.ListByGroup
-func (r *TagRepo) ListByGroup(ctx context.Context, groupID string) ([]types.Tag, error) {
-	query := `SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags WHERE group_id = ? ORDER BY name`
+// ListByTopic implements ITagRepository.ListByTopic
+func (r *TagRepo) ListByTopic(ctx context.Context, topicID string) ([]types.Tag, error) {
+	query := `SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE topic_id = ? ORDER BY name`
 	if r.driver == "postgres" {
-		query = `SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags WHERE group_id = $1 ORDER BY name`
+		query = `SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE topic_id = $1 ORDER BY name`
 	}
 
-	rows, err := r.db.QueryContext(ctx, query, groupID)
+	rows, err := r.db.QueryContext(ctx, query, topicID)
 	if err != nil {
-		return nil, fmt.Errorf("list global tags by group: %w", err)
+		return nil, fmt.Errorf("list catalog tags by topic: %w", err)
 	}
 	defer rows.Close()
 
 	var tags []types.Tag
 	for rows.Next() {
 		var t types.Tag
-		var grpID sql.NullString
-		if err := rows.Scan(&t.ID, &t.Name, &grpID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var tid sql.NullString
+		if err := rows.Scan(&t.ID, &t.Name, &tid, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
-		if grpID.Valid {
-			t.GroupID = grpID.String
+		if tid.Valid {
+			t.TopicID = tid.String
 		}
 		tags = append(tags, t)
 	}
 	return tags, rows.Err()
 }
 
-// ListByGroupIDs implements ITagRepository.ListByGroupIDs
-func (r *TagRepo) ListByGroupIDs(ctx context.Context, groupIDs []string, limit int) ([]types.Tag, error) {
-	if len(groupIDs) == 0 {
+// ListByTopicIDs implements ITagRepository.ListByTopicIDs
+func (r *TagRepo) ListByTopicIDs(ctx context.Context, topicIDs []string, limit int) ([]types.Tag, error) {
+	if len(topicIDs) == 0 {
 		return []types.Tag{}, nil
 	}
 	if limit <= 0 {
 		limit = 100
 	}
-	placeholders, args := buildInPlaceholders(r.driver, groupIDs)
+	placeholders, args := buildInPlaceholders(r.driver, topicIDs)
 	var query string
 	if r.driver == "postgres" {
-		query = fmt.Sprintf(`SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags 
-			WHERE group_id IN (%s) ORDER BY group_id, name LIMIT $%d`, placeholders, len(groupIDs)+1)
+		query = fmt.Sprintf(`SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags 
+			WHERE topic_id IN (%s) ORDER BY topic_id, name LIMIT $%d`, placeholders, len(topicIDs)+1)
 		args = append(args, limit)
 	} else {
-		query = fmt.Sprintf(`SELECT id, name, group_id, document_count, created_at, updated_at FROM global_tags 
-			WHERE group_id IN (%s) ORDER BY group_id, name LIMIT ?`, placeholders)
+		query = fmt.Sprintf(`SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags 
+			WHERE topic_id IN (%s) ORDER BY topic_id, name LIMIT ?`, placeholders)
 		args = append(args, limit)
 	}
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("list global tags by group ids: %w", err)
+		return nil, fmt.Errorf("list catalog tags by topic ids: %w", err)
 	}
 	defer rows.Close()
 
 	var tags []types.Tag
 	for rows.Next() {
 		var t types.Tag
-		var grpID sql.NullString
-		if err := rows.Scan(&t.ID, &t.Name, &grpID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
+		var tid sql.NullString
+		if err := rows.Scan(&t.ID, &t.Name, &tid, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
 			return nil, err
 		}
-		if grpID.Valid {
-			t.GroupID = grpID.String
+		if tid.Valid {
+			t.TopicID = tid.String
 		}
 		tags = append(tags, t)
 	}
@@ -800,9 +800,9 @@ func (r *TagRepo) ListByGroupIDs(ctx context.Context, groupIDs []string, limit i
 
 // IncrementDocumentCount implements ITagRepository.IncrementDocumentCount
 func (r *TagRepo) IncrementDocumentCount(ctx context.Context, tagName string) error {
-	query := `UPDATE global_tags SET document_count = document_count + 1, updated_at = ? WHERE name = ?`
+	query := `UPDATE tags SET document_count = document_count + 1, updated_at = ? WHERE name = ?`
 	if r.driver == "postgres" {
-		query = `UPDATE global_tags SET document_count = document_count + 1, updated_at = $1 WHERE name = $2`
+		query = `UPDATE tags SET document_count = document_count + 1, updated_at = $1 WHERE name = $2`
 	}
 
 	_, err := r.db.ExecContext(ctx, query, time.Now(), tagName)
@@ -814,73 +814,78 @@ func (r *TagRepo) IncrementDocumentCount(ctx context.Context, tagName string) er
 
 // DeleteAll implements ITagRepository.DeleteAll
 func (r *TagRepo) DeleteAll(ctx context.Context) error {
-	query := `DELETE FROM global_tags`
+	query := `DELETE FROM tags`
 	_, err := r.db.ExecContext(ctx, query)
 	if err != nil {
-		return fmt.Errorf("delete all global tags: %w", err)
+		return fmt.Errorf("delete all catalog tags: %w", err)
 	}
 	return nil
 }
 
 // GetCount implements ITagRepository.GetCount
 func (r *TagRepo) GetCount(ctx context.Context) (int, error) {
-	query := `SELECT COUNT(*) FROM global_tags`
+	query := `SELECT COUNT(*) FROM tags`
 
 	var count int
 	err := r.db.QueryRowContext(ctx, query).Scan(&count)
 	if err != nil {
-		return 0, fmt.Errorf("count global tags: %w", err)
+		return 0, fmt.Errorf("count catalog tags: %w", err)
 	}
 	return count, nil
 }
 
 var _ storage.ITagRepository = (*TagRepo)(nil)
 
-// TagGroupRepo implements storage.ITagGroupRepository
-type TagGroupRepo struct {
+// TopicRepo implements storage.ITopicRepository
+type TopicRepo struct {
 	db     sqlDB
 	driver string
 	cache  storage.ICache
 }
 
-// NewTagGroupRepo creates a new tag group repository
-func NewTagGroupRepo(db sqlDB, driver string, cache storage.ICache) *TagGroupRepo {
-	return &TagGroupRepo{
+// NewTopicRepo creates a new topic repository
+func NewTopicRepo(db sqlDB, driver string, cache storage.ICache) *TopicRepo {
+	return &TopicRepo{
 		db:     db,
 		driver: driver,
 		cache:  cache,
 	}
 }
 
-// Create implements ITagGroupRepository.Create
-func (r *TagGroupRepo) Create(ctx context.Context, group *types.TagGroup) error {
-	if group.ID == "" {
-		group.ID = uuid.New().String()
+// Create implements ITopicRepository.Create
+func (r *TopicRepo) Create(ctx context.Context, topic *types.Topic) error {
+	if topic.ID == "" {
+		topic.ID = uuid.New().String()
 	}
 	now := time.Now()
-	group.CreatedAt = now
-	group.UpdatedAt = now
+	topic.CreatedAt = now
+	topic.UpdatedAt = now
 
-	query := `INSERT INTO tag_groups (id, name, description, tags, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
-	if r.driver == "postgres" {
-		query = `INSERT INTO tag_groups (id, name, description, tags, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
+	tagNamesArg := interface{}(topic.TagNames)
+	if r.driver == "sqlite" {
+		tagNamesArg = formatStringArray(topic.TagNames)
 	}
 
-	_, err := r.db.ExecContext(ctx, query, group.ID, group.Name, group.Description, group.Tags, group.CreatedAt, group.UpdatedAt)
+	query := `INSERT INTO topics (id, name, description, tag_names, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
+	if r.driver == "postgres" {
+		query = `INSERT INTO topics (id, name, description, tag_names, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
+	}
+
+	_, err := r.db.ExecContext(ctx, query, topic.ID, topic.Name, topic.Description, tagNamesArg, topic.CreatedAt, topic.UpdatedAt)
 	if err != nil {
-		return fmt.Errorf("create tag group: %w", err)
+		return fmt.Errorf("create topic: %w", err)
 	}
 	return nil
 }
 
-// GetByID implements ITagGroupRepository.GetByID
-func (r *TagGroupRepo) GetByID(ctx context.Context, id string) (*types.TagGroup, error) {
-	query := `SELECT id, name, description, tags, created_at, updated_at FROM tag_groups WHERE id = ?`
+// GetByID implements ITopicRepository.GetByID
+func (r *TopicRepo) GetByID(ctx context.Context, id string) (*types.Topic, error) {
+	query := `SELECT id, name, description, tag_names, created_at, updated_at FROM topics WHERE id = ?`
 	if r.driver == "postgres" {
-		query = `SELECT id, name, description, tags, created_at, updated_at FROM tag_groups WHERE id = $1`
+		query = `SELECT id, name, description, tag_names, created_at, updated_at FROM topics WHERE id = $1`
 	}
 
-	var c types.TagGroup
+	var c types.Topic
 	var tagsStr string
 	err := r.db.QueryRowContext(ctx, query, id).Scan(
 		&c.ID, &c.Name, &c.Description, &tagsStr, &c.CreatedAt, &c.UpdatedAt,
@@ -889,59 +894,59 @@ func (r *TagGroupRepo) GetByID(ctx context.Context, id string) (*types.TagGroup,
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("get tag group by id: %w", err)
+		return nil, fmt.Errorf("get topic by id: %w", err)
 	}
 
-	c.Tags = parseStringArray(tagsStr)
+	c.TagNames = parseStringArray(tagsStr)
 	return &c, nil
 }
 
-// List implements ITagGroupRepository.List
-func (r *TagGroupRepo) List(ctx context.Context) ([]types.TagGroup, error) {
-	query := `SELECT id, name, description, tags, created_at, updated_at FROM tag_groups ORDER BY name`
+// List implements ITopicRepository.List
+func (r *TopicRepo) List(ctx context.Context) ([]types.Topic, error) {
+	query := `SELECT id, name, description, tag_names, created_at, updated_at FROM topics ORDER BY name`
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("list tag groups: %w", err)
+		return nil, fmt.Errorf("list topics: %w", err)
 	}
 	defer rows.Close()
 
-	var groups []types.TagGroup
+	var topics []types.Topic
 	for rows.Next() {
-		var g types.TagGroup
+		var g types.Topic
 		var tagsStr string
 		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &tagsStr, &g.CreatedAt, &g.UpdatedAt); err != nil {
 			return nil, err
 		}
-		g.Tags = parseStringArray(tagsStr)
-		groups = append(groups, g)
+		g.TagNames = parseStringArray(tagsStr)
+		topics = append(topics, g)
 	}
-	return groups, rows.Err()
+	return topics, rows.Err()
 }
 
-// DeleteAll implements ITagGroupRepository.DeleteAll
-func (r *TagGroupRepo) DeleteAll(ctx context.Context) error {
-	query := `DELETE FROM tag_groups`
+// DeleteAll implements ITopicRepository.DeleteAll
+func (r *TopicRepo) DeleteAll(ctx context.Context) error {
+	query := `DELETE FROM topics`
 	_, err := r.db.ExecContext(ctx, query)
 	if err != nil {
-		return fmt.Errorf("delete all tag groups: %w", err)
+		return fmt.Errorf("delete all topics: %w", err)
 	}
 	return nil
 }
 
-// GetCount implements ITagGroupRepository.GetCount
-func (r *TagGroupRepo) GetCount(ctx context.Context) (int, error) {
-	query := `SELECT COUNT(*) FROM tag_groups`
+// GetCount implements ITopicRepository.GetCount
+func (r *TopicRepo) GetCount(ctx context.Context) (int, error) {
+	query := `SELECT COUNT(*) FROM topics`
 
 	var count int
 	err := r.db.QueryRowContext(ctx, query).Scan(&count)
 	if err != nil {
-		return 0, fmt.Errorf("count tag groups: %w", err)
+		return 0, fmt.Errorf("count topics: %w", err)
 	}
 	return count, nil
 }
 
-var _ storage.ITagGroupRepository = (*TagGroupRepo)(nil)
+var _ storage.ITopicRepository = (*TopicRepo)(nil)
 
 func parseStringArray(s string) []string {
 	if s == "" || s == "{}" {
@@ -983,7 +988,7 @@ type UnitOfWork struct {
 	Documents       storage.IDocumentRepository
 	Summaries       storage.ISummaryRepository
 	Tags            storage.ITagRepository
-	TagGroups       storage.ITagGroupRepository
+	Topics          storage.ITopicRepository
 	OtelSpans       storage.IOtelSpanRepository
 	SystemAuth      storage.ISystemAuthStateRepository
 	AuthUsers       storage.IAuthUserRepository
@@ -998,7 +1003,7 @@ func NewUnitOfWork(db sqlDB, driver string, cache storage.ICache) *UnitOfWork {
 		Documents:       NewDocumentRepo(db, driver, cache),
 		Summaries:       NewSummaryRepo(db, driver, cache),
 		Tags:            NewTagRepo(db, driver, cache),
-		TagGroups:       NewTagGroupRepo(db, driver, cache),
+		Topics:          NewTopicRepo(db, driver, cache),
 		OtelSpans:       NewOtelSpanRepo(db, driver),
 		SystemAuth:      NewSystemAuthStateRepo(db, driver),
 		AuthUsers:       NewAuthUserRepo(db, driver),

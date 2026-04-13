@@ -182,8 +182,8 @@ export const apiClient = {
 
     getTags: (opts = {}) => {
         const q = new URLSearchParams();
-        if (opts.group_ids && opts.group_ids.length) {
-            q.set('group_ids', opts.group_ids.filter(Boolean).join(','));
+        if (opts.topic_ids && opts.topic_ids.length) {
+            q.set('topic_ids', opts.topic_ids.filter(Boolean).join(','));
         }
         if (opts.max_results != null && opts.max_results > 0) {
             q.set('max_results', String(opts.max_results));
@@ -191,8 +191,8 @@ export const apiClient = {
         const suffix = q.toString() ? `?${q.toString()}` : '';
         return apiClient.request(`/bff/v1/tags${suffix}`).then((r) => r.tags || []);
     },
-    getTagGroups: () => apiClient.request('/bff/v1/tags/groups').then((r) => r.groups || []),
-    triggerTagGrouping: () => apiClient.request('/bff/v1/tags/group', { method: 'POST' }),
+    getTopics: () => apiClient.request('/bff/v1/topics').then((r) => r.topics || []),
+    triggerTopicRegroup: () => apiClient.request('/bff/v1/topics/regroup', { method: 'POST' }),
 
     getMonitoring: () => apiClient.request('/bff/v1/monitoring'),
     getMetricsText: () => apiClient.requestText('/metrics'),

@@ -113,18 +113,18 @@ func (s *MCPServer) registerTools() {
 	), s.handleAPIv1QueryProgressivePost)
 
 	s.mcp.AddTool(mcp.NewTool("api_v1_tags_get",
-		mcp.WithDescription(descPrefix+"GET /api/v1/tags — optional group_ids (comma-separated) and max_results"),
-		mcp.WithString("group_ids", mcp.Description("Comma-separated group ids; omit for all tags")),
-		mcp.WithNumber("max_results", mcp.Description("Cap; with group_ids defaults to 100, max 10000")),
+		mcp.WithDescription(descPrefix+"GET /api/v1/tags — optional topic_ids (comma-separated) and max_results"),
+		mcp.WithString("topic_ids", mcp.Description("Comma-separated topic ids; omit for all catalog tags")),
+		mcp.WithNumber("max_results", mcp.Description("Cap; with topic_ids defaults to 100, max 10000")),
 	), s.handleAPIv1TagsGet)
 
-	s.mcp.AddTool(mcp.NewTool("api_v1_tags_groups_get",
-		mcp.WithDescription(descPrefix+"GET /api/v1/tags/groups"),
-	), s.handleAPIv1TagsGroupsGet)
+	s.mcp.AddTool(mcp.NewTool("api_v1_topics_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/topics"),
+	), s.handleAPIv1TopicsGet)
 
-	s.mcp.AddTool(mcp.NewTool("api_v1_tags_group_post",
-		mcp.WithDescription(descPrefix+"POST /api/v1/tags/group — trigger tag grouping"),
-	), s.handleAPIv1TagsGroupPost)
+	s.mcp.AddTool(mcp.NewTool("api_v1_topics_regroup_post",
+		mcp.WithDescription(descPrefix+"POST /api/v1/topics/regroup — LLM regroup catalog tags into topics"),
+	), s.handleAPIv1TopicsRegroupPost)
 
 	s.mcp.AddTool(mcp.NewTool("api_v1_hot_doc_summaries_get",
 		mcp.WithDescription(descPrefix+"GET /api/v1/hot/doc_summaries — tags comma-separated, max_results"),
@@ -428,27 +428,27 @@ func (s *MCPServer) handleAPIv1TagsGet(ctx context.Context, request mcp.CallTool
 		return res, err
 	}
 	args := toolArgs(request)
-	groupIDs := argStringList(args, "group_ids")
+	topicIDs := argStringList(args, "topic_ids")
 	maxRaw := optionalMaxResultsQueryString(args, "max_results")
-	status, body := s.api.ExecuteListTags(ctx, groupIDs, maxRaw)
+	status, body := s.api.ExecuteListTags(ctx, topicIDs, maxRaw)
 	return mcpJSONResult(status, body)
 }
 
-func (s *MCPServer) handleAPIv1TagsGroupsGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if res, err := s.mcpReadGate(ctx, "GET /api/v1/tags/groups"); res != nil {
+func (s *MCPServer) handleAPIv1TopicsGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/topics"); res != nil {
 		return res, err
 	}
 	_ = toolArgs(request)
-	status, body := s.api.ExecuteListTagGroups(ctx)
+	status, body := s.api.ExecuteListTopics(ctx)
 	return mcpJSONResult(status, body)
 }
 
-func (s *MCPServer) handleAPIv1TagsGroupPost(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if res, err := s.mcpWriteGate(ctx, "POST /api/v1/tags/group"); res != nil {
+func (s *MCPServer) handleAPIv1TopicsRegroupPost(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	if res, err := s.mcpWriteGate(ctx, "POST /api/v1/topics/regroup"); res != nil {
 		return res, err
 	}
 	_ = toolArgs(request)
-	status, body := s.api.ExecuteTriggerTagGroup(ctx)
+	status, body := s.api.ExecuteTriggerTopicRegroup(ctx)
 	return mcpJSONResult(status, body)
 }
 

@@ -50,37 +50,25 @@ type ISummaryRepository interface {
 	DeleteByDocument(ctx context.Context, docID string) error
 }
 
-// ITagRepository defines global tag storage operations
+// ITagRepository defines catalog tag storage (deduplicated tag names + document counts).
 type ITagRepository interface {
-	// Create creates a new global tag
 	Create(ctx context.Context, tag *types.Tag) error
-	// GetByName retrieves a tag by name
 	GetByName(ctx context.Context, name string) (*types.Tag, error)
-	// List retrieves all global tags
 	List(ctx context.Context) ([]types.Tag, error)
-	// ListByGroup retrieves tags belonging to a specific group
-	ListByGroup(ctx context.Context, groupID string) ([]types.Tag, error)
-	// ListByGroupIDs returns tags whose group_id is in groupIDs, ordered by group then name, capped at limit.
-	ListByGroupIDs(ctx context.Context, groupIDs []string, limit int) ([]types.Tag, error)
-	// IncrementDocumentCount increments the document count for a tag
+	ListByTopic(ctx context.Context, topicID string) ([]types.Tag, error)
+	// ListByTopicIDs returns tags whose topic_id is in topicIDs, ordered by topic then name, capped at limit.
+	ListByTopicIDs(ctx context.Context, topicIDs []string, limit int) ([]types.Tag, error)
 	IncrementDocumentCount(ctx context.Context, tagName string) error
-	// DeleteAll removes all global tags (used before re-grouping)
 	DeleteAll(ctx context.Context) error
-	// GetCount returns the total number of global tags
 	GetCount(ctx context.Context) (int, error)
 }
 
-// ITagGroupRepository defines tag group storage operations
-type ITagGroupRepository interface {
-	// Create creates a new tag group
-	Create(ctx context.Context, group *types.TagGroup) error
-	// GetByID retrieves a group by ID
-	GetByID(ctx context.Context, id string) (*types.TagGroup, error)
-	// List retrieves all tag groups
-	List(ctx context.Context) ([]types.TagGroup, error)
-	// DeleteAll removes all groups (used before re-grouping)
+// ITopicRepository persists topics (themes) produced by LLM regrouping of catalog tags.
+type ITopicRepository interface {
+	Create(ctx context.Context, topic *types.Topic) error
+	GetByID(ctx context.Context, id string) (*types.Topic, error)
+	List(ctx context.Context) ([]types.Topic, error)
 	DeleteAll(ctx context.Context) error
-	// GetCount returns the total number of groups
 	GetCount(ctx context.Context) (int, error)
 }
 

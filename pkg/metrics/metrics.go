@@ -97,13 +97,13 @@ func init() {
 
 // Path constants for LLM calls
 const (
-	PathL2TagFilter    = "l2_tag_filter"
-	PathL1GroupFilter  = "l1_group_filter"
-	PathDocFilter      = "doc_filter"
-	PathChapterFilter  = "chapter_filter"
-	PathDocAnalyze     = "doc_analyze"
-	PathTagGroup       = "tag_group"
-	PathUnknown        = "unknown"
+	PathTagFilter     = "tag_filter"
+	PathTopicFilter   = "topic_filter"
+	PathDocFilter     = "doc_filter"
+	PathChapterFilter = "chapter_filter"
+	PathDocAnalyze    = "doc_analyze"
+	PathTopicRegroup  = "topic_regroup"
+	PathUnknown       = "unknown"
 )
 
 // Path constants for queries

@@ -218,49 +218,47 @@ Chapters:
 	return s.parseFilterResults(response), nil
 }
 
-// FilterL1GroupsByQuery uses LLM to select 1-3 most relevant tag groups (L1) for the query
-func (s *SummarizerSvc) FilterL1GroupsByQuery(ctx context.Context, query string, groups []types.TagGroup) ([]types.LLMFilterResult, error) {
-	if len(groups) == 0 {
+// FilterTopicsByQuery uses LLM to select 1-3 most relevant topics for the query.
+func (s *SummarizerSvc) FilterTopicsByQuery(ctx context.Context, query string, topics []types.Topic) ([]types.LLMFilterResult, error) {
+	if len(topics) == 0 {
 		return nil, nil
 	}
 
-	// Build prompt with group info
-	var groupList strings.Builder
-	for i, g := range groups {
-		groupList.WriteString(fmt.Sprintf("[%d] ID: %s\nName: %s\nDescription: %s\nTags: %v\n\n",
-			i, g.ID, g.Name, g.Description, g.Tags))
+	var topicList strings.Builder
+	for i, g := range topics {
+		topicList.WriteString(fmt.Sprintf("[%d] ID: %s\nName: %s\nDescription: %s\nTag names: %v\n\n",
+			i, g.ID, g.Name, g.Description, g.TagNames))
 	}
 
 	prompt := fmt.Sprintf(`Given the user query: "%s"
 
-Select the 1-3 most relevant tag groups from the list below. These groups will be used to narrow down the search for relevant documents.
-Return a JSON array of objects with fields "id" (group ID) and "relevance" (0.0-1.0 score).
-Only include groups with relevance >= 0.5. Sort by relevance descending.
-Select at most 3 groups.
+Select the 1-3 most relevant topics from the list below. These topics narrow the search for relevant documents.
+Return a JSON array of objects with fields "id" (topic ID) and "relevance" (0.0-1.0 score).
+Only include topics with relevance >= 0.5. Sort by relevance descending.
+Select at most 3 topics.
 
-Available tag groups:
+Available topics:
 %s
 
 	Response format (JSON only):
 [
-  {"id": "group_id", "relevance": 0.95},
-  {"id": "another_group_id", "relevance": 0.82}
-]`, query, groupList.String())
+  {"id": "topic_id", "relevance": 0.95},
+  {"id": "another_topic_id", "relevance": 0.82}
+]`, query, topicList.String())
 
-	// Record LLM call metric
-	metrics.RecordLLMCall(metrics.PathL1GroupFilter, estimateTokens(prompt))
+	metrics.RecordLLMCall(metrics.PathTopicFilter, estimateTokens(prompt))
 
 	response, err := s.provider.Generate(ctx, prompt, 1500)
 	if err != nil {
-		s.logger.Error("LLM L1 group filter failed", zap.Error(err))
-		return s.fallbackFilterGroups(groups), nil
+		s.logger.Error("LLM topic filter failed", zap.Error(err))
+		return s.fallbackFilterTopics(topics), nil
 	}
 
 	return s.parseFilterResults(response), nil
 }
 
-// FilterL2TagsByQuery uses LLM to filter L2 tags based on query
-func (s *SummarizerSvc) FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
+// FilterTagsByQuery uses LLM to filter catalog tags for a query.
+func (s *SummarizerSvc) FilterTagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
 	if len(tags) == 0 {
 		return nil, nil
 	}
@@ -286,11 +284,11 @@ Available tags:
 ]`, query, tagList.String())
 
 	// Record LLM call metric
-	metrics.RecordLLMCall(metrics.PathL2TagFilter, estimateTokens(prompt))
+	metrics.RecordLLMCall(metrics.PathTagFilter, estimateTokens(prompt))
 
 	response, err := s.provider.Generate(ctx, prompt, 1500)
 	if err != nil {
-		s.logger.Error("LLM L2 tag filter failed", zap.Error(err))
+		s.logger.Error("LLM tag filter failed", zap.Error(err))
 		return s.fallbackTagFilter(tags), nil
 	}
 
@@ -473,10 +471,10 @@ func (s *SummarizerSvc) fallbackFilterChapters(chapters []types.Summary) []types
 	return results
 }
 
-// fallbackFilterGroups returns all groups with equal relevance
-func (s *SummarizerSvc) fallbackFilterGroups(groups []types.TagGroup) []types.LLMFilterResult {
-	results := make([]types.LLMFilterResult, len(groups))
-	for i, g := range groups {
+// fallbackFilterTopics returns all topics with equal relevance.
+func (s *SummarizerSvc) fallbackFilterTopics(topics []types.Topic) []types.LLMFilterResult {
+	results := make([]types.LLMFilterResult, len(topics))
+	for i, g := range topics {
 		results[i] = types.LLMFilterResult{
 			ID:        g.ID,
 			Relevance: 0.5,

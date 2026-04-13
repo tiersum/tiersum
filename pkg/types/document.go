@@ -73,22 +73,23 @@ type DocumentAnalysisResult struct {
 	Chapters []ChapterInfo `json:"chapters"` // List of chapters with summaries
 }
 
-// TagGroup represents a group of tags (Level 1 categorization)
-type TagGroup struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`        // Group name/category
-	Description string    `json:"description"` // Group description
-	Tags        []string  `json:"tags"`        // Tags in this group
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+// Topic is a high-level theme (LLM cluster of catalog tags).
+type Topic struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	// TagNames are member tag names assigned to this topic by regrouping (LLM output uses JSON key "tags").
+	TagNames  []string  `json:"tag_names"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Tag represents a global tag with its metadata
+// Tag is one catalog tag (deduplicated across documents), optionally linked to a Topic.
 type Tag struct {
 	ID            string    `json:"id"`
-	Name          string    `json:"name"`           // Tag name
-	GroupID       string    `json:"group_id"`       // Which group it belongs to (Level 1)
-	DocumentCount int       `json:"document_count"` // Number of documents with this tag
+	Name          string    `json:"name"`
+	TopicID       string    `json:"topic_id"`
+	DocumentCount int       `json:"document_count"`
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }

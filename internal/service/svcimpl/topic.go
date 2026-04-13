@@ -17,76 +17,69 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// TagGroupSvc implements service.ITagGroupService
-type TagGroupSvc struct {
+// TopicSvc implements service.ITopicService (LLM regrouping of catalog tags into topics).
+type TopicSvc struct {
 	tagRepo         storage.ITagRepository
-	groupRepo       storage.ITagGroupRepository
+	topicRepo       storage.ITopicRepository
 	provider        client.ILLMProvider
 	logger          *zap.Logger
 	lastRefreshTime time.Time
 	lastTagCount    int
 }
 
-// NewTagGroupSvc creates a new tag grouping service
-func NewTagGroupSvc(
+// NewTopicSvc creates a new topic / regrouping service.
+func NewTopicSvc(
 	tagRepo storage.ITagRepository,
-	groupRepo storage.ITagGroupRepository,
+	topicRepo storage.ITopicRepository,
 	provider client.ILLMProvider,
 	logger *zap.Logger,
-) *TagGroupSvc {
-	return &TagGroupSvc{
+) *TopicSvc {
+	return &TopicSvc{
 		tagRepo:         tagRepo,
-		groupRepo:       groupRepo,
+		topicRepo:       topicRepo,
 		provider:        provider,
 		logger:          logger,
-		lastRefreshTime: time.Time{}, // Zero time indicates no refresh yet
+		lastRefreshTime: time.Time{},
 		lastTagCount:    0,
 	}
 }
 
-// GroupTags performs LLM-based grouping of all global tags
-func (s *TagGroupSvc) GroupTags(ctx context.Context) error {
+// RegroupTags assigns every catalog tag to exactly one topic using the LLM.
+func (s *TopicSvc) RegroupTags(ctx context.Context) error {
 	startTime := time.Now()
 
-	// Get all global tags
 	tags, err := s.tagRepo.List(ctx)
 	if err != nil {
-		return fmt.Errorf("list global tags: %w", err)
+		return fmt.Errorf("list catalog tags: %w", err)
 	}
 
 	tagCountBefore := len(tags)
 	if tagCountBefore == 0 {
-		s.logger.Info("no tags to group")
+		s.logger.Info("no tags to regroup")
 		return nil
 	}
 
-	// Extract tag names
 	tagNames := make([]string, len(tags))
 	for i, tag := range tags {
 		tagNames[i] = tag.Name
 	}
 
-	// Use LLM to group tags
-	groups, err := s.performGrouping(ctx, tagNames)
+	topics, err := s.performGrouping(ctx, tagNames)
 	if err != nil {
 		return fmt.Errorf("perform grouping: %w", err)
 	}
 
-	// Clear existing groups
-	if err := s.groupRepo.DeleteAll(ctx); err != nil {
-		return fmt.Errorf("delete existing groups: %w", err)
+	if err := s.topicRepo.DeleteAll(ctx); err != nil {
+		return fmt.Errorf("delete existing topics: %w", err)
 	}
 
-	// Create new groups and update tag group assignments
-	for _, group := range groups {
-		// Create group
-		if err := s.groupRepo.Create(ctx, &group); err != nil {
-			s.logger.Warn("failed to create group", zap.String("name", group.Name), zap.Error(err))
+	for _, topic := range topics {
+		if err := s.topicRepo.Create(ctx, &topic); err != nil {
+			s.logger.Warn("failed to create topic", zap.String("name", topic.Name), zap.Error(err))
 			continue
 		}
 
-		// Update tags in this group
-		for _, tagName := range group.Tags {
+		for _, tagName := range topic.TagNames {
 			tag, err := s.tagRepo.GetByName(ctx, tagName)
 			if err != nil {
 				s.logger.Warn("failed to get tag", zap.String("name", tagName), zap.Error(err))
@@ -96,49 +89,41 @@ func (s *TagGroupSvc) GroupTags(ctx context.Context) error {
 				continue
 			}
 
-			tag.GroupID = group.ID
-			// Note: We're not updating the tag directly since we don't have an Update method
-			// In a real implementation, we'd need to add an Update method or handle this differently
-			// For now, we'll recreate the tag with the new group ID
+			tag.TopicID = topic.ID
 			if err := s.tagRepo.Create(ctx, tag); err != nil {
-				s.logger.Warn("failed to update tag group", zap.String("tag", tagName), zap.Error(err))
+				s.logger.Warn("failed to update tag topic", zap.String("tag", tagName), zap.Error(err))
 			}
 		}
 	}
 
 	duration := time.Since(startTime).Milliseconds()
 
-	// Update in-memory tracking
 	s.lastRefreshTime = time.Now()
 	s.lastTagCount = tagCountBefore
 
-	s.logger.Info("completed tag grouping",
+	s.logger.Info("completed topic regrouping",
 		zap.Int("tags", tagCountBefore),
-		zap.Int("groups", len(groups)),
+		zap.Int("topics", len(topics)),
 		zap.Int64("duration_ms", duration))
 
 	return nil
 }
 
-// ShouldRefresh checks if grouping should be performed
-func (s *TagGroupSvc) ShouldRefresh(ctx context.Context) (bool, error) {
-	// Get current tag count
+// ShouldRefresh checks if regrouping should run (tag count change or interval).
+func (s *TopicSvc) ShouldRefresh(ctx context.Context) (bool, error) {
 	currentCount, err := s.tagRepo.GetCount(ctx)
 	if err != nil {
 		return false, fmt.Errorf("get tag count: %w", err)
 	}
 
-	// No previous refresh (zero time), should refresh
 	if s.lastRefreshTime.IsZero() {
 		return true, nil
 	}
 
-	// Check if tag count changed
 	if currentCount != s.lastTagCount {
 		return true, nil
 	}
 
-	// Check if enough time passed (30 minutes)
 	if time.Since(s.lastRefreshTime) > 30*time.Minute {
 		return true, nil
 	}
@@ -146,23 +131,22 @@ func (s *TagGroupSvc) ShouldRefresh(ctx context.Context) (bool, error) {
 	return false, nil
 }
 
-// GetL1Groups retrieves all Level 1 groups
-func (s *TagGroupSvc) GetL1Groups(ctx context.Context) ([]types.TagGroup, error) {
-	return s.groupRepo.List(ctx)
+// ListTopics returns all topics.
+func (s *TopicSvc) ListTopics(ctx context.Context) ([]types.Topic, error) {
+	return s.topicRepo.List(ctx)
 }
 
-// GetL2TagsByGroup retrieves Level 2 tags belonging to a group
-func (s *TagGroupSvc) GetL2TagsByGroup(ctx context.Context, groupID string) ([]types.Tag, error) {
-	return s.tagRepo.ListByGroup(ctx, groupID)
+// ListTagsByTopic returns catalog tags for one topic.
+func (s *TopicSvc) ListTagsByTopic(ctx context.Context, topicID string) ([]types.Tag, error) {
+	return s.tagRepo.ListByTopic(ctx, topicID)
 }
 
-// FilterL2TagsByQuery uses LLM to filter L2 tags based on query
-func (s *TagGroupSvc) FilterL2TagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
+// FilterTagsByQuery uses the LLM to score catalog tags for a query.
+func (s *TopicSvc) FilterTagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
 	if len(tags) == 0 {
 		return nil, nil
 	}
 
-	// Build tag list for prompt
 	var tagList strings.Builder
 	for _, tag := range tags {
 		tagList.WriteString(fmt.Sprintf("- %s (used in %d documents)\n", tag.Name, tag.DocumentCount))
@@ -182,8 +166,7 @@ Response format (JSON only):
   {"tag": "another-tag", "relevance": 0.82}
 ]`, query, tagList.String())
 
-	// Record LLM call metric
-	metrics.RecordLLMCall(metrics.PathL2TagFilter, estimateTokens(prompt))
+	metrics.RecordLLMCall(metrics.PathTagFilter, estimateTokens(prompt))
 
 	response, err := s.provider.Generate(ctx, prompt, 1500)
 	if err != nil {
@@ -194,50 +177,45 @@ Response format (JSON only):
 	return s.parseTagFilterResults(response), nil
 }
 
-// performGrouping uses LLM to group tags into categories
-func (s *TagGroupSvc) performGrouping(ctx context.Context, tags []string) ([]types.TagGroup, error) {
+func (s *TopicSvc) performGrouping(_ context.Context, tags []string) ([]types.Topic, error) {
 	if len(tags) == 0 {
 		return nil, nil
 	}
 
-	// Build tag list
 	tagList := strings.Join(tags, "\n")
 
-	// Determine target number of groups based on tag count
-	// Aim for roughly 5-15 tags per group
-	targetGroups := len(tags) / 10
-	if targetGroups < 3 {
-		targetGroups = 3
+	targetTopics := len(tags) / 10
+	if targetTopics < 3 {
+		targetTopics = 3
 	}
-	if targetGroups > 10 {
-		targetGroups = 10
+	if targetTopics > 10 {
+		targetTopics = 10
 	}
 
-	prompt := fmt.Sprintf(`Group the following tags into %d categories. Each category should have a clear theme and contain related tags.
-Aim for balanced distribution (each group should have roughly similar number of tags).
+	prompt := fmt.Sprintf(`Group the following tags into %d topics (themes). Each topic should have a clear theme and contain related tags.
+Aim for balanced distribution (each topic should have roughly similar number of tags).
 
 Tags to group:
 %s
 
 Return a JSON array where each element has:
-- "name": category name (2-4 words)
+- "name": topic name (2-4 words)
 - "description": brief description (max 100 chars)
-- "tags": array of tag names belonging to this category
+- "tags": array of tag names belonging to this topic
 
 Response format (JSON only):
 [
   {
-    "name": "Category Name",
-    "description": "Description of this category",
+    "name": "Topic Name",
+    "description": "Description of this topic",
     "tags": ["tag1", "tag2", ...]
   },
   ...
 ]
 
-Make sure every tag appears in exactly one category.`, targetGroups, tagList)
+Make sure every tag appears in exactly one topic.`, targetTopics, tagList)
 
-	// Record LLM call metric
-	metrics.RecordLLMCall(metrics.PathTagGroup, estimateTokens(prompt))
+	metrics.RecordLLMCall(metrics.PathTopicRegroup, estimateTokens(prompt))
 
 	response, err := s.provider.Generate(ctx, prompt, 3000)
 	if err != nil {
@@ -247,8 +225,7 @@ Make sure every tag appears in exactly one category.`, targetGroups, tagList)
 	return s.parseGroupResponse(response)
 }
 
-// parseGroupResponse parses the LLM grouping response
-func (s *TagGroupSvc) parseGroupResponse(response string) ([]types.TagGroup, error) {
+func (s *TopicSvc) parseGroupResponse(response string) ([]types.Topic, error) {
 	jsonStart := strings.Index(response, "[")
 	jsonEnd := strings.LastIndex(response, "]")
 	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
@@ -264,23 +241,22 @@ func (s *TagGroupSvc) parseGroupResponse(response string) ([]types.TagGroup, err
 	}
 
 	if err := json.Unmarshal([]byte(jsonStr), &rawGroups); err != nil {
-		return nil, fmt.Errorf("failed to parse group JSON: %w", err)
+		return nil, fmt.Errorf("failed to parse topic JSON: %w", err)
 	}
 
-	groups := make([]types.TagGroup, len(rawGroups))
+	topics := make([]types.Topic, len(rawGroups))
 	for i, rg := range rawGroups {
-		groups[i] = types.TagGroup{
+		topics[i] = types.Topic{
 			Name:        rg.Name,
 			Description: rg.Description,
-			Tags:        rg.Tags,
+			TagNames:    rg.Tags,
 		}
 	}
 
-	return groups, nil
+	return topics, nil
 }
 
-// parseTagFilterResults parses tag filter results from LLM response
-func (s *TagGroupSvc) parseTagFilterResults(response string) []types.TagFilterResult {
+func (s *TopicSvc) parseTagFilterResults(response string) []types.TagFilterResult {
 	jsonStart := strings.Index(response, "[")
 	jsonEnd := strings.LastIndex(response, "]")
 	if jsonStart == -1 || jsonEnd == -1 || jsonEnd <= jsonStart {
@@ -295,7 +271,6 @@ func (s *TagGroupSvc) parseTagFilterResults(response string) []types.TagFilterRe
 		return nil
 	}
 
-	// Sort by relevance descending
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Relevance > results[j].Relevance
 	})
@@ -303,8 +278,7 @@ func (s *TagGroupSvc) parseTagFilterResults(response string) []types.TagFilterRe
 	return results
 }
 
-// fallbackTagFilter returns all tags with equal relevance
-func (s *TagGroupSvc) fallbackTagFilter(tags []types.Tag) []types.TagFilterResult {
+func (s *TopicSvc) fallbackTagFilter(tags []types.Tag) []types.TagFilterResult {
 	results := make([]types.TagFilterResult, len(tags))
 	for i, tag := range tags {
 		results[i] = types.TagFilterResult{
@@ -315,4 +289,4 @@ func (s *TagGroupSvc) fallbackTagFilter(tags []types.Tag) []types.TagFilterResul
 	return results
 }
 
-var _ service.ITagGroupService = (*TagGroupSvc)(nil)
+var _ service.ITopicService = (*TopicSvc)(nil)

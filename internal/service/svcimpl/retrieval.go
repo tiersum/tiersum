@@ -34,13 +34,13 @@ func NewRetrievalSvc(
 	}
 }
 
-// ListTags returns global tags, optionally filtered by group IDs with byGroupLimit, or all tags capped by listAllCap (0 = no cap).
-func (s *RetrievalSvc) ListTags(ctx context.Context, groupIDs []string, byGroupLimit int, listAllCap int) ([]types.Tag, error) {
-	if len(groupIDs) > 0 {
-		if byGroupLimit <= 0 {
-			byGroupLimit = 100
+// ListTags returns catalog tags, optionally filtered by topic IDs with byTopicLimit, or all tags capped by listAllCap (0 = no cap).
+func (s *RetrievalSvc) ListTags(ctx context.Context, topicIDs []string, byTopicLimit int, listAllCap int) ([]types.Tag, error) {
+	if len(topicIDs) > 0 {
+		if byTopicLimit <= 0 {
+			byTopicLimit = 100
 		}
-		return s.tagRepo.ListByGroupIDs(ctx, groupIDs, byGroupLimit)
+		return s.tagRepo.ListByTopicIDs(ctx, topicIDs, byTopicLimit)
 	}
 	tags, err := s.tagRepo.List(ctx)
 	if err != nil {

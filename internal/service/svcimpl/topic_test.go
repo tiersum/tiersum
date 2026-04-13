@@ -12,15 +12,15 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-func TestTagGroupSvc_GroupTags(t *testing.T) {
+func TestTopicSvc_RegroupTags(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -42,47 +42,47 @@ func TestTagGroupSvc_GroupTags(t *testing.T) {
 	]`)
 
 	// Test grouping
-	err := svc.GroupTags(ctx)
+	err := svc.RegroupTags(ctx)
 	require.NoError(t, err)
 
 	// Verify groups were created
-	groups, err := groupRepo.List(ctx)
+	groups, err := topicRepo.List(ctx)
 	require.NoError(t, err)
 	assert.Len(t, groups, 2)
 }
 
-func TestTagGroupSvc_GroupTags_NoTags(t *testing.T) {
+func TestTopicSvc_RegroupTags_NoTags(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
 
 	// No tags in the system
-	err := svc.GroupTags(ctx)
+	err := svc.RegroupTags(ctx)
 	require.NoError(t, err)
 
 	// Verify no groups were created
-	groups, err := groupRepo.List(ctx)
+	groups, err := topicRepo.List(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, groups)
 }
 
-func TestTagGroupSvc_GroupTags_TagRepoError(t *testing.T) {
+func TestTopicSvc_RegroupTags_TagRepoError(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -90,20 +90,20 @@ func TestTagGroupSvc_GroupTags_TagRepoError(t *testing.T) {
 	// Set error on tag repo
 	tagRepo.SetError(errors.New("database error"))
 
-	err := svc.GroupTags(ctx)
+	err := svc.RegroupTags(ctx)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "database error")
 }
 
-func TestTagGroupSvc_GroupTags_LLMError(t *testing.T) {
+func TestTopicSvc_RegroupTags_LLMError(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -117,20 +117,20 @@ func TestTagGroupSvc_GroupTags_LLMError(t *testing.T) {
 	// Set error on provider
 	provider.SetError(errors.New("llm error"))
 
-	err := svc.GroupTags(ctx)
+	err := svc.RegroupTags(ctx)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "llm error")
 }
 
-func TestTagGroupSvc_ShouldRefresh_FirstTime(t *testing.T) {
+func TestTopicSvc_ShouldRefresh_FirstTime(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -141,15 +141,15 @@ func TestTagGroupSvc_ShouldRefresh_FirstTime(t *testing.T) {
 	assert.True(t, shouldRefresh)
 }
 
-func TestTagGroupSvc_ShouldRefresh_TagCountChanged(t *testing.T) {
+func TestTopicSvc_ShouldRefresh_TagCountChanged(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -159,7 +159,7 @@ func TestTagGroupSvc_ShouldRefresh_TagCountChanged(t *testing.T) {
 
 	// Perform initial grouping to set state
 	provider.SetResponse(`[{"name": "Languages", "description": "Programming", "tags": ["golang"]}]`)
-	svc.GroupTags(ctx)
+	svc.RegroupTags(ctx)
 
 	// Add more tags
 	tagRepo.Create(ctx, &types.Tag{ID: "tag2", Name: "python"})
@@ -170,15 +170,15 @@ func TestTagGroupSvc_ShouldRefresh_TagCountChanged(t *testing.T) {
 	assert.True(t, shouldRefresh)
 }
 
-func TestTagGroupSvc_ShouldRefresh_TimeElapsed(t *testing.T) {
+func TestTopicSvc_ShouldRefresh_TimeElapsed(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := &TagGroupSvc{
+	svc := &TopicSvc{
 		tagRepo:         tagRepo,
-		groupRepo:       groupRepo,
+		topicRepo:       topicRepo,
 		provider:        provider,
 		logger:          testLogger(),
 		lastRefreshTime: time.Now().Add(-31 * time.Minute), // 31 minutes ago
@@ -191,15 +191,15 @@ func TestTagGroupSvc_ShouldRefresh_TimeElapsed(t *testing.T) {
 	assert.True(t, shouldRefresh)
 }
 
-func TestTagGroupSvc_ShouldRefresh_NoRefreshNeeded(t *testing.T) {
+func TestTopicSvc_ShouldRefresh_NoRefreshNeeded(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := &TagGroupSvc{
+	svc := &TopicSvc{
 		tagRepo:         tagRepo,
-		groupRepo:       groupRepo,
+		topicRepo:       topicRepo,
 		provider:        provider,
 		logger:          testLogger(),
 		lastRefreshTime: time.Now().Add(-5 * time.Minute), // 5 minutes ago
@@ -212,43 +212,43 @@ func TestTagGroupSvc_ShouldRefresh_NoRefreshNeeded(t *testing.T) {
 	assert.False(t, shouldRefresh)
 }
 
-func TestTagGroupSvc_GetL1Groups(t *testing.T) {
+func TestTopicSvc_ListTopics(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
 
 	// Create groups
-	groupRepo.Create(ctx, &types.TagGroup{
+	topicRepo.Create(ctx, &types.Topic{
 		ID:   "group1",
 		Name: "Languages",
 	})
-	groupRepo.Create(ctx, &types.TagGroup{
+	topicRepo.Create(ctx, &types.Topic{
 		ID:   "group2",
 		Name: "Databases",
 	})
 
-	groups, err := svc.GetL1Groups(ctx)
+	groups, err := svc.ListTopics(ctx)
 	require.NoError(t, err)
 	assert.Len(t, groups, 2)
 }
 
-func TestTagGroupSvc_GetL2TagsByGroup(t *testing.T) {
+func TestTopicSvc_ListTagsByTopic(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -257,33 +257,33 @@ func TestTagGroupSvc_GetL2TagsByGroup(t *testing.T) {
 	tagRepo.Create(ctx, &types.Tag{
 		ID:      "tag1",
 		Name:    "golang",
-		GroupID: "group1",
+		TopicID: "group1",
 	})
 	tagRepo.Create(ctx, &types.Tag{
 		ID:      "tag2",
 		Name:    "python",
-		GroupID: "group1",
+		TopicID: "group1",
 	})
 	tagRepo.Create(ctx, &types.Tag{
 		ID:      "tag3",
 		Name:    "postgres",
-		GroupID: "group2",
+		TopicID: "group2",
 	})
 
-	tags, err := svc.GetL2TagsByGroup(ctx, "group1")
+	tags, err := svc.ListTagsByTopic(ctx, "group1")
 	require.NoError(t, err)
 	assert.Len(t, tags, 2)
 }
 
-func TestTagGroupSvc_FilterL2TagsByQuery(t *testing.T) {
+func TestTopicSvc_FilterTagsByQuery(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -299,40 +299,40 @@ func TestTagGroupSvc_FilterL2TagsByQuery(t *testing.T) {
 		{"tag": "python", "relevance": 0.7}
 	]`)
 
-	results, err := svc.FilterL2TagsByQuery(ctx, "programming languages", tags)
+	results, err := svc.FilterTagsByQuery(ctx, "programming languages", tags)
 	require.NoError(t, err)
 	assert.Len(t, results, 2)
 	assert.Equal(t, "golang", results[0].Tag)
 	assert.Equal(t, 0.95, results[0].Relevance)
 }
 
-func TestTagGroupSvc_FilterL2TagsByQuery_EmptyTags(t *testing.T) {
+func TestTopicSvc_FilterTagsByQuery_EmptyTags(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
 
-	results, err := svc.FilterL2TagsByQuery(ctx, "query", nil)
+	results, err := svc.FilterTagsByQuery(ctx, "query", nil)
 	require.NoError(t, err)
 	assert.Nil(t, results)
 }
 
-func TestTagGroupSvc_FilterL2TagsByQuery_LLMError(t *testing.T) {
+func TestTopicSvc_FilterTagsByQuery_LLMError(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -345,22 +345,22 @@ func TestTagGroupSvc_FilterL2TagsByQuery_LLMError(t *testing.T) {
 	provider.SetError(errors.New("llm error"))
 
 	// Should fallback to equal relevance
-	results, err := svc.FilterL2TagsByQuery(ctx, "query", tags)
+	results, err := svc.FilterTagsByQuery(ctx, "query", tags)
 	require.NoError(t, err)
 	assert.Len(t, results, 1)
 	assert.Equal(t, "golang", results[0].Tag)
 	assert.Equal(t, 0.5, results[0].Relevance)
 }
 
-func TestTagGroupSvc_performGrouping(t *testing.T) {
+func TestTopicSvc_performGrouping(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -379,15 +379,15 @@ func TestTagGroupSvc_performGrouping(t *testing.T) {
 	assert.Equal(t, []string{"golang", "python", "javascript"}, groups[0].Tags)
 }
 
-func TestTagGroupSvc_performGrouping_EmptyTags(t *testing.T) {
+func TestTopicSvc_performGrouping_EmptyTags(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -397,15 +397,15 @@ func TestTagGroupSvc_performGrouping_EmptyTags(t *testing.T) {
 	assert.Nil(t, groups)
 }
 
-func TestTagGroupSvc_performGrouping_LLMError(t *testing.T) {
+func TestTopicSvc_performGrouping_LLMError(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -420,14 +420,14 @@ func TestTagGroupSvc_performGrouping_LLMError(t *testing.T) {
 	assert.Contains(t, err.Error(), "llm error")
 }
 
-func TestTagGroupSvc_parseGroupResponse(t *testing.T) {
+func TestTopicSvc_parseGroupResponse(t *testing.T) {
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -477,14 +477,14 @@ func TestTagGroupSvc_parseGroupResponse(t *testing.T) {
 	}
 }
 
-func TestTagGroupSvc_parseTagFilterResults(t *testing.T) {
+func TestTopicSvc_parseTagFilterResults(t *testing.T) {
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -530,14 +530,14 @@ func TestTagGroupSvc_parseTagFilterResults(t *testing.T) {
 	}
 }
 
-func TestTagGroupSvc_fallbackTagFilter(t *testing.T) {
+func TestTopicSvc_fallbackTagFilter(t *testing.T) {
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -554,15 +554,15 @@ func TestTagGroupSvc_fallbackTagFilter(t *testing.T) {
 	}
 }
 
-func TestTagGroupSvc_GroupTags_GroupRepoError(t *testing.T) {
+func TestTopicSvc_RegroupTags_GroupRepoError(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)
@@ -577,22 +577,22 @@ func TestTagGroupSvc_GroupTags_GroupRepoError(t *testing.T) {
 	provider.SetResponse(`[{"name": "Languages", "description": "Programming", "tags": ["golang"]}]`)
 
 	// Set error on group repo for DeleteAll
-	groupRepo.SetError(errors.New("delete error"))
+	topicRepo.SetError(errors.New("delete error"))
 
-	err := svc.GroupTags(ctx)
+	err := svc.RegroupTags(ctx)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "delete error")
 }
 
-func TestTagGroupSvc_ShouldRefresh_TagRepoError(t *testing.T) {
+func TestTopicSvc_ShouldRefresh_TagRepoError(t *testing.T) {
 	ctx := context.Background()
 	tagRepo := NewMockTagRepository()
-	groupRepo := NewMockTagGroupRepository()
+	topicRepo := NewMockTopicRepository()
 	provider := NewMockLLMProvider()
 
-	svc := NewTagGroupSvc(
+	svc := NewTopicSvc(
 		tagRepo,
-		groupRepo,
+		topicRepo,
 		provider,
 		testLogger(),
 	)

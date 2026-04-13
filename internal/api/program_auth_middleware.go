@@ -87,7 +87,7 @@ func apiRouteRequiredScope(method, absPath string) string {
 	if m == "POST" && p == "documents" {
 		return types.AuthScopeWrite
 	}
-	if m == "POST" && p == "tags/group" {
+	if m == "POST" && p == "topics/regroup" {
 		return types.AuthScopeWrite
 	}
 	return types.AuthScopeRead

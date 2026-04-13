@@ -72,16 +72,16 @@ func ClassifyPromptPath(prompt string) string {
 	switch {
 	case strings.Contains(lower, "analyze") && strings.Contains(lower, "document"):
 		return metrics.PathDocAnalyze
-	case strings.Contains(lower, "l1") || strings.Contains(lower, "tag group"):
-		return metrics.PathL1GroupFilter
-	case strings.Contains(lower, "l2") || strings.Contains(lower, "tag") && strings.Contains(lower, "filter"):
-		return metrics.PathL2TagFilter
+	case strings.Contains(lower, "topic") && strings.Contains(lower, "relevance"):
+		return metrics.PathTopicFilter
+	case strings.Contains(lower, "tag") && strings.Contains(lower, "relevance"):
+		return metrics.PathTagFilter
 	case strings.Contains(lower, "document") && strings.Contains(lower, "relevance"):
 		return metrics.PathDocFilter
 	case strings.Contains(lower, "chapter") || strings.Contains(lower, "section"):
 		return metrics.PathChapterFilter
-	case strings.Contains(lower, "group") && strings.Contains(lower, "tag"):
-		return metrics.PathTagGroup
+	case strings.Contains(lower, "group") && strings.Contains(lower, "topic"):
+		return metrics.PathTopicRegroup
 	default:
 		return metrics.PathUnknown
 	}
