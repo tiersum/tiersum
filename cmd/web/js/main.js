@@ -8,6 +8,7 @@ import { DocumentsPage } from './pages/DocumentsPage.js';
 import { DocumentDetailPage } from './pages/DocumentDetailPage.js';
 import { TagsPage } from './pages/TagsPage.js';
 import { ObservabilityPage } from './pages/ObservabilityPage.js';
+import { ProductIntroPage } from './pages/ProductIntroPage.js';
 import { InitPage } from './pages/InitPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
@@ -26,6 +27,7 @@ const routes = [
     { path: '/docs/new', component: DocumentCreatePage },
     { path: '/docs/:id', component: DocumentDetailPage, props: true },
     { path: '/tags', component: TagsPage },
+    { path: '/about', component: ProductIntroPage },
     { path: '/observability', component: ObservabilityPage },
     { path: '/monitoring', redirect: '/observability' }
 ];
@@ -56,6 +58,11 @@ router.beforeEach(async (to, _from, next) => {
         return;
     }
     if (to.path === '/login') {
+        next();
+        return;
+    }
+    // Public product overview (no session) once the system is initialized.
+    if (to.path === '/about') {
         next();
         return;
     }

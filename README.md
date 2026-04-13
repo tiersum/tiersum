@@ -409,6 +409,11 @@ TierSum uses a **5-Layer Architecture** with Interface+Impl Pattern:
 
 TierSum includes a modern Vue 3 CDN-based frontend with the following features. **Which screen calls which REST endpoint** is documented in **[cmd/web/FRONTEND.md](cmd/web/FRONTEND.md)** (“Web UI ↔ REST API”). **Sign-in, admin, and devices:** [Access control and permissions (user guide)](#access-control-and-permissions-user-guide).
 
+### About (`/#/about`)
+
+- Bilingual product overview (English, then Chinese): use cases, hot/cold in plain language, who TierSum is for
+- No API calls; available without signing in once the system has been bootstrapped
+
 ### Query Page (`/#/`)
 
 - Central search box with Progressive Query support

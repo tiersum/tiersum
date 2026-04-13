@@ -88,6 +88,11 @@ export const AppHeader = {
                             Tags
                         </button>
                     </router-link>
+                    <router-link to="/about" custom v-slot="{ navigate, isActive }">
+                        <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
+                            About
+                        </button>
+                    </router-link>
                     <template v-if="me">
                         <div class="dropdown dropdown-end">
                             <div tabindex="0" role="button" :class="['btn btn-ghost btn-sm gap-1', managementMenuActive ? 'text-sky-300 bg-sky-500/10' : 'text-slate-300']">

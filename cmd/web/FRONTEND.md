@@ -49,6 +49,7 @@ make build
 - **Search** (`/`): Progressive query, server `answer` when available + reference list
 - **Documents** (`/docs`, `/docs/new`, `/docs/:id`): List/filter, full-page create, detail (summaries / chapters / source)
 - **Tags** (`/tags`): topics (themes) + catalog tags for the selected topic; trigger topic regroup
+- **About** (`/about`): bilingual (English then Chinese) end-user product overview — static copy only, no BFF calls; reachable **without a browser session** once the system is initialized (`main.js` router guard).
 - **Management** (top bar dropdown after login, `js/components/AppHeader.js`): **Observability** (`/observability`, `/monitoring` redirects here) — all signed-in roles; **Devices & sessions** (`/settings`) — all roles; **Users & API keys** (`/admin`) — **admin** only; **Configuration** (`/admin/config`) — **admin** only, redacted `GET /bff/v1/admin/config/snapshot`. Observability: **Monitoring** tab (health, runtime, cold index stats, Prometheus preview), **Cold probe** (`GET /bff/v1/cold/doc_source`, `?tab=cold`), **Traces** (`?tab=traces`).
 - **Dark theme**: Slate-style palette
 - **Responsive**: Mobile-friendly layout
@@ -60,9 +61,10 @@ make build
 - `/docs/new` — Create document (Markdown + preview)
 - `/docs/:id` — Document detail
 - `/tags` — Tag browser
+- `/about` — Product introduction (bilingual); public after bootstrap (no login required)
 - `/observability` — Monitoring + cold probe + traces (`/monitoring` redirects here); linked from **Management → Observability** (not a top-level nav button).
 
-Vue Router uses **HTML5 history** mode (`createWebHistory`): `/`, `/docs`, `/tags`, `/observability`, etc. The API server serves `index.html` for unknown non-API paths so direct URLs and refresh work.
+Vue Router uses **HTML5 history** mode (`createWebHistory`): `/`, `/docs`, `/tags`, `/about`, `/observability`, etc. The API server serves `index.html` for unknown non-API paths so direct URLs and refresh work.
 
 **Permission / management UI entry:** After login, the top bar shows a **Management** dropdown (`js/components/AppHeader.js`): **Observability** (`/observability`, every signed-in role), **Devices & sessions** (`/settings`, every role), **Users & API keys** (`/admin`, **admin** only), **Configuration** (`/admin/config`, **admin** only). Direct URLs: `/observability`, `/settings`, `/admin`, `/admin/config`.
 
