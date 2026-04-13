@@ -131,6 +131,8 @@ make build
 
 # Or use Docker Compose (includes all services)
 cd deployments/docker && docker-compose up -d
+
+# Pre-built image from Alibaba ACR (login + docker pull): see deployments/docker/README.md
 ```
 
 ### Configuration

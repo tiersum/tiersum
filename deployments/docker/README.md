@@ -34,3 +34,19 @@ Local login:
 ```bash
 docker login --username=YOUR_USER crpi-gp9w4rgj2tki21xk.cn-hangzhou.personal.cr.aliyuncs.com
 ```
+
+### Pull from the registry
+
+After login, pull by **namespace** + **image** + **tag** (tag must match your CPU: `-amd64` vs `-arm64`; there is no single `latest`):
+
+```bash
+docker pull crpi-gp9w4rgj2tki21xk.cn-hangzhou.personal.cr.aliyuncs.com/<ACR_NAMESPACE>/tiersum:<tag>
+```
+
+Example if your namespace is `tiersum` and you released `v1.2.3` on amd64:
+
+```bash
+docker pull crpi-gp9w4rgj2tki21xk.cn-hangzhou.personal.cr.aliyuncs.com/tiersum/tiersum:v1.2.3-amd64
+```
+
+Replace `<tag>` with a value from the Actions run (e.g. `v1.2.3-amd64`, `manual-abcdef123456-amd64`, or `sha-abcdef123456-amd64`).
