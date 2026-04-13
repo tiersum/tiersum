@@ -99,7 +99,7 @@ llm:
 # Progressive query (POST /api/v1/query/progressive) — synthesized AI answer only (extra LLM call after retrieval).
 # Hot/cold retrieval still uses llm.* above for tag/doc/chapter filters. Smaller values here reduce answer latency.
 # OpenTelemetry: HTTP + in-process spans (including progressive-query detail spans when the trace is sampled and query.allow_progressive_debug is true) share one TracerProvider and persist to otel_spans.
-# Core APIs (query, tag group, hot/cold retrieval) are wrapped; document CRUD, tag lists, quota, monitoring, and /traces are not.
+# Core APIs (query, topic regroup, hot/cold retrieval) are wrapped; document CRUD, tag/topic lists, quota, monitoring, and /traces are not.
 telemetry:
   # When false, no global TracerProvider and no HTTP tracing middleware.
   enabled: false

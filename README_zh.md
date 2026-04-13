@@ -16,11 +16,11 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Tag Groups (L1)                                            │
+│  主题 Topics（LLM 归类）                                      │
 │  ├── Cloud Native                                           │
-│  │      └── Tags: kubernetes, docker, helm                  │
+│  │      └── 目录标签: kubernetes, docker, helm                 │
 │  └── Programming Languages                                  │
-│         └── Tags: golang, python, rust                      │
+│         └── 目录标签: golang, python, rust                    │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -33,7 +33,9 @@
 └─────────────────────────────────────┘
 ```
 
-**查询沿层级逐步收窄**：先经 LLM 筛选标签，再到文档、章节，每一步都有相关性评分；**不是**仅靠向量相似度「猜」片段 —— 而是 **可解释的层级导航**。
+**用语：** **目录标签（catalog tags）** 指库内去重后的标签名（`tags` 表：文档计数、可选 `topic_id`）。**主题（topics）** 是 LLM 将目录标签归入的「主题/门类」，用于浏览与在目录标签很多时辅助渐进式查询收窄。热文档上的 **tags** 字段会并入同一套目录。
+
+**查询沿层级逐步收窄**：**标签 → 文档 → 章节**（目录标签很多时，服务可先按 **主题** 收窄候选标签），每步 LLM 相关性评分；**不是**仅靠向量相似度「猜」片段 —— 而是 **可解释的层级导航**。
 
 ---
 
@@ -43,9 +45,9 @@
 |:--------|:------------|
 | **热/冷分层** | 热文档：完整 LLM 分析；冷文档：BM25 + 向量混合检索 |
 | **三级摘要** | 文档 → 章节 → 原文，由 LLM 生成 |
-| **两级标签** | L1 标签组 → L2 标签（自动生成） |
-| **渐进式查询** | 每步用 LLM 过滤：标签 → 文档 → 章节 |
-| **标签自动聚类** | LLM 将相关标签归入 L1 类别 |
+| **主题 + 目录标签** | LLM **主题重归类** 将目录标签划入 `topics`；`GET /tags` 可用 `topic_ids` 限定范围 |
+| **渐进式查询** | **标签 → 文档 → 章节**；目录标签很多时可先经 **主题** 收窄 |
+| **主题自动重归类** | 定时或手动 `POST /api/v1/topics/regroup` 按目录标签刷新主题 |
 | **BM25 + 向量混合** | 对冷文档按 **章节** 建索引，关键词 + 语义混合检索，命中返回 **整章正文** |
 | **RAG 替代思路** | 避免无结构切碎，尽量保留上下文 |
 | **双接口** | REST API + MCP，便于智能体集成 |
@@ -82,7 +84,7 @@ TierSum 用两层策略平衡 **LLM 成本** 与 **检索效果**：
 │                    Hot Documents                            │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  Full LLM Analysis → Tags + Summaries + Chapters     │  │
-│  │  Progressive Query (L1→L2→Docs→Chapters)             │  │
+│  │  Progressive Query（标签→文档→章节；主题辅助）        │  │
 │  └───────────────────────────────────────────────────────┘  │
 ├─────────────────────────────────────────────────────────────┤
 │                    Cold Documents                           │
@@ -236,7 +238,7 @@ export TIERSUM_API_KEY='tsk_live_你的密钥'
 curl -sS -H "X-API-Key: $TIERSUM_API_KEY" http://localhost:8080/api/v1/documents
 ```
 
-**Key 的 scope：** `read`（读与渐进查询）、`write`（含写入文档、触发标签聚类）、`admin`（在路由检查上包含 write 的 superset）。注意：这是 **服务密钥的 scope**，与网页里的 **人角色 admin** 不是同一概念。
+**Key 的 scope：** `read`（读与渐进查询）、`write`（含写入文档、触发 **主题重归类** `POST /topics/regroup`）、`admin`（在路由检查上包含 write 的 superset）。注意：这是 **服务密钥的 scope**，与网页里的 **人角色 admin** 不是同一概念。
 
 ### MCP
 
@@ -289,14 +291,14 @@ curl "http://localhost:8080/api/v1/hot/doc_chapters?doc_ids=uuid1,uuid2&max_resu
 curl "http://localhost:8080/api/v1/hot/doc_source?chapter_paths=docId/chapter-title&max_results=100"
 curl "http://localhost:8080/api/v1/cold/doc_source?q=scheduler,pods&max_results=100"
 
-# 列出 L1 标签组
-curl "http://localhost:8080/api/v1/tags/groups"
+# 列出主题（topics）
+curl "http://localhost:8080/api/v1/topics"
 
-# 列出标签：可按 L1 组过滤。查询参数名为 group_ids（逗号分隔），可选 max_results
-curl "http://localhost:8080/api/v1/tags?group_ids=group1,group2&max_results=100"
+# 列出目录标签；可按主题过滤，参数为 topic_ids（逗号分隔），可选 max_results
+curl "http://localhost:8080/api/v1/tags?topic_ids=topic-uuid-1,topic-uuid-2&max_results=100"
 
-# 手动触发标签聚类任务
-curl -X POST http://localhost:8080/api/v1/tags/group
+# 手动触发主题重归类（LLM 根据目录标签刷新 topics）
+curl -X POST http://localhost:8080/api/v1/topics/regroup
 
 # 获取单个文档 / 摘要
 curl "http://localhost:8080/api/v1/documents/{id}"
@@ -306,7 +308,7 @@ curl "http://localhost:8080/api/v1/documents/{id}/summaries"
 curl "http://localhost:8080/api/v1/quota"
 ```
 
-> **校验说明**：标签列表接口使用 **`group_ids`**（复数、逗号分隔），与 `internal/api/handler_retrieval.go` 一致；**不存在** `group_id` 单数查询参数。
+> **校验说明**：标签列表接口使用 **`topic_ids`**（复数、逗号分隔），与 `internal/api/handler_retrieval.go` 一致。
 
 ### MCP 工具（智能体）
 
@@ -320,9 +322,9 @@ MCP 工具名与入参与 **`/api/v1` 下 REST** 语义对齐（实现见 `inter
 | `api_v1_documents_chapters_get` | `GET /documents/:id/chapters`（`id`） |
 | `api_v1_documents_summaries_get` | `GET /documents/:id/summaries`（`id`） |
 | `api_v1_query_progressive_post` | `POST /query/progressive`（`question`，`max_results`） |
-| `api_v1_tags_get` | `GET /tags`（可选 `group_ids`、`max_results`） |
-| `api_v1_tags_groups_get` | `GET /tags/groups` |
-| `api_v1_tags_group_post` | `POST /tags/group` |
+| `api_v1_tags_get` | `GET /tags`（可选 `topic_ids`、`max_results`） |
+| `api_v1_topics_get` | `GET /topics` |
+| `api_v1_topics_regroup_post` | `POST /topics/regroup` |
 | `api_v1_hot_doc_summaries_get` | `GET /hot/doc_summaries`（`tags`，`max_results`） |
 | `api_v1_hot_doc_chapters_get` | `GET /hot/doc_chapters`（`doc_ids`，`max_results`） |
 | `api_v1_hot_doc_source_get` | `GET /hot/doc_source`（`chapter_paths`，`max_results`） |
@@ -391,8 +393,8 @@ TierSum 采用 **五层架构** + **接口与实现分离**（`I*` 接口 + `svc
 - 元数据：标题、标签、格式、状态、热度与查询统计等  
 
 ### 标签页（`/#/tags`）
-- 两级导航：左侧 L1 组，右侧 L2 标签及文档计数  
-- 点击标签筛选文档  
+- 左侧 **主题**（`GET /topics`），右侧当前主题下的 **目录标签**（`GET /tags?topic_ids=…`）及文档计数  
+- 「重归类」调用 `POST /topics/regroup`  
 
 ### 技术栈
 - **框架**：Vue 3（CDN）  
@@ -478,7 +480,7 @@ make build-all
 
 ## 路线图
 
-与英文 README 一致：热/冷分层、混合检索、三级摘要、两级标签、渐进式查询、REST+MCP、Vue CDN 界面等已勾选；OpenClaw 技能包、实时协作、多模态、企业 SSO 等为规划中项。
+与英文 README 一致：热/冷分层、混合检索、三级摘要、主题与目录标签、渐进式查询、REST+MCP、Vue CDN 界面等已勾选；OpenClaw 技能包、实时协作、多模态、企业 SSO 等为规划中项。
 
 ---
 

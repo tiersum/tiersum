@@ -51,7 +51,7 @@ Resolved mode: `**req.EffectiveIngestMode()**` (`ingest_mode` JSON field: `auto`
   - Prebuilt tags only: `**SummarizerSvc.AnalyzeDocument`**, merge tags, then `**Index`**.  
   - Neither: full `**AnalyzeDocument**`, then `**Index**`.
 - `**Index**` (`internal/service/svcimpl/indexer.go`): delete old summaries; write document-tier summary; for each chapter write chapter summary + `path/source` row for raw chapter text.  
-- For each tag: `**TagRepo.Create**` + `**IncrementDocumentCount**` (global L2 tags).
+- For each tag: `**TagRepo.Create**` + `**IncrementDocumentCount**` (catalog tag rows: deduplicated names with document counts).
 
 ### 1.3 Cold path
 
@@ -86,7 +86,7 @@ Results are **merged** (`mergeHotAndColdResults`): hot entries win by document i
 ### 2.2 Hot path (`queryHotPath`)
 
 1. `**filterCatalogTags(question)`** — adaptive (`**CatalogTagThreshold**` = 200 in `query.go`):
-  - If global tag count **< threshold**: `**filterTagsDirect`** — LLM `**Summarizer.FilterTagsByQuery**` on all catalog tags.  
+  - If **catalog tag** count **< threshold**: `**filterTagsDirect`** — LLM `**Summarizer.FilterTagsByQuery**` on all catalog tags.  
   - Else: `**filterTagsViaTopics`** — `**filterTopics**` (`**Summarizer.FilterTopicsByQuery`** on topics, relevance **≥ 0.5**, up to **3**) → `**getTagsFromTopics**` → `**filterTagsDirect**` on that tag subset.  
   - Relevant tag names: filter results with relevance **≥ 0.5** (`**extractRelevantTags**`). Fallbacks if LLM or repos fail.
 2. `**queryAndFilterDocuments`**
@@ -118,7 +118,7 @@ Results are **merged** (`mergeHotAndColdResults`): hot entries win by document i
 
 **Handler:** `ExecuteTriggerTopicRegroup` → `TopicSvc.RegroupTags` (`internal/service/svcimpl/topic.go`).
 
-1. `**TagRepo.List`** all global tags.
+1. `**TagRepo.List`** all catalog tags.
 2. `**performGrouping`**: LLM returns JSON topics → `[]Topic` (name, description, member tag names).
 3. `**TopicRepo.DeleteAll`** then create each topic row.
 4. For each tag name in a topic: `**TagRepo.GetByName**`, set `TopicID`, `**TagRepo.Create**` (implementation note: relies on create path for assignment).

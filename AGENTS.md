@@ -347,7 +347,7 @@ go test -race ./...
 - Tests cover:
   - Hot/cold document tiering logic
   - Progressive query filtering
-  - Tag grouping
+  - Topic regrouping
   - Quota management
   - API handlers
 
@@ -401,10 +401,10 @@ func TestFeature(t *testing.T) {
 | content     | TEXT | Summary or source content          |
 
 
-### Global Tags & Tag Groups
+### Catalog tags & topics
 
-- `global_tags` - Level 2 tags with document counts
-- `tag_groups` - Level 1 groups (created by LLM-based tag grouping)
+- `tags` — deduplicated **catalog tags** (name, document count, optional `topic_id` pointing at a theme)
+- `topics` — **topics** (themes) produced by LLM **regroup**; `topic_regroup_log` records regroup runs where present in schema
 
 ---
 
@@ -539,7 +539,7 @@ var _ service.IMyService = (*MySvc)(nil)
 2. **Implement** in subpackage (e.g., `service/svcimpl/`)
 3. **Wire** in `di/container.go`
 4. **Add tests** in `*_test.go`
-5. **Core API docs:** If the change affects a **non–simple-CRUD** API (multi-step logic, LLM, tiering, hybrid search, tag grouping, hot/cold retrieval), update **`docs/CORE_API_FLOWS.md`** in the same PR/commit. Cursor rule: `.cursor/rules/core-api-flows-doc.mdc`.
+5. **Core API docs:** If the change affects a **non–simple-CRUD** API (multi-step logic, LLM, tiering, hybrid search, topic regroup / catalog tags, hot/cold retrieval), update **`docs/CORE_API_FLOWS.md`** in the same PR/commit. Cursor rule: `.cursor/rules/core-api-flows-doc.mdc`.
 6. **AGENTS.md edits:** When changing **`AGENTS.md`**, in the same pass **strengthen Architecture-related sections** (`## Project Structure`, `## Architecture Principles`, and aligned topics such as hot/cold tiering or jobs) so structure, layers, and cross-links stay accurate. Cursor rule: `.cursor/rules/agents-architecture.mdc`.
 
 ---

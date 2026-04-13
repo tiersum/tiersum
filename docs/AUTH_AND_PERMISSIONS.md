@@ -64,7 +64,7 @@ Public (no TierSum auth): **`GET /health`**, **`GET /metrics`** at the server ro
 2. Read **`X-API-Key`** or **`Authorization: Bearer <key>`**.
 3. **`ValidateAPIKey`** → principal (`key_id`, `scope`, `name`).
 4. **`apiRouteRequiredScope(method, path)`** — today:
-   - **`write`** for `POST /api/v1/documents`, `POST /api/v1/tags/group`
+   - **`write`** for `POST /api/v1/documents`, `POST /api/v1/topics/regroup`
    - **`read`** for everything else under `/api/v1`
 5. **`APIKeyMeetsScope`**: ordered ranks `read < write < admin` (admin satisfies write and read).
 6. **`RecordAPIKeyUse`** for audit + last-used fields.

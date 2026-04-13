@@ -16,11 +16,11 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Tag Groups (L1)                                            │
+│  Topics (themes, LLM regroup)                               │
 │  ├── Cloud Native                                           │
-│  │      └── Tags: kubernetes, docker, helm                  │
+│  │      └── Catalog tags: kubernetes, docker, helm           │
 │  └── Programming Languages                                  │
-│         └── Tags: golang, python, rust                      │
+│         └── Catalog tags: golang, python, rust                │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -33,7 +33,9 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 └─────────────────────────────────────┘
 ```
 
-**Query flows through intelligent filtering**: Start with LLM-filtered tags, then documents, then chapters — each step refined by LLM relevance scoring. No vector similarity guessing — **precise hierarchical navigation**.
+**Terminology:** **Catalog tags** are deduplicated tag names in the `tags` table (document counts; optional `topic_id`). **Topics** are LLM-built themes that group those names for browsing and for adaptive narrowing in progressive query when the catalog is large. Hot documents also store per-document **tags** that feed the same catalog.
+
+**Query flows through intelligent filtering**: **Tags → documents → chapters** (when there are many catalog tags, the service may first narrow tags **via topics**), with LLM relevance scoring at each step. No vector similarity guessing — **precise hierarchical navigation**.
 
 ---
 
@@ -44,9 +46,9 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 | ------------------------------- | --------------------------------------------------------------------------------- |
 | **Hot/Cold Tiering**            | Smart document storage: Hot (full LLM analysis) vs Cold (BM25 + vector search)    |
 | **3-Tier Summarization**        | Document → Chapter → Source, auto-generated via LLM                               |
-| **Two-Level Tag Hierarchy**     | L1 Tag Groups → L2 Tags (auto-generated)                                          |
-| **Progressive Query**           | LLM filters tags → documents → chapters at each step                              |
-| **Auto Tag Grouping**           | LLM automatically groups related tags into categories                             |
+| **Topics + catalog tags**       | LLM **topic regroup** assigns catalog tags to themes (`topics`); optional `topic_ids` on `GET /tags` |
+| **Progressive Query**           | LLM filters **tags → documents → chapters**; may narrow tags **via topics** when the catalog is large |
+| **Auto topic regroup**          | Scheduled or manual `POST /api/v1/topics/regroup` refreshes themes from the catalog |
 | **BM25 + Vector Hybrid Search** | Keyword + semantic search over cold markdown chapters (full chapter text in hits) |
 | **RAG Alternative**             | Zero chunk fragmentation; full context preservation                               |
 | **Dual API**                    | REST API + MCP Tools for seamless agent integration                               |
@@ -86,7 +88,7 @@ TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 │                    Hot Documents                            │
 │  ┌───────────────────────────────────────────────────────┐  │
 │  │  Full LLM Analysis → Tags + Summaries + Chapters     │  │
-│  │  Progressive Query (L1→L2→Docs→Chapters)             │  │
+│  │  Progressive Query (tags→docs→chapters; topics assist) │  │
 │  └───────────────────────────────────────────────────────┘  │
 ├─────────────────────────────────────────────────────────────┤
 │                    Cold Documents                           │
@@ -251,7 +253,7 @@ curl -sS -H "Authorization: Bearer $TIERSUM_API_KEY" http://localhost:8080/api/v
 **Scopes (on the key):**
 
 - **`read`** — typical GETs and `POST /api/v1/query/progressive`.
-- **`write`** — includes **document ingest** (`POST /documents`) and **tag regroup** (`POST /tags/group`).
+- **`write`** — includes **document ingest** (`POST /documents`) and **topic regroup** (`POST /topics/regroup`).
 - **`admin`** — superset of `write` for route checks (still a **service** credential; not the same as human **admin** role in the UI).
 
 Wrong or missing key → **401** `invalid_key`; insufficient scope → **403** `insufficient_scope` with `required` scope.
@@ -276,7 +278,7 @@ MCP tools use the **same scope rules** as `/api/v1`. `/mcp/*` is **not** covered
 
 ## API Usage
 
-**Core flows** (ingest tiering, progressive query, tag grouping, hot/cold retrieval, hybrid cold search): see [docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md).
+**Core flows** (ingest tiering, progressive query, topic regroup / catalog tags, hot/cold retrieval, hybrid cold search): see [docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md).
 
 **Auth design:** [docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md).
 
@@ -313,14 +315,14 @@ curl "http://localhost:8080/api/v1/hot/doc_chapters?doc_ids=uuid1,uuid2&max_resu
 curl "http://localhost:8080/api/v1/hot/doc_source?chapter_paths=docId/chapter-title&max_results=100"
 curl "http://localhost:8080/api/v1/cold/doc_source?q=scheduler,pods&max_results=100"
 
-# List tag groups (Level 1)
-curl "http://localhost:8080/api/v1/tags/groups"
+# List topics (themes)
+curl "http://localhost:8080/api/v1/topics"
 
-# List tags filtered by L1 groups (comma-separated group_ids; optional max_results)
-curl "http://localhost:8080/api/v1/tags?group_ids=group1,group2&max_results=100"
+# List catalog tags, optionally scoped to topics (comma-separated topic_ids; optional max_results)
+curl "http://localhost:8080/api/v1/tags?topic_ids=topic-uuid-1,topic-uuid-2&max_results=100"
 
-# Trigger tag grouping manually
-curl -X POST http://localhost:8080/api/v1/tags/group
+# Trigger topic regroup manually (LLM refreshes topics from catalog tags)
+curl -X POST http://localhost:8080/api/v1/topics/regroup
 
 # Get document
 curl "http://localhost:8080/api/v1/documents/{id}"
@@ -345,9 +347,9 @@ MCP tool names and JSON bodies align with the REST API under `/api/v1` (see `int
 | `api_v1_documents_chapters_get`  | `GET /documents/:id/chapters` (`id`)                   |
 | `api_v1_documents_summaries_get` | `GET /documents/:id/summaries` (`id`)                  |
 | `api_v1_query_progressive_post`  | `POST /query/progressive` (`question`, `max_results`)  |
-| `api_v1_tags_get`                | `GET /tags` (`group_ids`, `max_results` optional)      |
-| `api_v1_tags_groups_get`         | `GET /tags/groups`                                     |
-| `api_v1_tags_group_post`         | `POST /tags/group`                                     |
+| `api_v1_tags_get`                | `GET /tags` (`topic_ids`, `max_results` optional)      |
+| `api_v1_topics_get`              | `GET /topics`                                          |
+| `api_v1_topics_regroup_post`     | `POST /topics/regroup`                                 |
 | `api_v1_hot_doc_summaries_get`   | `GET /hot/doc_summaries` (`tags`, `max_results`)       |
 | `api_v1_hot_doc_chapters_get`    | `GET /hot/doc_chapters` (`doc_ids`, `max_results`)     |
 | `api_v1_hot_doc_source_get`      | `GET /hot/doc_source` (`chapter_paths`, `max_results`) |
@@ -422,10 +424,9 @@ TierSum includes a modern Vue 3 CDN-based frontend with the following features. 
 
 ### Tag Browser (`/#/tags`)
 
-- Two-level tag navigation
-- Left panel: L1 Tag Groups (categories)
-- Right panel: L2 Tags (filtered by selected group; document counts from API)
-- Regroup button triggers `POST /api/v1/tags/group`
+- **Topics** (left): themes from `GET /api/v1/topics`
+- **Catalog tags** (right): `GET /api/v1/tags?topic_ids=<selected id>&max_results=…` (each row is a deduplicated name with document count and optional `topic_id`)
+- Regroup button triggers `POST /api/v1/topics/regroup`
 
 ### Observability (`/#/observability`)
 
@@ -559,7 +560,7 @@ make build-all
 - Hot/Cold document tiering with auto-promotion
 - BM25 + Vector hybrid search over cold chapters (full chapter text)
 - 3-tier summarization engine (Document + Chapter + Source)
-- Two-level tag hierarchy with auto-grouping
+- Topics + catalog tags with LLM regroup
 - Progressive query with LLM filtering at each step
 - LLM auto-tagging for documents
 - REST API + MCP Server
