@@ -1,0 +1,72 @@
+# Build and push TierSum Linux images (amd64 + arm64) to Alibaba Cloud Container Registry (ACR).
+#
+# Required repository secrets (Settings → Secrets and variables → Actions):
+#   ACR_USERNAME   — e.g. luodaijun-9030 (RAM / ACR login name)
+#   ACR_PASSWORD   — ACR password or long-lived token (never commit)
+#   ACR_NAMESPACE  — ACR namespace shown in console (命名空间), not the registry hostname
+#
+# Registry host is fixed below (personal instance). Image path:
+#   <REGISTRY>/<ACR_NAMESPACE>/tiersum:<tag>
+#
+# Local login (same credentials as CI):
+#   docker login --username=YOUR_USER crpi-gp9w4rgj2tki21xk.cn-hangzhou.personal.cr.aliyuncs.com
+
+name: Docker (ACR)
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  REGISTRY: crpi-gp9w4rgj2tki21xk.cn-hangzhou.personal.cr.aliyuncs.com
+  IMAGE_NAME: tiersum
+
+permissions:
+  contents: read
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Aliyun ACR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.ACR_USERNAME }}
+          password: ${{ secrets.ACR_PASSWORD }}
+
+      - name: Docker metadata (tags)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ secrets.ACR_NAMESPACE }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=sha-
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deployments/docker/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ github.ref_name }}

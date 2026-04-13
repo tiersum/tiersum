@@ -1,0 +1,14 @@
+.git
+.github
+build
+dist
+data
+**/*.db
+**/*.db-shm
+**/*.db-wal
+coverage.out
+coverage.html
+third_party/onnxruntime/*/
+third_party/onnxruntime/VERSION
+third_party/minilm/model.onnx
+third_party/minilm/tokenizer.json
