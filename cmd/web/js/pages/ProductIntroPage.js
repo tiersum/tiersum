@@ -70,9 +70,6 @@ export const ProductIntroPage = {
                 </div>
 
                 <article class="space-y-10 text-slate-300 leading-relaxed">
-                    <p class="text-base text-slate-400 mb-10 max-w-2xl">
-                        分层摘要、<strong class="text-slate-300">以章节为先</strong>的检索，以及在需要时由 <strong class="text-slate-300">入库阶段 AI 分析</strong>支撑的<strong class="text-slate-300">分步渐进</strong>查询。下文展开。
-                    </p>
                     <section class="space-y-4">
                         <h2 class="text-xl font-semibold text-slate-100 border-b border-slate-800 pb-2">为何选择 TierSum</h2>
                         <p>
