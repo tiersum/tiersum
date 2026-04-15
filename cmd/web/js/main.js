@@ -14,7 +14,7 @@ import { LoginPage } from './pages/LoginPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
 import { AdminPage } from './pages/AdminPage.js';
 import { AdminConfigPage } from './pages/AdminConfigPage.js';
-import { apiClient, isBrowserAdminRole } from './api_client.js';
+import { apiClient, isBrowserAdminRole, isBrowserViewerRole } from './api_client.js';
 
 const routes = [
     { path: '/init', component: InitPage },
@@ -70,6 +70,14 @@ router.beforeEach(async (to, _from, next) => {
         const me = await apiClient.getProfile();
         if (to.path.startsWith('/admin') && !isBrowserAdminRole(me.role)) {
             next('/');
+            return;
+        }
+        if ((to.path === '/observability' || to.path.startsWith('/monitoring')) && !isBrowserAdminRole(me.role)) {
+            next('/');
+            return;
+        }
+        if (to.path === '/docs/new' && isBrowserViewerRole(me.role)) {
+            next('/docs');
             return;
         }
     } catch {

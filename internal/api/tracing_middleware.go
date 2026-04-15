@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -13,6 +14,25 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// httpSpanStatusFromResponseCode maps the HTTP response status written by the handler to an
+// OpenTelemetry span status, following common APM practice and OpenTelemetry HTTP semantic
+// conventions: 1xx–3xx are successful handling; 4xx (client errors) and 5xx (server errors)
+// mark the span as Error so trace UIs and SLO/error budgets align with failed requests.
+// The numeric code remains on the span as attribute http.status_code.
+func httpSpanStatusFromResponseCode(code int) (codes.Code, string) {
+	if code <= 0 {
+		return codes.Ok, ""
+	}
+	if code >= http.StatusBadRequest {
+		text := http.StatusText(code)
+		if text == "" {
+			return codes.Error, fmt.Sprintf("HTTP %d", code)
+		}
+		return codes.Error, fmt.Sprintf("HTTP %d %s", code, text)
+	}
+	return codes.Ok, ""
+}
 
 // NewTracingMiddleware records one server span per request for core TierSum APIs.
 // Forced sampling uses telemetry.force_sample_query_param and telemetry.force_sample_header (truthy values).
@@ -42,9 +62,8 @@ func NewTracingMiddleware() gin.HandlerFunc {
 		span.SetAttributes(attribute.String("http.method", c.Request.Method))
 		code := c.Writer.Status()
 		span.SetAttributes(attribute.Int("http.status_code", code))
-		if code >= http.StatusInternalServerError {
-			span.SetStatus(codes.Error, http.StatusText(code))
-		}
+		st, msg := httpSpanStatusFromResponseCode(code)
+		span.SetStatus(st, msg)
 	}
 }
 

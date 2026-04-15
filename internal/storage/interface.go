@@ -17,7 +17,7 @@ type IDocumentRepository interface {
 	// ListByTags retrieves documents that match ANY of the given tags (OR logic)
 	ListByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error)
 	// ListMetaByTagsAndStatuses returns documents matching any tag (OR) and any of the given statuses,
-	// without loading body content (content field is empty).
+	// without loading body content (content field is empty; summary is loaded).
 	ListMetaByTagsAndStatuses(ctx context.Context, tags []string, statuses []types.DocumentStatus, limit int) ([]types.Document, error)
 	// ListByStatus retrieves documents by status (hot/cold/warming)
 	ListByStatus(ctx context.Context, status types.DocumentStatus, limit int) ([]types.Document, error)
@@ -68,6 +68,33 @@ type ITopicRepository interface {
 	List(ctx context.Context) ([]types.Topic, error)
 	DeleteAll(ctx context.Context) error
 	GetCount(ctx context.Context) (int, error)
+}
+
+// IDeviceTokenRepository persists persistent browser "keep me signed in" tokens.
+type IDeviceTokenRepository interface {
+	Create(ctx context.Context, t *DeviceToken) error
+	GetByTokenHash(ctx context.Context, tokenHash string) (*DeviceToken, error)
+	ListByUser(ctx context.Context, userID string) ([]DeviceToken, error)
+	TouchUse(ctx context.Context, id string, at time.Time) error
+	Revoke(ctx context.Context, id string, at time.Time) error
+	RevokeAllForUser(ctx context.Context, userID string, at time.Time) error
+}
+
+// IPasskeyCredentialRepository persists WebAuthn credentials per user.
+type IPasskeyCredentialRepository interface {
+	Create(ctx context.Context, c *PasskeyCredential) error
+	ListByUser(ctx context.Context, userID string) ([]PasskeyCredential, error)
+	GetByID(ctx context.Context, id string) (*PasskeyCredential, error)
+	GetByCredentialID(ctx context.Context, credentialIDB64 string) (*PasskeyCredential, error)
+	UpdateSignCountAndLastUsed(ctx context.Context, id string, signCount int64, at time.Time) error
+	Delete(ctx context.Context, id string) error
+}
+
+// IPasskeySessionVerificationRepository records recent passkey verification per browser session.
+type IPasskeySessionVerificationRepository interface {
+	Put(ctx context.Context, v *PasskeySessionVerification) error
+	GetBySessionID(ctx context.Context, sessionID string) (*PasskeySessionVerification, error)
+	DeleteBySessionID(ctx context.Context, sessionID string) error
 }
 
 // ICache defines cache operations

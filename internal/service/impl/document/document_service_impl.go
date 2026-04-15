@@ -23,28 +23,31 @@ func NewDocumentService(
 	tagRepo storage.ITagRepository,
 	chapterRepo storage.IChapterRepository,
 	quota interface{ CheckAndConsume() bool },
+	hotIngestSink service.IHotIngestWorkSink,
 	logger *zap.Logger,
 ) service.IDocumentService {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
 	return &documentService{
-		docs:     docRepo,
-		cold:     cold,
-		tags:     tagRepo,
-		chapters: chapterRepo,
-		quota:    quota,
-		logger:   logger,
+		docs:          docRepo,
+		cold:          cold,
+		tags:          tagRepo,
+		chapters:      chapterRepo,
+		quota:         quota,
+		hotIngestSink: hotIngestSink,
+		logger:        logger,
 	}
 }
 
 type documentService struct {
-	docs     storage.IDocumentRepository
-	cold     storage.IColdIndex
-	tags     storage.ITagRepository
-	chapters storage.IChapterRepository
-	quota    interface{ CheckAndConsume() bool }
-	logger   *zap.Logger
+	docs          storage.IDocumentRepository
+	cold          storage.IColdIndex
+	tags          storage.ITagRepository
+	chapters      storage.IChapterRepository
+	quota         interface{ CheckAndConsume() bool }
+	hotIngestSink service.IHotIngestWorkSink
+	logger        *zap.Logger
 }
 
 func (s *documentService) CreateDocument(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error) {
@@ -122,6 +125,9 @@ func (s *documentService) CreateDocument(ctx context.Context, req types.CreateDo
 	if stored == nil {
 		return nil, errors.New("document missing after create")
 	}
+	if hot && len(req.Chapters) == 0 && s.hotIngestSink != nil {
+		s.hotIngestSink.SubmitHotIngest(types.HotIngestWork{DocID: doc.ID, PrebuiltTags: tags})
+	}
 	if chapterCount == 0 && hot && s.chapters != nil {
 		if list, err := s.chapters.ListByDocument(ctx, doc.ID); err == nil {
 			chapterCount = len(list)
@@ -156,7 +162,7 @@ func validateCreateIngest(req types.CreateDocumentRequest) error {
 }
 
 // resolveHotIngest decides hot vs cold from ingest mode. Auto uses prebuilt summary+chapters, then content length vs hot threshold.
-// Quota is not wired in DI yet; when absent, auto hot is driven by threshold and prebuilt payloads only.
+// For auto hot (no prebuilt chapters), a successful quota CheckAndConsume is required when quota is non-nil.
 func resolveHotIngest(req types.CreateDocumentRequest, quota interface{ CheckAndConsume() bool }) bool {
 	mode := req.EffectiveIngestMode()
 	switch strings.ToLower(mode) {
@@ -276,10 +282,18 @@ func (s *documentService) ListDocuments(ctx context.Context, limit int) ([]types
 }
 
 func (s *documentService) ListHotDocumentsWithSummariesByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error) {
-	_ = ctx
-	_ = tags
-	_ = limit
-	return nil, errors.New("ListHotDocumentsWithSummariesByTags not implemented (rewrite phase)")
+	if s.docs == nil {
+		return nil, errors.New("document repository not configured")
+	}
+	tags = dedupeTagNames(tags)
+	if len(tags) == 0 {
+		return []types.Document{}, nil
+	}
+	if limit <= 0 {
+		limit = 1000
+	}
+	statuses := []types.DocumentStatus{types.DocStatusHot, types.DocStatusWarming}
+	return s.docs.ListMetaByTagsAndStatuses(ctx, tags, statuses, limit)
 }
 
 var _ service.IDocumentService = (*documentService)(nil)

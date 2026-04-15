@@ -96,6 +96,7 @@ internal/
     handler.go               # REST handlers (depends on service.* only, no storage repos)
     auth_bff_handlers.go     # BFF-only JSON: bootstrap, login, /me/*, /admin/*
     bff_session_middleware.go # Browser session cookie gate for /bff/v1 (public auth paths exempt)
+    bff_human_rbac_middleware.go # Human roles on /bff/v1 after session (viewer read-only; observability admin-only)
     program_auth_middleware.go # DB API key + scope gate for /api/v1
     mcp_gate.go              # MCP tool gate (same IProgramAuth + scopes as REST)
     handler_test.go          # Handler tests
@@ -488,7 +489,7 @@ The **embedded Vue UI** (`cmd/web/js/`) calls the same handlers under **`/bff/v1
 | GET    | `/metrics`                        | Prometheus metrics (root path; **not** under `/api/v1`; public) |
 | GET    | `/health`                         | Liveness JSON (root path; **not** under `/api/v1`; public)        |
 
-The same **relative paths** (e.g. `GET /documents`, `POST /query/progressive`) are also mounted under **`/bff/v1`**, authenticated by **`BFFSessionMiddleware`** (HttpOnly session cookie after browser login), not by `/api/v1` API keys.
+The same **relative paths** (e.g. `GET /documents`, `POST /query/progressive`) are also mounted under **`/bff/v1`**, authenticated by **`BFFSessionMiddleware`** (HttpOnly session cookie after browser login) and **`BFFHumanRBAC`** (human roles: `viewer` is read-only on the BFF; observability `GET`s require `admin`), not by `/api/v1` API keys.
 
 ### MCP Endpoints
 
@@ -541,7 +542,7 @@ var _ service.IMyService = (*MySvc)(nil)
 ## Security Considerations
 
 - **Dual-track auth (design):** see **[docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md)**; **operator / user steps:** **[README.md](README.md#access-control-and-permissions-user-guide)**.
-- **Dual-track auth (summary):** **`/api/v1/*`** and MCP tool calls require **database API keys** validated via **`service.IProgramAuth`** (implementations wired from `internal/di`); browser/admin flows use **`service.IAuthService`**. Send `X-API-Key` or `Authorization: Bearer` with `tsk_live_*` or `tsk_admin_*` values created in the admin UI (or the bootstrap response). Scopes: `read` (default GET + `POST /query/progressive`), `write` (+ document ingest + tag regroup), `admin` (superset). **`/bff/v1/*`** uses **HttpOnly session cookies** after `POST /bff/v1/auth/login` (`BFFSessionMiddleware`). Until first bootstrap, **`/api/v1`** returns **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`. **`GET /health`** and **`GET /metrics`** stay public at the root. MCP reads **`TIERSUM_API_KEY`** or `mcp.api_key` for the same validation as REST.
+- **Dual-track auth (summary):** **`/api/v1/*`** and MCP tool calls require **database API keys** validated via **`service.IProgramAuth`** (implementations wired from `internal/di`); browser/admin flows use **`service.IAuthService`**. Send `X-API-Key` or `Authorization: Bearer` with `tsk_live_*` or `tsk_admin_*` values created in the admin UI (or the bootstrap response). Scopes: `read` (default GET + `POST /query/progressive`), `write` (+ document ingest + tag regroup), `admin` (superset). **`/bff/v1/*`** uses **HttpOnly session cookies** after `POST /bff/v1/auth/login` (`BFFSessionMiddleware`, then **`BFFHumanRBAC`**: human roles `admin` / `user` / `viewer`; **`viewer`** is read-only except `POST /query/progressive`; **`GET /monitoring`** and **`GET /traces*`** require human **`admin`**). Until first bootstrap, **`/api/v1`** returns **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`. **`GET /health`** and **`GET /metrics`** stay public at the root. MCP reads **`TIERSUM_API_KEY`** or `mcp.api_key` for the same validation as REST.
 - JWT authentication for REST is not implemented (no corresponding config keys).
 - CORS configuration for web UI
 - No sensitive data in logs (use zap logging)

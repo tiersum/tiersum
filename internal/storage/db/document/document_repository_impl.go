@@ -212,7 +212,7 @@ func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []str
 	var args []interface{}
 
 	if r.driver == "postgres" {
-		query = `SELECT id, title, '', format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+		query = `SELECT id, title, summary, '', format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
 			FROM documents 
 			WHERE tags && $1 AND status = ANY($2::text[]) 
 			LIMIT $3`
@@ -224,7 +224,7 @@ func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []str
 			args = append(args, "%"+tag+"%")
 		}
 		tagWhere := strings.Join(conditions, " OR ")
-		query = fmt.Sprintf(`SELECT id, title, '', format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+		query = fmt.Sprintf(`SELECT id, title, summary, '', format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
 			FROM documents 
 			WHERE (%s) AND status IN (%s) 
 			LIMIT %d`,
@@ -242,7 +242,7 @@ func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []str
 		var d types.Document
 		var tagsStr string
 		var lastQueryAt sql.NullTime
-		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.Title, &d.Summary, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, err
 		}
 		d.Tags = shared.ParseStringArray(tagsStr)

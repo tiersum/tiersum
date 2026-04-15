@@ -104,7 +104,7 @@ INSERT OR IGNORE INTO system_state (id, initialized_at) VALUES (1, NULL);
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
-    role TEXT NOT NULL CHECK (role IN ('admin', 'user')),
+    role TEXT NOT NULL CHECK (role IN ('admin', 'user', 'viewer')),
     access_token_hash TEXT NOT NULL,
     token_expiry_mode TEXT NOT NULL DEFAULT 'slide' CHECK (token_expiry_mode IN ('slide', 'never')),
     max_devices INTEGER NOT NULL DEFAULT 3,
@@ -128,6 +128,40 @@ CREATE TABLE IF NOT EXISTS browser_sessions (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_browser_sessions_user_id ON browser_sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS device_tokens (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    device_name TEXT NOT NULL DEFAULT '',
+    ip_prefix TEXT NOT NULL DEFAULT '',
+    user_agent_norm TEXT NOT NULL DEFAULT '',
+    last_used_at DATETIME,
+    expires_at DATETIME NOT NULL,
+    revoked_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_user_id ON device_tokens(user_id);
+
+CREATE TABLE IF NOT EXISTS passkey_credentials (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    credential_id_b64 TEXT NOT NULL UNIQUE,
+    public_key_b64 TEXT NOT NULL,
+    sign_count INTEGER NOT NULL DEFAULT 0,
+    device_name TEXT NOT NULL DEFAULT '',
+    last_used_at DATETIME,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_passkey_credentials_user_id ON passkey_credentials(user_id);
+
+CREATE TABLE IF NOT EXISTS passkey_session_verifications (
+    session_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    verified_at DATETIME NOT NULL,
+    expires_at DATETIME NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_passkey_session_verifications_user_id ON passkey_session_verifications(user_id);
 
 CREATE TABLE IF NOT EXISTS api_keys (
     id TEXT PRIMARY KEY,
@@ -251,7 +285,7 @@ ON CONFLICT (id) DO NOTHING;
 CREATE TABLE IF NOT EXISTS users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     username VARCHAR(200) NOT NULL UNIQUE,
-    role VARCHAR(16) NOT NULL CHECK (role IN ('admin', 'user')),
+    role VARCHAR(16) NOT NULL CHECK (role IN ('admin', 'user', 'viewer')),
     access_token_hash VARCHAR(64) NOT NULL,
     token_expiry_mode VARCHAR(16) NOT NULL DEFAULT 'slide' CHECK (token_expiry_mode IN ('slide', 'never')),
     max_devices INTEGER NOT NULL DEFAULT 3,
@@ -275,6 +309,40 @@ CREATE TABLE IF NOT EXISTS browser_sessions (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_browser_sessions_user_id ON browser_sessions(user_id);
+
+CREATE TABLE IF NOT EXISTS device_tokens (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    device_name TEXT NOT NULL DEFAULT '',
+    ip_prefix TEXT NOT NULL DEFAULT '',
+    user_agent_norm TEXT NOT NULL DEFAULT '',
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    revoked_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_device_tokens_user_id ON device_tokens(user_id);
+
+CREATE TABLE IF NOT EXISTS passkey_credentials (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    credential_id_b64 TEXT NOT NULL UNIQUE,
+    public_key_b64 TEXT NOT NULL,
+    sign_count BIGINT NOT NULL DEFAULT 0,
+    device_name TEXT NOT NULL DEFAULT '',
+    last_used_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_passkey_credentials_user_id ON passkey_credentials(user_id);
+
+CREATE TABLE IF NOT EXISTS passkey_session_verifications (
+    session_id TEXT PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    verified_at TIMESTAMP WITH TIME ZONE NOT NULL,
+    expires_at TIMESTAMP WITH TIME ZONE NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_passkey_session_verifications_user_id ON passkey_session_verifications(user_id);
 
 CREATE TABLE IF NOT EXISTS api_keys (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

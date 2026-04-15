@@ -65,7 +65,7 @@ func (r *OtelSpanRepo) ListTraceSummaries(ctx context.Context, serviceName strin
 	}
 	serviceName = strings.TrimSpace(serviceName)
 	// attributes_json is compact JSON without spaces (json.Marshal), so a LIKE filter is stable enough
-	// for both SQLite and PostgreSQL in this rewrite phase.
+	// for both SQLite and PostgreSQL.
 	pat := fmt.Sprintf(`%%"service.name":"%s"%%`, strings.ReplaceAll(serviceName, `"`, `\"`))
 
 	const sqliteQ = `

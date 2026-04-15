@@ -23,6 +23,7 @@ var (
 	ErrAuthSystemNotInitialized = errors.New("system not initialized")
 	ErrAuthAlreadyInitialized   = errors.New("system already initialized")
 	ErrAuthInvalidAccessToken   = errors.New("invalid access token")
+	ErrAuthInvalidDeviceToken   = errors.New("invalid device token")
 	ErrAuthInvalidSession       = errors.New("invalid or expired session")
 	ErrAuthDeviceLimit          = errors.New("device limit reached")
 	ErrAuthForbidden            = errors.New("forbidden")
@@ -112,4 +113,30 @@ type AdminBrowserDeviceSummary struct {
 type FingerprintInput struct {
 	Timezone     string `json:"timezone"`
 	ClientSignal string `json:"client_signal,omitempty"` // optional salt from front-end fingerprint helper
+}
+
+// DeviceTokenSummary is one persistent device-login credential (opaque cookie) metadata for UI lists.
+// The plaintext token is never returned after initial issuance.
+type DeviceTokenSummary struct {
+	ID         string     `json:"id"`
+	DeviceName string     `json:"device_name"`
+	IPPrefix   string     `json:"ip_prefix"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+	ExpiresAt  time.Time  `json:"expires_at"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+// PasskeySummary is one WebAuthn credential metadata for UI lists.
+type PasskeySummary struct {
+	ID         string     `json:"id"`
+	DeviceName string     `json:"device_name"`
+	CreatedAt  time.Time  `json:"created_at"`
+	LastUsedAt *time.Time `json:"last_used_at,omitempty"`
+}
+
+// PasskeyStatus summarizes whether a user has passkeys and whether this session is verified recently.
+type PasskeyStatus struct {
+	HasAny           bool       `json:"has_any"`
+	VerifiedAt       *time.Time `json:"verified_at,omitempty"`
+	RequiredForAdmin bool       `json:"required_for_admin"`
 }

@@ -1,4 +1,4 @@
-import { apiClient } from '../api_client.js';
+import { apiClient, isBrowserViewerRole } from '../api_client.js';
 
 export const TagsPage = {
     data() {
@@ -7,8 +7,14 @@ export const TagsPage = {
             tags: [],
             loading: true,
             tagsPanelLoading: false,
-            selectedTopic: null
+            selectedTopic: null,
+            profile: null
         };
+    },
+    computed: {
+        isViewer() {
+            return isBrowserViewerRole(this.profile?.role);
+        }
     },
     async mounted() {
         await this.loadData();
@@ -44,6 +50,11 @@ export const TagsPage = {
         },
         async loadData() {
             try {
+                try {
+                    this.profile = await apiClient.getProfile();
+                } catch {
+                    this.profile = null;
+                }
                 this.loading = true;
                 const prevId = this.selectedTopic && this.selectedTopic.id != null ? String(this.selectedTopic.id) : '';
                 const raw = await apiClient.getTopics();
@@ -76,10 +87,10 @@ export const TagsPage = {
                 <div class="mb-8">
                     <div class="flex justify-between items-start">
                         <div>
-                            <h1 class="text-3xl font-bold text-slate-100 mb-2">Tag Browser</h1>
+                            <h1 class="text-3xl font-bold text-slate-100 mb-2">Topics &amp; tags</h1>
                             <p class="text-slate-400">Topics (themes) organize catalog tags. Select a topic to list its tags.</p>
                         </div>
-                        <button @click="triggerRegroup" class="btn btn-outline btn-sm">
+                        <button v-if="!isViewer" @click="triggerRegroup" class="btn btn-outline btn-sm">
                             <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                             </svg>

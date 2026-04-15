@@ -8,7 +8,7 @@ import (
 )
 
 // HotIngestQuota is a minimal hourly quota gate for "auto" hot ingest.
-// It is intentionally in-memory (process-local); during rewrite we avoid DB state for quotas.
+// It is intentionally in-memory (process-local; no DB persistence for quota counters).
 type HotIngestQuota struct {
 	mu          sync.Mutex
 	windowStart time.Time

@@ -121,6 +121,7 @@ export const AdminPage = {
                         <input v-model="newUser.username" placeholder="username" class="input input-bordered bg-slate-900 border-slate-700" />
                         <select v-model="newUser.role" class="select select-bordered bg-slate-900 border-slate-700">
                             <option value="user">user</option>
+                            <option value="viewer">viewer</option>
                             <option value="admin">admin</option>
                         </select>
                         <button class="btn btn-primary btn-sm" @click="createUser">Add user</button>

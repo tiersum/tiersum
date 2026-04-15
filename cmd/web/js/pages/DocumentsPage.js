@@ -1,14 +1,18 @@
-import { apiClient } from '../api_client.js';
+import { apiClient, isBrowserViewerRole } from '../api_client.js';
 
 export const DocumentsPage = {
     data() {
         return {
             documents: [],
             loading: true,
-            searchQuery: ''
+            searchQuery: '',
+            profile: null
         };
     },
     computed: {
+        isViewer() {
+            return isBrowserViewerRole(this.profile?.role);
+        },
         filteredDocs() {
             if (!this.searchQuery) return this.documents;
             const query = this.searchQuery.toLowerCase();
@@ -19,6 +23,11 @@ export const DocumentsPage = {
         }
     },
     async mounted() {
+        try {
+            this.profile = await apiClient.getProfile();
+        } catch {
+            this.profile = null;
+        }
         await this.loadDocuments();
     },
     methods: {
@@ -51,7 +60,7 @@ export const DocumentsPage = {
                         <h1 class="text-3xl font-bold text-slate-100 mb-2">Documents</h1>
                         <p class="text-slate-400">Browse and manage your knowledge base documents. Click a row to open details.</p>
                     </div>
-                    <router-link to="/docs/new" class="btn btn-primary">
+                    <router-link v-if="!isViewer" to="/docs/new" class="btn btn-primary">
                         <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                         </svg>
@@ -88,7 +97,7 @@ export const DocumentsPage = {
                         </svg>
                         <h3 class="text-xl font-medium text-slate-300 mb-2">No documents found</h3>
                         <p class="text-slate-500 mb-6">Get started by adding your first document</p>
-                        <router-link to="/docs/new" class="btn btn-primary">Add Document</router-link>
+                        <router-link v-if="!isViewer" to="/docs/new" class="btn btn-primary">Add Document</router-link>
                     </div>
 
                     <div v-else v-for="doc in filteredDocs" :key="doc.id"

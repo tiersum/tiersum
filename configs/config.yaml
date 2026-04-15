@@ -1,13 +1,21 @@
-# TierSum Configuration
-# Structure matches configs/config.example.yaml; adjust values for your environment.
+# TierSum local configuration
+# Keys mirror configs/config.example.yaml; override env-specific values here.
+# LLM: Moonshot (Kimi) via OpenAI-compatible API — set MOONSHOT_API_KEY before start.
 
+# Server
 server:
   port: 8080
+  host: ""
+  timeout: 0
+  max_body_size: 32MB
+  cors:
+    enabled: false
+    allowed_origins: []
 
+# LLM configuration
 llm:
-  # Moonshot (Kimi) — OpenAI-compatible API
+  # OpenAI-compatible: Moonshot (Kimi) — keep provider: openai and point openai.base_url at Moonshot.
   provider: openai
-  # Strip chain-of-thought blocks; for some OpenAI-compatible APIs also disables thinking in the request.
   disable_think: true
 
   openai:
@@ -29,11 +37,29 @@ llm:
     model: llama3.2
     timeout: 60s
 
+telemetry:
+  enabled: true
+  persist_to_db: true
+  sample_ratio: 0.1
+  service_name: tiersum
+  force_sample_query_param: debug_trace
+  force_sample_header: X-TierSum-Debug-Trace
+
+query:
+  allow_progressive_debug: true
+  progressive_answer_max_tokens: 0
+  progressive_answer_max_references: 0
+  progressive_answer_excerpt_max_bytes: 0
+
 summarization:
   document_summary_max: 500
   chapter_summary_max: 300
+  paragraph_summary_max: 300
 
 storage:
+  cache:
+    ttl: 10m
+    max_size: 0
   database:
     driver: sqlite3
     dsn: ./data/tiersum.db
@@ -43,24 +69,6 @@ storage:
 quota:
   per_hour: 100
 
-# OpenTelemetry: HTTP + progressive-query spans export to table otel_spans (run migrations).
-# Search UI "Trace sample" uses ?debug_trace=1; requires enabled + persist_to_db for DB export.
-telemetry:
-  enabled: true
-  persist_to_db: true
-  sample_ratio: 0.1
-  service_name: tiersum
-  force_sample_query_param: debug_trace
-  force_sample_header: X-TierSum-Debug-Trace
-
-# Progressive query (POST /api/v1/query/progressive): answer LLM + optional detailed trace spans.
-query:
-  allow_progressive_debug: true
-  progressive_answer_max_tokens: 0
-  progressive_answer_max_references: 0
-  progressive_answer_excerpt_max_bytes: 0
-
-# Same shape as config.example.yaml (cold_index.embedding.* is read by the server).
 cold_index:
   markdown:
     chapter_max_tokens: 512
@@ -71,7 +79,8 @@ cold_index:
     branch_recall_ceiling: 200
   embedding:
     provider: auto
-    # Apple Silicon (arm64). Intel Mac: third_party/onnxruntime/darwin_amd64/lib/libonnxruntime.dylib
+    # Apple Silicon. Intel Mac: third_party/onnxruntime/darwin_amd64/lib/libonnxruntime.dylib
+    # Linux x64 (Docker): third_party/onnxruntime/linux_amd64/lib/libonnxruntime.so
     onnx_runtime_path: third_party/onnxruntime/darwin_arm64/lib/libonnxruntime.dylib
     minilm_model_path: third_party/minilm/model.onnx
     minilm_tokenizer_path: ""
@@ -82,6 +91,11 @@ mcp:
   api_key: ""
 
 documents:
+  max_size: 50MB
+  supported_formats: []
+  chunking:
+    enabled: false
+    max_chunk_size: 10000
   tiering:
     hot_content_threshold: 5000
     cold_promotion_threshold: 3
@@ -94,10 +108,26 @@ logging:
   caller: true
 
 auth:
+  bootstrap:
+    allow_remote: false
   browser:
     session_ttl: 168h
     slide_user_token_ttl: 168h
     default_max_devices: 3
+    device_token_ttl: 720h
+    cookie_secure_mode: auto
+    trust_proxy_headers: false
+    csrf:
+      enabled: true
+      require_origin_or_referer: true
+      allowed_origins: []
+  passkey:
+    admin_required: true
+    rp_id: ""
+    rp_display_name: TierSum
+    rp_origins: ""
+    webauthn_session_ttl: 5m
+    session_verification_ttl: 12h
 
 features:
   web_ui: true

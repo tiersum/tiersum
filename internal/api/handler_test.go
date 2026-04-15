@@ -182,6 +182,13 @@ func (m *mockReadServices) SearchColdChapterHits(ctx context.Context, query stri
 	return nil, m.err
 }
 
+func (m *mockReadServices) SearchHotChapters(ctx context.Context, query string, limit int) ([]types.HotSearchHit, error) {
+	_ = ctx
+	_ = query
+	_ = limit
+	return nil, m.err
+}
+
 func (m *mockReadServices) ApproxColdIndexEntries() int {
 	return 0
 }
@@ -192,6 +199,23 @@ func (m *mockReadServices) ColdIndexVectorStats() storage.ColdIndexVectorStats {
 
 func (m *mockReadServices) ColdIndexInvertedStats() storage.ColdIndexInvertedStats {
 	return storage.ColdIndexInvertedStats{}
+}
+
+type mockTraceService struct {
+	err error
+}
+
+func (m *mockTraceService) ListTraceSummaries(ctx context.Context, limit, offset int) ([]types.OtelTraceSummary, error) {
+	_ = ctx
+	_ = limit
+	_ = offset
+	return nil, m.err
+}
+
+func (m *mockTraceService) ListSpansByTraceID(ctx context.Context, traceID string) ([]types.OtelSpanDTO, error) {
+	_ = ctx
+	_ = traceID
+	return nil, m.err
 }
 
 func setupTestHandler() (*Handler, *gin.Engine) {
@@ -205,8 +229,8 @@ func setupTestHandler() (*Handler, *gin.Engine) {
 		TagsService:     &mockReadServices{},
 		ChaptersService: &mockReadServices{},
 		ObsService:      &mockReadServices{},
+		TraceService:    &mockTraceService{},
 		Quota:           nil,
-		OtelSpans:       nil,
 		Logger:          zap.NewNop(),
 		ServerVersion:   "test",
 	}

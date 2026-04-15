@@ -29,9 +29,12 @@ type documentAnalyzer struct {
 
 // GenerateAnalysis asks the LLM to produce a JSON analysis (summary, tags, chapters).
 // It is best-effort: on parse errors, it returns a conservative fallback.
+// When no LLM provider is configured, it returns a markdown-derived structure (no LLM cost) so async hot ingest can still persist chapters.
 func (a *documentAnalyzer) GenerateAnalysis(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error) {
 	if a.provider == nil {
-		return fallbackAnalysis(title, content), fmt.Errorf("LLM provider not configured")
+		res := markdownOnlyAnalysis(title, content)
+		ensureChapterSummaries(res)
+		return res, nil
 	}
 	title = strings.TrimSpace(title)
 	content = strings.TrimSpace(content)
@@ -163,6 +166,41 @@ func parseAnalysisJSON(raw string) (*types.DocumentAnalysisResult, error) {
 	return &res, nil
 }
 
+// markdownOnlyAnalysis builds summary + chapter rows from heading-split markdown (same extractor as LLM prompt context).
+func markdownOnlyAnalysis(title, content string) *types.DocumentAnalysisResult {
+	title = strings.TrimSpace(title)
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return fallbackAnalysis(titleOrDefault(title), content)
+	}
+	chapters := extractMarkdownChapters(content)
+	if len(chapters) == 0 {
+		return fallbackAnalysis(titleOrDefault(title), content)
+	}
+	out := make([]types.ChapterInfo, 0, len(chapters))
+	for _, ch := range chapters {
+		t := strings.TrimSpace(ch.Title)
+		if t == "" {
+			t = "Section"
+		}
+		body := strings.TrimSpace(ch.Content)
+		sum := truncateString(body, 200)
+		if strings.TrimSpace(sum) == "" {
+			sum = "Markdown-derived section (no LLM)."
+		}
+		out = append(out, types.ChapterInfo{Title: t, Summary: sum, Content: body})
+	}
+	docSum := truncateString(content, 300)
+	if strings.TrimSpace(docSum) == "" {
+		docSum = titleOrDefault(title)
+	}
+	return &types.DocumentAnalysisResult{
+		Summary:  docSum,
+		Tags:     []string{},
+		Chapters: out,
+	}
+}
+
 func fallbackAnalysis(title, content string) *types.DocumentAnalysisResult {
 	t := titleOrDefault(title)
 	body := strings.TrimSpace(content)
@@ -220,4 +258,3 @@ func truncateString(s string, maxLen int) string {
 }
 
 var _ service.IDocumentAnalysisGenerator = (*documentAnalyzer)(nil)
-

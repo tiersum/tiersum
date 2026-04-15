@@ -6,6 +6,10 @@ server:
   port: 8080
   # Bind address: empty or 0.0.0.0 → all interfaces (":port").
   host: ""
+  # Reverse-proxy (Nginx) same-host deployment (recommended for public internet):
+  #   - Set host: "127.0.0.1" so the Go server only accepts local connections.
+  #   - Expose HTTPS on Nginx only; proxy_pass to http://127.0.0.1:8080.
+  #   - See auth.browser.cookie_secure_mode and trust_proxy_headers below.
   # Applies to ReadTimeout, WriteTimeout, and IdleTimeout on http.Server (e.g. 60s). Zero = no limit.
   timeout: 0
   # Max JSON/multipart body the Gin engine accepts (e.g. 32MB, 10MB).
@@ -225,10 +229,43 @@ logging:
 # Dual-track auth: /api/v1 and MCP use database API keys (Bearer or X-API-Key). /bff/v1 uses browser sessions after bootstrap.
 # GET /health and GET /metrics stay public at the server root.
 auth:
+  bootstrap:
+    # When false (default), bootstrap may only be called from loopback/private IPs.
+    # Set true only if you intentionally expose bootstrap remotely (e.g. behind a VPN).
+    allow_remote: false
   browser:
     session_ttl: 168h # HttpOnly session cookie lifetime (sliding on each request)
     slide_user_token_ttl: 168h # Human access-token sliding window when token_expiry_mode=slide
     default_max_devices: 3
+    # Persistent "keep me signed in" device token cookie (`tiersum_device`, plaintext prefix ts_d_*; only a hash is stored server-side).
+    device_token_ttl: 720h
+    # Cookie Secure attribute mode for tiersum_session:
+    #   - auto: Secure when request is TLS, or when trust_proxy_headers=true and X-Forwarded-Proto=https
+    #   - always: always set Secure=true
+    #   - never: always set Secure=false (not recommended)
+    cookie_secure_mode: auto
+    # When true, trust reverse-proxy headers (X-Forwarded-Proto / X-Forwarded-Ssl) to decide cookie Secure in auto mode.
+    trust_proxy_headers: false
+    csrf:
+      # Protect /bff/v1 unsafe methods using Origin/Referer same-host checks (recommended).
+      enabled: true
+      require_origin_or_referer: true
+      # Optional extra allowed hostnames for Origin/Referer (rare; keep empty for strict same-origin).
+      allowed_origins: []
+
+  passkey:
+    # When true, /bff/v1/admin/* requires a recent passkey assertion once the admin has at least one passkey registered.
+    admin_required: true
+    # WebAuthn RP configuration. For browser UI flows, Origin is taken from the request unless rp_origins is set.
+    rp_id: "" # optional override; default derives from Origin host when empty
+    rp_display_name: TierSum
+    # Comma-separated allowed Web Origins (scheme://host[:port]) for WebAuthn clientDataJSON.origin checks.
+    # Example (single-site): "https://tiersum.example.com"
+    rp_origins: ""
+    # In-process ceremony session TTL for Begin→Finish passkey calls.
+    webauthn_session_ttl: 5m
+    # How long a successful passkey registration/assertion counts as "recently verified" for admin gating.
+    session_verification_ttl: 12h
 
 # Feature flags (only keys read by the server are listed here).
 features:

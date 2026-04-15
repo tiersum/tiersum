@@ -16,7 +16,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  主题 Topics（LLM 归类）                                      │
+│  主题 Topics（由 /topics/regroup 从目录刷新）                  │
 │  ├── Cloud Native                                           │
 │  │      └── 目录标签: kubernetes, docker, helm                 │
 │  └── Programming Languages                                  │
@@ -33,7 +33,7 @@
 └─────────────────────────────────────┘
 ```
 
-**用语：** **目录标签（catalog tags）** 指库内去重后的标签名（`tags` 表：文档计数、可选 `topic_id`）。**主题（topics）** 是 LLM 将目录标签归入的「主题/门类」，用于浏览与在目录标签很多时辅助渐进式查询收窄。热文档上的 **tags** 字段会并入同一套目录。
+**用语：** **目录标签（catalog tags）** 指库内去重后的标签名（`tags` 表：文档计数、可选 `topic_id`）。**主题（topics）** 是 `topics` 表中的分组行，用于标签浏览以及 `GET /tags` 上可选的 **`topic_ids`** 过滤。**`POST /api/v1/topics/regroup`** 会按当前目录标签重建主题；**当前实现为确定性逻辑**（单一汇总主题包含全部目录标签，见 **`docs/CORE_API_FLOWS.md`** §3）。**渐进式查询**在已配置 LLM 时仍会对标签/文档/章节做相关性筛选。热文档上的 **tags** 会并入同一套目录。
 
 **查询沿层级逐步收窄**：**标签 → 文档 → 章节**（目录标签很多时，服务可先按 **主题** 收窄候选标签），每步 LLM 相关性评分；**不是**仅靠向量相似度「猜」片段 —— 而是 **可解释的层级导航**。
 
@@ -45,9 +45,9 @@
 |:--------|:------------|
 | **热/冷分层** | 热文档：完整 LLM 分析；冷文档：BM25 + 向量混合检索 |
 | **三级摘要** | 文档 → 章节 → 原文，由 LLM 生成 |
-| **主题 + 目录标签** | LLM **主题重归类** 将目录标签划入 `topics`；`GET /tags` 可用 `topic_ids` 限定范围 |
+| **主题 + 目录标签** | **`POST /topics/regroup`** 按目录标签重建 `topics`（**当前为确定性实现**）；`GET /tags` 可用 `topic_ids` 限定范围 |
 | **渐进式查询** | **标签 → 文档 → 章节**；目录标签很多时可先经 **主题** 收窄 |
-| **主题自动重归类** | 定时或手动 `POST /api/v1/topics/regroup` 按目录标签刷新主题 |
+| **主题自动重归类** | 定时或手动 **`POST /api/v1/topics/regroup`**，与界面「重归类」按钮同一路径 |
 | **BM25 + 向量混合** | 对冷文档按 **章节** 建索引，关键词 + 语义混合检索，命中返回 **整章正文** |
 | **RAG 替代思路** | 避免无结构切碎，尽量保留上下文 |
 | **双接口** | REST API + MCP，便于智能体集成 |
@@ -286,7 +286,9 @@ curl -X POST http://localhost:8080/api/v1/query/progressive \
 # 以下示例为节省篇幅未重复加 Header；实际调用请对每个 /api/v1 请求加上 -H "X-API-Key: $TIERSUM_API_KEY"。
 
 # 批量检索（热/冷）
+# 热路径：状态为 hot/warming 且 tags 命中任一逗号分隔标签（OR）的文档；仅返回文档级元数据 + 已持久化的 summary（不含正文）。
 curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_results=100"
+# 热路径：按文档 id 批量读取已持久化的章节行（path、title、summary）。
 curl "http://localhost:8080/api/v1/hot/doc_chapters?doc_ids=uuid1,uuid2&max_results=100"
 curl "http://localhost:8080/api/v1/cold/chapter_hits?q=scheduler,pods&max_results=100"
 
@@ -296,7 +298,7 @@ curl "http://localhost:8080/api/v1/topics"
 # 列出目录标签；可按主题过滤，参数为 topic_ids（逗号分隔），可选 max_results
 curl "http://localhost:8080/api/v1/tags?topic_ids=topic-uuid-1,topic-uuid-2&max_results=100"
 
-# 手动触发主题重归类（LLM 根据目录标签刷新 topics）
+# 手动触发主题重归类（确定性按目录标签重建 topics；见 CORE_API_FLOWS.md §3）
 curl -X POST http://localhost:8080/api/v1/topics/regroup
 
 # 获取单个文档 / 章节
@@ -346,7 +348,7 @@ MCP 工具名与入参与 **`/api/v1` 下 REST** 语义对齐（实现见 `inter
 
 ## 架构
 
-TierSum 采用 **五层架构** + **接口与实现分离**（`I*` 接口 + `svcimpl` 等实现包）：
+TierSum 采用 **五层架构** + **接口与实现分离**（`I*` 接口 + `internal/service/impl/*` 等实现包）：
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -380,21 +382,21 @@ TierSum 采用 **五层架构** + **接口与实现分离**（`I*` 接口 + `svc
 
 基于 **Vue 3 CDN** 的单页应用（与 `cmd/web` 一致）。**界面与 BFF 路由对应关系**见 [cmd/web/FRONTEND.md](cmd/web/FRONTEND.md)。**登录与设备管理**见 [权限与访问（用户指南）](#权限与访问用户指南)。
 
-### 产品介绍（`/#/about`）
+### 产品介绍（`/about`）
 
 - 中英双语（先英文后中文）：适用场景、热/冷路径通俗说明、适合谁使用  
 - 不调用接口；系统完成首次初始化后**无需登录**即可访问  
 
-### 查询页（`/#/`）
+### 查询页（`/`）
 - 中央搜索框，调用渐进式查询 API  
 - 分栏：左侧 AI 回答，右侧参考条目  
 - 展示热/冷相关结果及相关性、来源标识  
 
-### 文档页（`/#/docs`）
+### 文档页（`/docs`）
 - 文档列表、检索/筛选、创建文档  
 - 元数据：标题、标签、格式、状态、热度与查询统计等  
 
-### 标签页（`/#/tags`）
+### 主题与标签（`/tags`）
 - 左侧 **主题**（`GET /topics`），右侧当前主题下的 **目录标签**（`GET /tags?topic_ids=…`）及文档计数  
 - 「重归类」调用 `POST /topics/regroup`  
 

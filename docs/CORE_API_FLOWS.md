@@ -4,13 +4,29 @@ This document traces **non-trivial** REST endpoints: anything beyond simple list
 
 **Full auth design:** roles, scopes, dual-track model, DB tables, and config are in **[docs/AUTH_AND_PERMISSIONS.md](AUTH_AND_PERMISSIONS.md)**. End-user steps are in the root **[README.md](../README.md#access-control-and-permissions-user-guide)**.
 
-**Mount points and auth:** The same `Handler.RegisterRoutes` surface is mounted at **`/api/v1`** (program track: **`api.ProgramAuthMiddleware`** → `service.IProgramAuth` / `authimpl.NewProgramAuth`: DB API keys with scopes `read` | `write` | `admin`, `X-API-Key` or `Authorization: Bearer`) and at **`/bff/v1`** for the embedded UI (human track: **`api.BFFSessionMiddleware`** + HttpOnly `tiersum_session` cookie after `POST /bff/v1/auth/login`). Until bootstrap, **`IsSystemInitialized`** is false: **`/api/v1/*`** returns **403** JSON `{ "code": "SYSTEM_NOT_INITIALIZED" }`; protected **`/bff/v1/*`** (everything except small public auth paths) returns the same or **401** when unauthenticated. Paths below use **`/api/v1`**; use **`/bff/v1`** for the same handlers behind the session cookie. **Probes / metrics:** **`GET /health`** and **`GET /metrics`** stay at the **server root** and are not gated by either track.
+**Mount points and auth:** The same `Handler.RegisterRoutes` surface is mounted at **`/api/v1`** (program track: **`api.ProgramAuthMiddleware`** → `service.IProgramAuth` / `authimpl.NewProgramAuth`: DB API keys with scopes `read` | `write` | `admin`, `X-API-Key` or `Authorization: Bearer`) and at **`/bff/v1`** for the embedded UI (human track: **`api.BFFSessionMiddleware`** + HttpOnly **`tiersum_session`** cookie after `POST /bff/v1/auth/login` or `POST /bff/v1/auth/device_login`, then **`api.BFFHumanRBAC`**: `viewer` is read-only except **`POST /bff/v1/query/progressive`**; **`GET /bff/v1/monitoring`** and **`GET /bff/v1/traces*`** require human **`admin`**). Optional HttpOnly **`tiersum_device`** cookie stores a persistent **device token** (`ts_d_*`, DB row in `device_tokens`) for “keep me signed in” / quick re-login. Until bootstrap, **`IsSystemInitialized`** is false: **`/api/v1/*`** returns **403** JSON `{ "code": "SYSTEM_NOT_INITIALIZED" }`; protected **`/bff/v1/*`** (everything except small public auth paths) returns the same or **401** when unauthenticated. Paths below use **`/api/v1`**; use **`/bff/v1`** for the same handlers behind the session cookie. **Probes / metrics:** **`GET /health`** and **`GET /metrics`** stay at the **server root** and are not gated by either track.
 
 **Bootstrap (first boot):** `GET /bff/v1/system/status` → `{ initialized, version }`. `POST /bff/v1/system/bootstrap` `{ "username" }` (only when `initialized=false`) → `IAuthService.Bootstrap` (wired by `authimpl.NewAuthService`): creates first admin user (hashed `ts_u_*` access token), one read-scoped `tsk_live_*` API key, sets `system_state.initialized_at`, returns plaintext secrets once. Initialization cannot be repeated.
 
-**Browser login:** `POST /bff/v1/auth/login` `{ "access_token", "fingerprint": { "timezone", "client_signal?" } }` → `IAuthService.LoginWithAccessToken` validates hashed access token, enforces per-user **max_devices** against active distinct fingerprints, stores **`browser_sessions`** (hashed opaque session cookie value), sets **`Set-Cookie`**. Subsequent requests use **`IAuthService.ValidateBrowserSession`** (loose IP/UA consistency + sliding session and user token TTL when configured).
+**Browser login:** `POST /bff/v1/auth/login` `{ "access_token", "fingerprint": { "timezone", "client_signal?" }, "remember_me?": bool, "device_name?" }` → `IAuthService.LoginWithAccessToken` validates hashed access token, enforces per-user **max_devices** against active distinct fingerprints, stores **`browser_sessions`** (hashed opaque session cookie value), sets **`Set-Cookie`**. When `remember_me=true`, the server mints a **device token** (`IAuthService.CreateDeviceTokenForSession`) and sets HttpOnly **`tiersum_device`** (`auth.browser.device_token_ttl`).
 
-**Admin (browser, admin role only):** under **`/bff/v1/admin/*`** with `BFFRequireAdmin`: users CRUD tokens, **`GET /bff/v1/admin/devices`** (all users’ browser sessions with usernames), per-user devices at **`GET /bff/v1/admin/users/:id/devices`**, API keys list/create/revoke, usage snapshot `GET /bff/v1/admin/api_keys/usage`, **`GET /bff/v1/admin/config/snapshot`** (read-only merged `viper` settings with `api_key` / `dsn` / `password` / … leaves redacted — **Management → Configuration** in the UI at **`/admin/config`**). **`/bff/v1/me/*`**: profile, devices, alias, revoke sessions (admins may PATCH/DELETE another user’s session id here for support). **Management → Devices & sessions** (`/settings`) uses **`GET /bff/v1/admin/devices`** when the browser profile role is admin so the list covers every user’s bound browsers; otherwise it uses **`GET /bff/v1/me/devices`** (own sessions only).
+**Device login (persistent token):** `POST /bff/v1/auth/device_login` `{ "device_token?", "fingerprint" }` (or omit `device_token` and rely on the **`tiersum_device`** cookie) → `IAuthService.DeviceLogin` validates `device_tokens` row (not revoked / not expired + same loose IP/UA binding rules as sessions), then creates a fresh **`browser_sessions`** row and sets **`tiersum_session`**.
+
+**WebAuthn passkeys (browser):** under **`/bff/v1/me/security/passkeys/*`** (session required) the UI can register and verify passkeys via `IAuthService.Begin/FinishPasskeyRegistration` and `Begin/FinishPasskeyVerification` (implemented with `github.com/go-webauthn/webauthn`, in-memory WebAuthn ceremony sessions, persisted credentials in `passkey_credentials`, and “recently verified” state in `passkey_session_verifications`). Successful registration or verification upserts a short-lived verification row keyed by **browser session id** (`auth.passkey.session_verification_ttl`).
+
+**Passkey-gated admin APIs:** `POST /bff/v1/admin/*` additionally runs `api.BFFRequireAdminPasskey`: when `auth.passkey.admin_required=true` **and** the admin has at least one passkey, admin routes require a **non-expired** `passkey_session_verifications` row for the current session (use **Verify passkey** in `/settings`, or register a passkey which also marks the session verified).
+
+Subsequent authenticated browser requests use **`IAuthService.ValidateBrowserSession`** (loose IP/UA consistency + sliding session and user token TTL when configured).
+
+**BFF request hardening (browser track):**
+
+- **Human RBAC** (`api.BFFHumanRBAC`): after the session cookie is validated, **`users.role`** gates write-style traffic for **`viewer`** and gates observability reads for non-**`admin`** (see **[AUTH_AND_PERMISSIONS.md](AUTH_AND_PERMISSIONS.md)**).
+- **CSRF**: all non-GET/HEAD/OPTIONS requests under `/bff/v1` are protected by a same-origin check (`api.BFFSameOriginMiddleware`). The server requires `Origin` or `Referer` to match the current request host (or be allowlisted via `auth.browser.csrf.allowed_origins`). This defends cookie-authenticated endpoints from cross-site form / fetch abuse.
+- **Rate limiting**: `POST /bff/v1/system/bootstrap`, `POST /bff/v1/auth/login`, and `POST /bff/v1/auth/device_login` are IP rate-limited in-process. Login additionally applies an exponential cooldown after repeated failures (`try_later` with `retry_after`).
+- **Secure cookie behind proxies**: session cookie `Secure` attribute is controlled by `auth.browser.cookie_secure_mode` (`auto|always|never`). In `auto`, the server sets `Secure` when the request is TLS, or when `auth.browser.trust_proxy_headers=true` and `X-Forwarded-Proto=https` / `X-Forwarded-Ssl=on` is present (reverse-proxy TLS termination).
+- **Recommended public deployment**: run Nginx and TierSum on the same host, terminate TLS at Nginx, and bind TierSum to `127.0.0.1` (`server.host: "127.0.0.1"`). This makes the Go server unreachable from the public internet except via the proxy.
+
+**Admin (browser, admin role only):** under **`/bff/v1/admin/*`** with `BFFRequireAdmin` **and** `BFFRequireAdminPasskey` (see passkey gating above): users CRUD tokens, **`GET /bff/v1/admin/devices`** (all users’ browser sessions with usernames), per-user devices at **`GET /bff/v1/admin/users/:id/devices`**, API keys list/create/revoke, usage snapshot `GET /bff/v1/admin/api_keys/usage`, **`GET /bff/v1/admin/config/snapshot`** (read-only merged `viper` settings with `api_key` / `dsn` / `password` / … leaves redacted — **Management → Configuration** in the UI at **`/admin/config`**). **`/bff/v1/me/*`**: profile, devices, alias, revoke sessions (admins may PATCH/DELETE another user’s session id here for support). **Management → Security** (`/settings`) uses **`GET /bff/v1/admin/devices`** when the browser profile role is admin so the list covers every user’s bound browsers; otherwise it uses **`GET /bff/v1/me/devices`** (own sessions only), and includes passkey + device-token management calls under **`/bff/v1/me/security/*`**.
 
 **MCP:** each tool calls **`MCPServer.mcpProgramGate`** with the same scope rules as REST; API key is read from **`TIERSUM_API_KEY`** or `mcp.api_key` in config.
 
@@ -41,14 +57,14 @@ Resolved mode: `**req.EffectiveIngestMode()**` (`ingest_mode` JSON field: `auto`
 
 1. **`hot`** → always hot.
 2. **`cold`** → always cold.
-3. **`auto`** → hot if **prebuilt summary and chapters** (`req.Summary != ""` and `len(req.Chapters) > 0`); else hot if **`len(content) >= HotContentThreshold()`** (UTF-8 byte length vs `documents.tiering.hot_content_threshold`, default **5000**); else cold. *(When a hot-ingest **quota** manager is wired into the handler/service, `auto` may also fall back to cold on quota exhaustion — not active in the current composition root.)*
+3. **`auto`** → hot if **prebuilt summary and chapters** (`req.Summary != ""` and `len(req.Chapters) > 0`); else hot only if the in-process hourly **`HotIngestQuota`** (`quota.per_hour`, wired in `internal/di`) still has capacity via **`CheckAndConsume()`** and **`len(content) > HotContentThreshold()`** (UTF-8 byte length vs `documents.tiering.hot_content_threshold`, default **5000**); else cold.
 
 ### 1.2 Hot path (implemented)
 
 - Persist **`documents`** via `**DocRepo.Create**` with `**status = hot**`, request **tags** (deduplicated), **`summary`** from the request body, full **content**.
 - Optional client **`chapters[]`**: map each `**ChapterInfo**` to `**types.Chapter**` (stable `path` under the document id), then `**IChapterRepository.ReplaceByDocument**`.
 - Catalog tags: for each tag name, `**TagRepo.GetByName**` → `**TagRepo.Create**` when missing → `**IncrementDocumentCount**`.
-- **Deferred LLM analyze / materialize** (`**IHotIngestProcessor**` + `**job.HotIngestQueue**`) is not wired in `**internal/di**` yet; the consumer is a no-op when the processor is nil. Hot documents created without client chapters rely on chapter APIs that fall back to markdown splitting until analysis exists.
+- **Deferred analyze / materialize:** `**internal/di**` always wires `**IHotIngestProcessor**`, `**IHotIngestWorkSink**` (`**di.NewHotIngestQueueSink**` → `**job.HotIngestQueue**`, capacity 100), and `**cmd/main.go**` starts `**job.StartHotIngestQueueConsumer**`. Hot `**CreateDocument**` enqueues `**types.HotIngestWork**` when there are **no** client `**chapters[]**`. `**ProcessHotIngest**` calls `**IDocumentAnalysisGenerator.GenerateAnalysis**`: with a configured LLM it produces summary/tags/chapters from the model; **when no LLM provider is configured**, the same generator returns a **markdown-heading split** analysis (no API calls) so chapter rows and a document summary can still be persisted. **Cold→hot maintenance** (`**IDocumentMaintenanceService**`) remains disabled without an LLM. If the bounded queue is full, the sink drops work and logs a warning (no automatic retry; re-ingest or restart processing is manual).
 
 ### 1.3 Cold path (implemented)
 
@@ -101,11 +117,10 @@ Results are **merged** (`mergeHotAndColdQueryItems`): one `**QueryItem**` per **
 
 **Handler:** `ExecuteRegroupTagsIntoTopics` → `ITopicService.RegroupTags` (`internal/service/impl/catalog/topic_service_impl.go`).
 
-1. `**TagRepo.List`** all catalog tags.
-2. `**performGrouping`**: LLM returns JSON topics → `[]Topic` (name, description, member tag names).
-3. `**TopicRepo.DeleteAll`** then create each topic row.
-4. For each tag name in a topic: `**TagRepo.GetByName**`, set `TopicID`, `**TagRepo.Create**` (implementation note: relies on create path for assignment).
-5. Updates in-memory refresh bookkeeping for `**ShouldRefresh**`.
+1. `**TagRepo.List`** all catalog tags (empty list → no-op, refresh bookkeeping updated).
+2. **Deterministic regroup (current implementation):** build one topic **"All tags"** containing every catalog tag name; `**TopicRepo.DeleteAll**` then `**TopicRepo.Create**` for that topic.
+3. For each tag row: assign `**TopicID**` to the topic and `**TagRepo.Create**` (upsert path used by the implementation).
+4. Updates in-memory refresh bookkeeping for `**ShouldRefresh**`.
 
 `GET /api/v1/topics` lists persisted topics (`**ITopicService.ListTopics**` → `**TopicRepo.List**`).
 
@@ -121,7 +136,7 @@ Scheduled `**TopicRegroupJob**` (`internal/job/jobs.go`) runs the same regroup p
 
 | Endpoint                 | Algorithm                                                                                                                                                                                             |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `**/hot/doc_summaries`** | Require `tags`. `**DocRepo.ListMetaByTagsAndStatuses**` for `hot` + `warming`, cap `max_results`. Return `{ document_id, title, format, status, tags, summary }` from the document rows. |
+| `**/hot/doc_summaries`** | Require `tags`. `**IDocumentService.ListHotDocumentsWithSummariesByTags**` → `**DocRepo.ListMetaByTagsAndStatuses**` for `hot` + `warming`, cap `max_results`. Return `{ document_id, title, format, status, tags, summary }` from the document rows (body content not loaded). |
 | `**/hot/doc_chapters`**  | Require `doc_ids` (trimmed to `max_results` doc cap). For each id: load persisted `chapters` rows, return path/title/summary/content.                                                                           |
 
 
@@ -160,7 +175,7 @@ No LLM; included because behavior differs from a single-table dump when `topic_i
 | Concern                   | Primary files                                                                          |
 | ------------------------- | -------------------------------------------------------------------------------------- |
 | HTTP + shared REST bodies | `internal/api/handler.go`, `internal/api/handler_execute.go`, `internal/api/handler_catalog.go` |
-| Ingest + tiering          | `internal/service/impl/document/document_service_impl.go`, `internal/config/tiering.go`, `internal/config/documents_ingest.go` |
+| Ingest + tiering          | `internal/service/impl/document/document_service_impl.go`, `internal/service/impl/document/hot_ingest_quota_impl.go`, `internal/config/tiering.go`, `internal/config/documents_ingest.go`; hot-ingest async: `internal/service/impl/document/hot_ingest_processor_impl.go`, `internal/job/scheduler.go` (`HotIngestQueue`), `internal/job/hot_ingest_consumer.go`, `cmd/main.go` (`StartHotIngestQueueConsumer`) |
 | Progressive query         | `internal/service/impl/query/query_service_impl.go`; hot/cold chapter reads `internal/service/impl/catalog/chapter_service_impl.go` |
 | Document summary + chapter rows | Service persister (behind jobs/ingest via `IDocumentAnalysisPersister`), `internal/storage/db/document/document_repository_impl.go` / `chapter_repository_impl.go` (documents.summary + chapters table) |
 | Topic regroup + list      | `internal/service/impl/catalog/topic_service_impl.go`, `internal/job/jobs.go` (`TopicRegroupJob`) |

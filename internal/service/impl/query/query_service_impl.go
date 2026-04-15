@@ -95,6 +95,8 @@ func WithOptionalSpan(ctx context.Context, name string, fn func(context.Context,
 	if err != nil {
 		sp.RecordError(err)
 		sp.SetStatus(codes.Error, err.Error())
+	} else {
+		sp.SetStatus(codes.Ok, "")
 	}
 	return err
 }
@@ -304,9 +306,13 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 			execCtx = WithProgressiveDebugTracer(execCtx, tracer)
 		}
 		results, steps, err := s.queryHotPath(execCtx, req.Question, half)
-		if err != nil && pathSpan != nil {
-			pathSpan.RecordError(err)
-			pathSpan.SetStatus(codes.Error, err.Error())
+		if pathSpan != nil {
+			if err != nil {
+				pathSpan.RecordError(err)
+				pathSpan.SetStatus(codes.Error, err.Error())
+			} else {
+				pathSpan.SetStatus(codes.Ok, "")
+			}
 		}
 		hotChan <- hotResult{results: results, steps: steps, err: err}
 	}()
@@ -320,9 +326,13 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 			execCtx = WithProgressiveDebugTracer(execCtx, tracer)
 		}
 		results, step, err := s.queryColdPath(execCtx, req.Question, half)
-		if err != nil && pathSpan != nil {
-			pathSpan.RecordError(err)
-			pathSpan.SetStatus(codes.Error, err.Error())
+		if pathSpan != nil {
+			if err != nil {
+				pathSpan.RecordError(err)
+				pathSpan.SetStatus(codes.Error, err.Error())
+			} else {
+				pathSpan.SetStatus(codes.Ok, "")
+			}
 		}
 		coldChan <- coldResult{results: results, step: step, err: err}
 	}()
@@ -351,6 +361,7 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 			attribute.Int("tier.request.merge_inputs.cold_items", len(coldRes.results)),
 			attribute.Int("tier.response.merged_items", len(mergedResults)),
 		))
+		mergeSpan.SetStatus(codes.Ok, "")
 		mergeSpan.End()
 
 		ansCtx, ansSpan := tracer.Start(runCtx, "synthesize_answer", trace.WithAttributes(
@@ -363,6 +374,7 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 		if response.Answer != "" {
 			ansSpan.SetAttributes(attribute.String("tier.response.answer", TruncateTraceStr(response.Answer, TraceMaxRespBytes)))
 		}
+		ansSpan.SetStatus(codes.Ok, "")
 		ansSpan.End()
 	} else {
 		response.Answer = s.generateProgressiveAnswer(ctx, req.Question, mergedResults)
@@ -380,6 +392,10 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 		zap.Bool("has_answer", response.Answer != ""),
 		zap.String("otel_trace_id", traceIDStr),
 	)
+
+	if wantTrace && rootSpan != nil {
+		rootSpan.SetStatus(codes.Ok, "")
+	}
 
 	return response, nil
 }

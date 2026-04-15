@@ -10,12 +10,12 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// NewTopicService constructs a lightweight service.ITopicService implementation.
+// NewTopicService constructs service.ITopicService with a deterministic regroup path (no LLM).
 //
-// This rewrite-phase implementation supports:
+// Supported:
 // - ListTopics (topic browser UI)
 // - ShouldRefresh (jobs/UI hints)
-// - RegroupTags (deterministic, non-LLM grouping) so the UI button has an effect
+// - RegroupTags — single catch-all topic over all catalog tags
 func NewTopicService(tagRepo storage.ITagRepository, topicRepo storage.ITopicRepository) service.ITopicService {
 	return &topicService{
 		tagRepo:         tagRepo,
@@ -43,10 +43,10 @@ func (s *topicService) RegroupTags(ctx context.Context) error {
 		return nil
 	}
 
-	// Deterministic regroup during rewrite: one topic containing all current tags.
+	// Deterministic regroup: one topic containing all current catalog tags.
 	topic := &types.Topic{
 		Name:        "All tags",
-		Description: "Deterministic grouping (rewrite phase)",
+		Description: "Deterministic grouping (all catalog tags)",
 		TagNames:    make([]string, 0, len(tags)),
 	}
 	for _, t := range tags {

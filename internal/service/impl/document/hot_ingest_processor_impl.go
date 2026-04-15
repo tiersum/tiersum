@@ -25,25 +25,28 @@ func NewHotIngestProcessor(
 		logger = zap.NewNop()
 	}
 	return &hotIngestProcessor{
-		docRepo:      docRepo,
-		analyzer:     analyzer,
-		persister:    persister,
-		tagRepo:      tagRepo,
-		logger:       logger,
+		docRepo:   docRepo,
+		analyzer:  analyzer,
+		persister: persister,
+		tagRepo:   tagRepo,
+		logger:    logger,
 	}
 }
 
 type hotIngestProcessor struct {
-	docRepo      storage.IDocumentRepository
-	analyzer     service.IDocumentAnalysisGenerator
-	persister    service.IDocumentAnalysisPersister
-	tagRepo      storage.ITagRepository
-	logger       *zap.Logger
+	docRepo   storage.IDocumentRepository
+	analyzer  service.IDocumentAnalysisGenerator
+	persister service.IDocumentAnalysisPersister
+	tagRepo   storage.ITagRepository
+	logger    *zap.Logger
 }
 
 func (p *hotIngestProcessor) ProcessHotIngest(ctx context.Context, work types.HotIngestWork) error {
 	if work.DocID == "" {
 		return nil
+	}
+	if p.logger != nil {
+		p.logger.Info("hot ingest: processing", zap.String("doc_id", work.DocID))
 	}
 	doc, err := p.docRepo.GetByID(ctx, work.DocID)
 	if err != nil {
@@ -80,9 +83,21 @@ func (p *hotIngestProcessor) ProcessHotIngest(ctx context.Context, work types.Ho
 		return err
 	}
 
+	prebuiltLower := make(map[string]struct{}, len(work.PrebuiltTags))
+	for _, t := range work.PrebuiltTags {
+		t = strings.TrimSpace(t)
+		if t == "" {
+			continue
+		}
+		prebuiltLower[strings.ToLower(t)] = struct{}{}
+	}
+
 	for _, tag := range doc.Tags {
 		tag = strings.TrimSpace(tag)
 		if tag == "" {
+			continue
+		}
+		if _, alreadyCounted := prebuiltLower[strings.ToLower(tag)]; alreadyCounted {
 			continue
 		}
 		tagEntity := &types.Tag{ID: uuid.New().String(), Name: tag, TopicID: ""}
@@ -124,4 +139,3 @@ func mergeTags(prebuilt, generated []string) []string {
 }
 
 var _ service.IHotIngestProcessor = (*hotIngestProcessor)(nil)
-

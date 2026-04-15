@@ -12,10 +12,12 @@ import (
 
 const (
 	sessionCookieName      = "tiersum_session"
+	deviceCookieName       = "tiersum_device"
 	ginKeyBrowserPrincipal = "browserPrincipal"
 	bffPublicSystemStatus  = "/bff/v1/system/status"
 	bffPublicBootstrap     = "/bff/v1/system/bootstrap"
 	bffPublicLogin         = "/bff/v1/auth/login"
+	bffPublicDeviceLogin   = "/bff/v1/auth/device_login"
 	bffPublicLogout        = "/bff/v1/auth/logout"
 )
 
@@ -31,7 +33,7 @@ func BrowserPrincipal(c *gin.Context) *service.BrowserPrincipal {
 
 func isBFFPublicPath(path string) bool {
 	switch path {
-	case bffPublicSystemStatus, bffPublicBootstrap, bffPublicLogin, bffPublicLogout:
+	case bffPublicSystemStatus, bffPublicBootstrap, bffPublicLogin, bffPublicDeviceLogin, bffPublicLogout:
 		return true
 	default:
 		return false

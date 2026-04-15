@@ -231,13 +231,14 @@ func registerAPIRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc)
 // registerBFFRoutes registers the same REST surface under /bff/v1 for the embedded UI (browser session).
 func registerBFFRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc, serverVersion string) {
 	authBFF := api.NewAuthBFFHandler(deps.DI.AuthService, deps.DI.AdminConfigView, deps.Logger, serverVersion)
-	bff := r.Group("/bff/v1")
+	bff := r.Group("/bff/v1", api.BFFSameOriginMiddleware())
 	authBFF.RegisterPublicRoutes(bff)
 	bff.Use(api.BFFSessionMiddleware(deps.DI.AuthService))
+	bff.Use(api.BFFHumanRBAC())
 	deps.DI.RESTHandler.RegisterRoutes(bff, traceMw)
 	me := bff.Group("/me")
 	authBFF.RegisterMeRoutes(me)
-	admin := bff.Group("/admin", api.BFFRequireAdmin())
+	admin := bff.Group("/admin", api.BFFRequireAdmin(), api.BFFRequireAdminPasskey(deps.DI.AuthService))
 	authBFF.RegisterAdminRoutes(admin)
 }
 
@@ -456,8 +457,10 @@ func initSchema(sqlDB *sql.DB, driver string) error {
 	if strings.TrimSpace(ddl) == "" {
 		return fmt.Errorf("empty base schema for driver %q", driver)
 	}
-	_, err := sqlDB.ExecContext(ctx, ddl)
-	return err
+	if _, err := sqlDB.ExecContext(ctx, ddl); err != nil {
+		return err
+	}
+	return shared.MigrateHumanBrowserRoles(ctx, sqlDB, driver)
 }
 
 func loadColdDocuments(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, logger *zap.Logger) error {

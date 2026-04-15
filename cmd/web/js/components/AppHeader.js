@@ -43,19 +43,30 @@ export const AppHeader = {
         }
     },
     async mounted() {
-        try {
-            const st = await apiClient.getSystemStatus();
-            if (!st.initialized) {
-                this.me = null;
-                return;
-            }
-            this.me = await apiClient.getProfile();
-        } catch {
-            this.me = null;
+        await this.refreshMe();
+    },
+    watch: {
+        // Login updates the session cookie, but this header component can stay mounted across routes.
+        // Refresh the profile on navigation so admin menus and logout appear immediately after sign-in.
+        async '$route.path'() {
+            await this.refreshMe({ soft: true });
         }
     },
     methods: {
         isBrowserAdminRole,
+        async refreshMe(opts = {}) {
+            const soft = opts && opts.soft === true
+            try {
+                const st = await apiClient.getSystemStatus();
+                if (!st.initialized) {
+                    this.me = null;
+                    return;
+                }
+                this.me = await apiClient.getProfile();
+            } catch (e) {
+                if (!soft) this.me = null;
+            }
+        },
         async logout() {
             try {
                 await apiClient.logout();
@@ -88,14 +99,9 @@ export const AppHeader = {
                             Documents
                         </button>
                     </router-link>
-                    <router-link to="/docs/new" custom v-slot="{ navigate, isActive }">
-                        <button @click="navigate" :class="['btn btn-ghost btn-sm hidden sm:inline-flex', isActive ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-400']" title="Create document">
-                            New doc
-                        </button>
-                    </router-link>
                     <router-link to="/tags" custom v-slot="{ navigate, isActive }">
                         <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
-                            Tags
+                            Topics &amp; tags
                         </button>
                     </router-link>
                     <router-link to="/about" custom v-slot="{ navigate, isActive }">
@@ -110,7 +116,7 @@ export const AppHeader = {
                                 <svg class="w-3 h-3 opacity-60" fill="currentColor" viewBox="0 0 20 20"><path d="M5.23 7.21a.75.75 0 011.06.02L10 11.17l3.71-3.94a.75.75 0 111.08 1.04l-4.24 4.5a.75.75 0 01-1.08 0L5.25 8.27a.75.75 0 01-.02-1.06z"/></svg>
                             </div>
                             <ul tabindex="0" class="dropdown-content menu z-[100] mt-2 w-72 rounded-box border border-slate-700 bg-slate-900 p-2 shadow-xl">
-                                <li>
+                                <li v-if="isBrowserAdminRole(me?.role)">
                                     <router-link to="/observability" custom v-slot="{ href, navigate, isActive }">
                                         <a
                                             :href="href"

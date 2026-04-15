@@ -46,6 +46,12 @@ type IHotIngestProcessor interface {
 	ProcessHotIngest(ctx context.Context, work types.HotIngestWork) error
 }
 
+// IHotIngestWorkSink submits work to the async hot-ingest pipeline (composition root; non-blocking send).
+// Implementations are nil when deferred hot ingest is unavailable.
+type IHotIngestWorkSink interface {
+	SubmitHotIngest(work types.HotIngestWork)
+}
+
 // IProgramAuth is the minimal surface for /api/v1 and MCP (service track).
 type IProgramAuth interface {
 	IsSystemInitialized(ctx context.Context) (bool, error)
@@ -61,8 +67,17 @@ type IAuthService interface {
 	Bootstrap(ctx context.Context, adminUsername string) (*BootstrapResult, error)
 
 	LoginWithAccessToken(ctx context.Context, accessTokenPlain string, fp FingerprintInput, remoteIP, userAgent string) (sessionCookiePlain string, err error)
+	// DeviceLogin issues a new browser session from a previously issued persistent device token.
+	// This supports "keep me signed in" without re-entering the access token.
+	DeviceLogin(ctx context.Context, deviceTokenPlain string, fp FingerprintInput, remoteIP, userAgent string) (sessionCookiePlain string, err error)
 	ValidateBrowserSession(ctx context.Context, sessionCookiePlain, remoteIP, userAgent string) (*BrowserPrincipal, error)
 	LogoutSession(ctx context.Context, sessionCookiePlain string) error
+	// CreateDeviceTokenForSession issues a persistent device token bound to the current session.
+	// Plaintext must be set as an HttpOnly cookie by the API layer; it is not retrievable later.
+	CreateDeviceTokenForSession(ctx context.Context, actor *BrowserPrincipal, deviceName, remoteIP, userAgent string) (deviceTokenPlain string, err error)
+	ListOwnDeviceTokens(ctx context.Context, actor *BrowserPrincipal) ([]DeviceTokenSummary, error)
+	RevokeDeviceToken(ctx context.Context, actor *BrowserPrincipal, tokenID string) error
+	RevokeAllOwnDeviceTokens(ctx context.Context, actor *BrowserPrincipal) error
 
 	SlideTouchFromBrowserRequest(ctx context.Context, userID string) error
 
@@ -82,6 +97,17 @@ type IAuthService interface {
 	RevokeAllOwnSessions(ctx context.Context, actor *BrowserPrincipal) error
 
 	APIKeyUsageCountsSince(ctx context.Context, actor *BrowserPrincipal, since time.Time) (map[string]int64, error)
+
+	// ---- Passkeys (WebAuthn) ----
+	PasskeyStatus(ctx context.Context, actor *BrowserPrincipal) (*PasskeyStatus, error)
+	ListPasskeys(ctx context.Context, actor *BrowserPrincipal) ([]PasskeySummary, error)
+	RevokePasskey(ctx context.Context, actor *BrowserPrincipal, passkeyID string) error
+
+	// Begin/Finish registration returns objects directly consumable by the browser WebAuthn APIs.
+	BeginPasskeyRegistration(ctx context.Context, actor *BrowserPrincipal, rpID, origin, deviceName string) (any, error)
+	FinishPasskeyRegistration(ctx context.Context, actor *BrowserPrincipal, credential any) error
+	BeginPasskeyVerification(ctx context.Context, actor *BrowserPrincipal, rpID, origin string) (any, error)
+	FinishPasskeyVerification(ctx context.Context, actor *BrowserPrincipal, assertion any) error
 }
 
 // IAdminConfigViewService exposes read-only, redacted configuration for admin troubleshooting.

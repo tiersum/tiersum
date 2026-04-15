@@ -39,6 +39,15 @@ func newSessionCookieValue() (plaintext string, hashHex string, err error) {
 	return suffix, sha256Hex(suffix), nil
 }
 
+func newDeviceTokenPlaintext() (plaintext string, hashHex string, err error) {
+	suffix, err := randomHex(32)
+	if err != nil {
+		return "", "", err
+	}
+	plain := "ts_d_" + suffix
+	return plain, sha256Hex(plain), nil
+}
+
 func newAPIKeyPlaintext(scope string) (plaintext string, hashHex string, err error) {
 	suffix, err := randomHex(24)
 	if err != nil {

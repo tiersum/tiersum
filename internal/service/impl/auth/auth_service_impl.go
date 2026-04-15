@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/spf13/viper"
@@ -21,6 +22,9 @@ func NewAuthService(
 	state storage.ISystemAuthStateRepository,
 	users storage.IAuthUserRepository,
 	sessions storage.IBrowserSessionRepository,
+	deviceTokens storage.IDeviceTokenRepository,
+	passkeys storage.IPasskeyCredentialRepository,
+	passkeyVerifs storage.IPasskeySessionVerificationRepository,
 	keys storage.IAPIKeyRepository,
 	audit storage.IAPIKeyAuditRepository,
 	logger *zap.Logger,
@@ -37,33 +41,62 @@ func NewAuthService(
 	if maxDev <= 0 {
 		maxDev = 3
 	}
+	deviceTTL := viper.GetDuration("auth.browser.device_token_ttl")
+	if deviceTTL <= 0 {
+		deviceTTL = 30 * 24 * time.Hour
+	}
+	passkeySessTTL := viper.GetDuration("auth.passkey.webauthn_session_ttl")
+	if passkeySessTTL <= 0 {
+		passkeySessTTL = 5 * time.Minute
+	}
+	passkeyVerifyTTL := viper.GetDuration("auth.passkey.session_verification_ttl")
+	if passkeyVerifyTTL <= 0 {
+		passkeyVerifyTTL = 12 * time.Hour
+	}
 	return &authService{
-		programAuth:       programAuth,
-		state:             state,
-		users:             users,
-		sessions:          sessions,
-		keys:              keys,
-		audit:             audit,
-		log:               logger,
-		sessionTTL:        sessionTTL,
-		slideUserTokenTTL: slideUser,
-		defaultMaxDevices: maxDev,
+		programAuth:        programAuth,
+		state:              state,
+		users:              users,
+		sessions:           sessions,
+		deviceTokens:       deviceTokens,
+		passkeys:           passkeys,
+		passkeyVerifs:      passkeyVerifs,
+		keys:               keys,
+		audit:              audit,
+		log:                logger,
+		sessionTTL:         sessionTTL,
+		slideUserTokenTTL:  slideUser,
+		defaultMaxDevices:  maxDev,
+		deviceTokenTTL:     deviceTTL,
+		passkeyWebAuthnTTL: passkeySessTTL,
+		passkeyVerifyTTL:   passkeyVerifyTTL,
+		webAuthnSessions:   make(map[string]webAuthnSessionEntry),
 	}
 }
 
 type authService struct {
 	programAuth service.IProgramAuth
 
-	state    storage.ISystemAuthStateRepository
-	users    storage.IAuthUserRepository
-	sessions storage.IBrowserSessionRepository
-	keys     storage.IAPIKeyRepository
-	audit    storage.IAPIKeyAuditRepository
-	log      *zap.Logger
+	state         storage.ISystemAuthStateRepository
+	users         storage.IAuthUserRepository
+	sessions      storage.IBrowserSessionRepository
+	deviceTokens  storage.IDeviceTokenRepository
+	passkeys      storage.IPasskeyCredentialRepository
+	passkeyVerifs storage.IPasskeySessionVerificationRepository
+	keys          storage.IAPIKeyRepository
+	audit         storage.IAPIKeyAuditRepository
+	log           *zap.Logger
 
 	sessionTTL        time.Duration
 	slideUserTokenTTL time.Duration
 	defaultMaxDevices int
+	deviceTokenTTL    time.Duration
+
+	passkeyWebAuthnTTL time.Duration
+	passkeyVerifyTTL   time.Duration
+
+	webAuthnMu       sync.Mutex
+	webAuthnSessions map[string]webAuthnSessionEntry
 }
 
 func (s *authService) IsSystemInitialized(ctx context.Context) (bool, error) {
@@ -282,6 +315,9 @@ func (s *authService) LogoutSession(ctx context.Context, sessionCookiePlain stri
 		}
 		return err
 	}
+	if s.passkeyVerifs != nil {
+		_ = s.passkeyVerifs.DeleteBySessionID(ctx, sess.ID)
+	}
 	return s.sessions.Delete(ctx, sess.ID)
 }
 
@@ -310,7 +346,7 @@ func (s *authService) CreateUser(ctx context.Context, actor *service.BrowserPrin
 	}
 	username = strings.TrimSpace(username)
 	role = strings.TrimSpace(role)
-	if username == "" || (role != types.AuthRoleAdmin && role != types.AuthRoleUser) {
+	if username == "" || !types.IsValidHumanBrowserRole(role) {
 		return nil, errors.New("invalid username or role")
 	}
 	if _, err := s.users.GetByUsername(ctx, username); err == nil {
@@ -538,6 +574,12 @@ func (s *authService) RevokeAllOwnSessions(ctx context.Context, actor *service.B
 	if actor == nil {
 		return service.ErrAuthForbidden
 	}
+	if s.deviceTokens != nil {
+		_ = s.deviceTokens.RevokeAllForUser(ctx, actor.UserID, time.Now().UTC())
+	}
+	if s.passkeyVerifs != nil {
+		_ = s.passkeyVerifs.DeleteBySessionID(ctx, actor.SessionID)
+	}
 	return s.sessions.DeleteAllForUser(ctx, actor.UserID)
 }
 
@@ -549,4 +591,3 @@ func (s *authService) APIKeyUsageCountsSince(ctx context.Context, actor *service
 }
 
 var _ service.IAuthService = (*authService)(nil)
-

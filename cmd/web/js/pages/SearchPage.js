@@ -1,4 +1,4 @@
-import { apiClient } from '../api_client.js';
+import { apiClient, isBrowserAdminRole, isBrowserViewerRole } from '../api_client.js';
 import { parseMarkdown } from '../markdown.js';
 
 export const SearchPage = {
@@ -14,13 +14,22 @@ export const SearchPage = {
             traceDebug: false,
             lastTraceID: null,
             /** null until GET /bff/v1/monitoring — whether OpenTelemetry HTTP tracing + DB export is active */
-            httpTracingActive: null
+            httpTracingActive: null,
+            profile: null
         };
     },
-    mounted() {
-        this.refreshTelemetryHint();
+    async mounted() {
+        try {
+            this.profile = await apiClient.getProfile();
+        } catch {
+            this.profile = null;
+        }
+        await this.refreshTelemetryHint();
     },
     computed: {
+        isViewer() {
+            return isBrowserViewerRole(this.profile?.role);
+        },
         hasResults() {
             return this.results && this.results.length > 0;
         },
@@ -31,6 +40,10 @@ export const SearchPage = {
     methods: {
         async refreshTelemetryHint() {
             try {
+                if (!isBrowserAdminRole(this.profile?.role)) {
+                    this.httpTracingActive = null;
+                    return;
+                }
                 const m = await apiClient.getMonitoring();
                 this.httpTracingActive = m?.telemetry?.http_tracing_active === true;
             } catch {
@@ -164,8 +177,10 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                             Find exactly what you need across all your documents.
                         </p>
                         <p class="text-slate-500 text-sm mt-4">
-                            <router-link to="/docs/new" class="link link-primary">Add a document</router-link>
-                            <span class="text-slate-600 mx-2">·</span>
+                            <template v-if="!isViewer">
+                                <router-link to="/docs/new" class="link link-primary">Add a document</router-link>
+                                <span class="text-slate-600 mx-2">·</span>
+                            </template>
                             <router-link to="/docs" class="link link-hover text-slate-400">Browse library</router-link>
                         </p>
                     </div>
