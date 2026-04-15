@@ -163,7 +163,6 @@ export const apiClient = {
 
     getDocuments: () => apiClient.request('/bff/v1/documents').then((r) => r.documents || []),
     getDocument: (id) => apiClient.request(`/bff/v1/documents/${id}`),
-    getDocumentSummaries: (id) => apiClient.request(`/bff/v1/documents/${id}/summaries`).then((r) => r.summaries || []),
     getDocumentChapters: (id) => apiClient.request(`/bff/v1/documents/${id}/chapters`).then((r) => r.chapters || []),
     createDocument: (data) => apiClient.request('/bff/v1/documents', { method: 'POST', body: JSON.stringify(data) }),
 

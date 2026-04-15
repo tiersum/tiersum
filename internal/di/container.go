@@ -14,7 +14,14 @@ import (
 	"github.com/tiersum/tiersum/internal/client/llm"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/service"
-	"github.com/tiersum/tiersum/internal/service/svcimpl"
+	"github.com/tiersum/tiersum/internal/service/svcimpl/admin"
+	"github.com/tiersum/tiersum/internal/service/svcimpl/auth"
+	"github.com/tiersum/tiersum/internal/service/svcimpl/catalog"
+	"github.com/tiersum/tiersum/internal/service/svcimpl/common"
+	"github.com/tiersum/tiersum/internal/service/svcimpl/document"
+	"github.com/tiersum/tiersum/internal/service/svcimpl/observability"
+	"github.com/tiersum/tiersum/internal/service/svcimpl/query"
+	"github.com/tiersum/tiersum/internal/service/svcimpl/topic"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/internal/storage/cache"
 	"github.com/tiersum/tiersum/internal/storage/coldindex"
@@ -75,21 +82,22 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 	if err != nil {
 		return nil, err
 	}
-	llmProvider := svcimpl.NewOTelContextLLM(baseLLM)
+	llmProvider := common.NewOTelContextLLM(baseLLM)
 
 	// 4. Quota Manager - for hot/cold document processing control
 	quotaPerHour := viper.GetInt("quota.per_hour")
 	if quotaPerHour <= 0 {
 		quotaPerHour = 100 // default
 	}
-	quotaManager := svcimpl.NewQuotaManager(quotaPerHour)
+	quotaManager := common.NewQuotaManager(quotaPerHour)
 
 	// 5. Service Layer - Core domain logic
-	summarizer := svcimpl.NewSummarizerSvc(llmProvider, logger)
-	indexer := svcimpl.NewIndexerSvc(summarizer, uow.Summaries, logger)
+	analyzer := document.NewDocumentAnalyzer(llmProvider, logger)
+	filter := query.NewRelevanceFilter(llmProvider, logger)
+	materializer := document.NewChapterMaterializer(uow.Chapters, uow.Documents, logger)
 
 	// 6. Service Layer - Topics (catalog tag regrouping)
-	topicSvc := svcimpl.NewTopicSvc(
+	topicService := topic.NewTopicService(
 		uow.Tags,
 		uow.Topics,
 		llmProvider,
@@ -97,29 +105,32 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 	)
 
 	// 7. Service Layer - Business logic
-	queryService := svcimpl.NewQuerySvc(
+	queryService := query.NewQueryService(
 		uow.Documents,
-		uow.Summaries,
+		uow.Chapters,
 		uow.Tags,
 		uow.Topics,
-		summarizer,
+		filter,
 		coldIndex,
 		llmProvider,
 		logger,
 	)
-	docService := svcimpl.NewDocumentSvc(
+	docService := document.NewDocumentService(
 		uow.Documents,
-		indexer,
-		summarizer,
+		materializer,
+		analyzer,
 		uow.Tags,
 		coldIndex,
 		quotaManager,
 		logger,
 		job.HotIngestQueue,
 	)
+	hotIngestProc := document.NewHotIngestProcessor(uow.Documents, analyzer, materializer, uow.Tags, logger)
 
-	// 8. Auth + API Layer — retrieval facade so HTTP handlers do not import storage interfaces
-	authSvc := svcimpl.NewAuthSvc(
+	// 8. Auth + API Layer — tag/chapter/observability read facades so HTTP handlers do not import storage interfaces
+	programAuth := auth.NewProgramAuth(uow.SystemAuth, uow.APIKeys, uow.APIKeyAudit)
+	authService := auth.NewAuthService(
+		programAuth,
 		uow.SystemAuth,
 		uow.AuthUsers,
 		uow.BrowserSessions,
@@ -127,27 +138,40 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 		uow.APIKeyAudit,
 		logger,
 	)
-	adminConfigView := svcimpl.NewAdminConfigViewSvc()
-	retrievalSvc := svcimpl.NewRetrievalSvc(uow.Tags, uow.Summaries, uow.Documents, coldIndex)
-	restHandler := api.NewHandler(docService, queryService, topicSvc, retrievalSvc, quotaManager, uow.OtelSpans, logger, serverVersion)
-	mcpServer := api.NewMCPServer(restHandler, authSvc, logger)
+	adminConfigView := admin.NewAdminConfigViewService()
+	tagService := catalog.NewTagService(uow.Tags)
+	chapterService := catalog.NewChapterService(uow.Chapters, coldIndex)
+	observabilityService := observability.NewObservabilityService(coldIndex)
+	restHandler := api.NewHandler(
+		docService,
+		queryService,
+		topicService,
+		tagService,
+		chapterService,
+		observabilityService,
+		quotaManager,
+		uow.OtelSpans,
+		logger,
+		serverVersion,
+	)
+	mcpServer := api.NewMCPServer(restHandler, authService, logger)
 
 	// 9. Job Layer — jobs depend only on service.* contracts
-	docMaintenance := svcimpl.NewDocumentMaintenanceSvc(uow.Documents, indexer, summarizer, logger)
+	docMaintenance := document.NewDocumentMaintenanceService(uow.Documents, materializer, analyzer, logger)
 	jobScheduler := job.NewScheduler(logger)
-	jobScheduler.Register(job.NewTopicRegroupJob(topicSvc, logger))
+	jobScheduler.Register(job.NewTopicRegroupJob(topicService, logger))
 	jobScheduler.Register(job.NewPromoteJob(docMaintenance))
 	jobScheduler.Register(job.NewHotScoreJob(docMaintenance))
 
 	return &Dependencies{
 		OtelSpans:           uow.OtelSpans,
 		DocumentService:     docService,
-		HotIngestProcessor:  docService,
+		HotIngestProcessor:  hotIngestProc,
 		QueryService:        queryService,
-		TopicService:        topicSvc,
+		TopicService:        topicService,
 		RESTHandler:         restHandler,
 		MCPServer:           mcpServer,
-		AuthService:         authSvc,
+		AuthService:         authService,
 		AdminConfigView:     adminConfigView,
 		JobScheduler:        jobScheduler,
 		DocumentMaintenance: docMaintenance,
@@ -160,23 +184,14 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 var (
 	// Storage Layer
 	_ storage.IDocumentRepository = (*db.DocumentRepo)(nil)
-	_ storage.ISummaryRepository  = (*db.SummaryRepo)(nil)
+	_ storage.IChapterRepository  = (*db.ChapterRepo)(nil)
 	_ storage.ITagRepository      = (*db.TagRepo)(nil)
 	_ storage.ITopicRepository    = (*db.TopicRepo)(nil)
 	_ storage.ICache              = (*cache.Cache)(nil)
 	_ storage.IColdIndex          = (*coldindex.Index)(nil)
 
 	// Service Layer
-	_ service.IDocumentService            = (*svcimpl.DocumentSvc)(nil)
-	_ service.IQueryService               = (*svcimpl.QuerySvc)(nil)
-	_ service.ITopicService               = (*svcimpl.TopicSvc)(nil)
-	_ service.IIndexer                    = (*svcimpl.IndexerSvc)(nil)
-	_ service.ISummarizer                 = (*svcimpl.SummarizerSvc)(nil)
-	_ service.IRetrievalService           = (*svcimpl.RetrievalSvc)(nil)
-	_ service.IDocumentMaintenanceService = (*svcimpl.DocumentMaintenanceSvc)(nil)
-	_ service.IAuthService                = (*svcimpl.AuthSvc)(nil)
-	_ service.IProgramAuth                = (*svcimpl.AuthSvc)(nil)
-	_ service.IAdminConfigViewService     = (*svcimpl.AdminConfigViewSvc)(nil)
+	// (Implementations live in internal/service/svcimpl; compile-time checks are on constructors + package-private types.)
 
 	// Client Layer
 	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)

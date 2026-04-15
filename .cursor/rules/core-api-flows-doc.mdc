@@ -7,7 +7,7 @@ alwaysApply: true
 
 When you change **non–simple-CRUD** API behavior — anything with multi-step domain logic, thresholds, LLM calls, or hybrid search — you **must** update **`docs/CORE_API_FLOWS.md`** in the **same** change set so it stays accurate (handlers → services → storage, algorithms, thresholds).
 
-**Treat as core (doc must stay in sync):** e.g. `POST /api/v1/documents` ingest (hot/cold), `POST /api/v1/query/progressive`, `POST /api/v1/topics/regroup`, `GET /api/v1/hot/*`, `GET /api/v1/cold/doc_source`, `GET /api/v1/tags` when filtering or topic-scoping semantics change, and MCP tools that mirror those flows (`internal/api/handler_execute.go`, `internal/service/svcimpl/*`, `internal/storage/coldindex/index.go`, related jobs). The same routes exist under `/bff/v1` for the browser BFF; document behavior once under the `/api/v1` paths unless BFF-only semantics diverge.
+**Treat as core (doc must stay in sync):** e.g. `POST /api/v1/documents` ingest (hot/cold), `POST /api/v1/query/progressive`, `POST /api/v1/topics/regroup`, `GET /api/v1/hot/*`, `GET /api/v1/cold/doc_source`, `GET /api/v1/tags` when filtering or topic-scoping semantics change, and MCP tools that mirror those flows (`internal/api/handler_execute.go`, `internal/service/svcimpl/*`, `internal/storage/coldindex/cold_index_impl.go`, related jobs). The same routes exist under `/bff/v1` for the browser BFF; document behavior once under the `/api/v1` paths unless BFF-only semantics diverge.
 
 **Simple pass-through (no CORE_API_FLOWS refresh required unless the doc explicitly lists them):** plain list/get by id, summaries/chapters by document id, catalog tags / topics list, quota, metrics, health — unless their **contract or side effects** become non-trivial.
 

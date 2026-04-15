@@ -8,7 +8,6 @@ export const DocumentDetailPage = {
     data() {
         return {
             doc: null,
-            summaries: [],
             chapters: [],
             loading: true,
             loadError: null,
@@ -17,11 +16,8 @@ export const DocumentDetailPage = {
         };
     },
     computed: {
-        docSummaryRecord() {
-            return this.summaries.find(s => s.tier === 'document');
-        },
         docSummaryText() {
-            return (this.docSummaryRecord?.content || '').trim();
+            return (this.doc?.summary || '').trim();
         },
         /** True when chapter nav has more than a single implicit placeholder (or has overview). */
         hasChapterSidebar() {
@@ -57,17 +53,14 @@ export const DocumentDetailPage = {
             this.loading = true;
             this.loadError = null;
             this.doc = null;
-            this.summaries = [];
             this.chapters = [];
             try {
                 const docId = this.id;
-                const [doc, summaries, chapters] = await Promise.all([
+                const [doc, chapters] = await Promise.all([
                     apiClient.getDocument(docId),
-                    apiClient.getDocumentSummaries(docId).catch(() => []),
                     apiClient.getDocumentChapters(docId).catch(() => [])
                 ]);
                 this.doc = doc;
-                this.summaries = summaries;
                 this.chapters = chapters;
                 this.applyDefaultView();
                 this.applyRouteChapterSelection();

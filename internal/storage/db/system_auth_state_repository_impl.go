@@ -1,0 +1,78 @@
+package db
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/tiersum/tiersum/internal/storage"
+)
+
+// SystemAuthStateRepo implements storage.ISystemAuthStateRepository.
+type SystemAuthStateRepo struct {
+	db     sqlDB
+	driver string
+}
+
+func NewSystemAuthStateRepo(db sqlDB, driver string) *SystemAuthStateRepo {
+	return &SystemAuthStateRepo{db: db, driver: driver}
+}
+
+func (r *SystemAuthStateRepo) Get(ctx context.Context) (*storage.SystemAuthState, error) {
+	q := `SELECT initialized_at FROM system_state WHERE id = 1`
+	if r.driver == "postgres" {
+		q = `SELECT initialized_at FROM system_state WHERE id = 1`
+	}
+	var t sql.NullTime
+	err := r.db.QueryRowContext(ctx, q).Scan(&t)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Missing singleton row (empty or legacy DB): treat as uninitialized, not a hard failure.
+			if seedErr := r.ensureSingletonRow(ctx); seedErr != nil {
+				return nil, seedErr
+			}
+			return &storage.SystemAuthState{}, nil
+		}
+		return nil, err
+	}
+	st := &storage.SystemAuthState{}
+	if t.Valid {
+		st.InitializedAt = &t.Time
+	}
+	return st, nil
+}
+
+// ensureSingletonRow inserts the default system_state row if absent (id=1).
+func (r *SystemAuthStateRepo) ensureSingletonRow(ctx context.Context) error {
+	var q string
+	if r.driver == "postgres" {
+		q = `INSERT INTO system_state (id, initialized_at) VALUES (1, NULL) ON CONFLICT (id) DO NOTHING`
+	} else {
+		q = `INSERT OR IGNORE INTO system_state (id, initialized_at) VALUES (1, NULL)`
+	}
+	_, err := r.db.ExecContext(ctx, q)
+	return err
+}
+
+func (r *SystemAuthStateRepo) MarkInitialized(ctx context.Context) error {
+	if err := r.ensureSingletonRow(ctx); err != nil {
+		return err
+	}
+	now := time.Now().UTC()
+	q := `UPDATE system_state SET initialized_at = ? WHERE id = 1 AND initialized_at IS NULL`
+	args := []interface{}{now}
+	if r.driver == "postgres" {
+		q = `UPDATE system_state SET initialized_at = $1 WHERE id = 1 AND initialized_at IS NULL`
+	}
+	res, err := r.db.ExecContext(ctx, q, args...)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("system already initialized or state row missing")
+	}
+	return nil
+}

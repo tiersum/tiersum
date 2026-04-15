@@ -15,7 +15,7 @@ import (
 // When a cold document is accessed 3+ times, its ID is sent to this queue
 var PromoteQueue = make(chan string, 100)
 
-// HotIngestQueue carries hot documents that need LLM analysis and indexing after the row is persisted.
+// HotIngestQueue carries hot documents that need deferred LLM analysis and materialization (summary + chapter rows + tags) after the document row exists.
 var HotIngestQueue = make(chan types.HotIngestWork, 100)
 
 // Scheduler manages and executes scheduled jobs

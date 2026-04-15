@@ -68,7 +68,7 @@ TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 - ✅ Full LLM analysis with document + chapter summaries
 - ✅ Up to 10 auto-generated tags
 - ✅ LLM-based filtering during queries
-- ✅ Stored in database with tiered summaries
+- ✅ Stored in database with document summaries + chapter rows
 - ⚡ Requires quota (100/hour default)
 
 **Criteria (ingest_mode `auto`)**: prebuilt summary+chapters OR (quota available AND content > 5000 chars). Override with `ingest_mode`: `hot` or `cold`.
@@ -87,7 +87,7 @@ TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 ┌─────────────────────────────────────────────────────────────┐
 │                    Hot Documents                            │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  Full LLM Analysis → Tags + Summaries + Chapters     │  │
+│  │  Full LLM Analysis → Tags + doc summary + chapters     │  │
 │  │  Progressive Query (tags→docs→chapters; topics assist) │  │
 │  └───────────────────────────────────────────────────────┘  │
 ├─────────────────────────────────────────────────────────────┤
@@ -312,7 +312,6 @@ curl -X POST http://localhost:8080/api/v1/query/progressive \
 # Batch retrieval (hot / cold)
 curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_results=100"
 curl "http://localhost:8080/api/v1/hot/doc_chapters?doc_ids=uuid1,uuid2&max_results=100"
-curl "http://localhost:8080/api/v1/hot/doc_source?chapter_paths=docId/chapter-title&max_results=100"
 curl "http://localhost:8080/api/v1/cold/doc_source?q=scheduler,pods&max_results=100"
 
 # List topics (themes)
@@ -326,9 +325,6 @@ curl -X POST http://localhost:8080/api/v1/topics/regroup
 
 # Get document
 curl "http://localhost:8080/api/v1/documents/{id}"
-
-# Get document summaries
-curl "http://localhost:8080/api/v1/documents/{id}/summaries"
 
 # Check quota
 curl "http://localhost:8080/api/v1/quota"
@@ -345,14 +341,12 @@ MCP tool names and JSON bodies align with the REST API under `/api/v1` (see `int
 | `api_v1_documents_list`          | `GET /documents`                                       |
 | `api_v1_documents_get`           | `GET /documents/:id` (`id`)                            |
 | `api_v1_documents_chapters_get`  | `GET /documents/:id/chapters` (`id`)                   |
-| `api_v1_documents_summaries_get` | `GET /documents/:id/summaries` (`id`)                  |
 | `api_v1_query_progressive_post`  | `POST /query/progressive` (`question`, `max_results`)  |
 | `api_v1_tags_get`                | `GET /tags` (`topic_ids`, `max_results` optional)      |
 | `api_v1_topics_get`              | `GET /topics`                                          |
 | `api_v1_topics_regroup_post`     | `POST /topics/regroup`                                 |
 | `api_v1_hot_doc_summaries_get`   | `GET /hot/doc_summaries` (`tags`, `max_results`)       |
 | `api_v1_hot_doc_chapters_get`    | `GET /hot/doc_chapters` (`doc_ids`, `max_results`)     |
-| `api_v1_hot_doc_source_get`      | `GET /hot/doc_source` (`chapter_paths`, `max_results`) |
 | `api_v1_cold_doc_source_get`     | `GET /cold/doc_source` (`q`, `max_results`)            |
 | `api_v1_quota_get`               | `GET /quota`                                           |
 | `api_v1_metrics_get`             | `GET /metrics`                                         |
@@ -425,7 +419,7 @@ TierSum includes a modern Vue 3 CDN-based frontend with the following features. 
 
 - **List** (`/#/docs`): filter by title/tags; opens detail on row click
 - **Create** (`/#/docs/new`): full-page Markdown editor + live preview
-- **Detail** (`/#/docs/:id`): loads document, summaries, and chapters via parallel GETs; cold docs emphasize source view
+- **Detail** (`/#/docs/:id`): loads the document and chapter list via GETs; cold docs emphasize source view
 
 ### Tag Browser (`/#/tags`)
 
@@ -495,33 +489,35 @@ tiersum/
 │   └── config.yaml
 deployments/
 │   └── docker/                 # Docker and docker-compose files
-db/
-│   └── migrations/             # Database migration files (7 versions)
 ├── internal/
 │   ├── api/                    # Layer 1: API (REST + MCP handlers)
 │   ├── service/                # Layer 2: Business logic
 │   │   ├── interface.go        # I* interfaces
-│   │   └── svcimpl/            # Implementations
-│   │       ├── document.go     # Hot/cold tiering
-│   │       ├── query.go        # Progressive query
-│   │       ├── topic.go        # LLM topic regrouping + topics
-│   │       ├── indexer.go      # Summary indexing
-│   │       ├── summarizer.go   # LLM analysis
-│   │       └── quota.go        # Rate limiting
+│   │   └── svcimpl/            # Implementations by domain (see doc.go)
+│   │       ├── common/        # Shared LLM summarizer core, quota, config redaction
+│   │       ├── auth/          # API keys + browser sessions
+│   │       ├── document/      # Ingest, maintenance, materializer, analyzer, hot ingest
+│   │       ├── query/         # Progressive query + relevance + progressive OTel
+│   │       ├── topic/         # Topic regroup
+│   │       ├── catalog/       # Tags, chapters (read facades)
+│   │       ├── observability/ # Monitoring / cold-index stats (IObservabilityService)
+│   │       ├── admin/         # Redacted admin config snapshot
+│   │       └── stubs/         # Test mocks for svcimpl tests
 │   ├── storage/                # Layer 3: Data persistence
 │   │   ├── interface.go
 │   │   ├── db/
-│   │   │   ├── repository.go   # SQL repositories
-│   │   │   ├── schema.go       # DB schemas
-│   │   │   └── migrator.go     # Migrations
+│   │   │   ├── *_repository_impl.go # SQL repositories (documents, auth, otel spans, …)
+│   │   │   ├── unit_of_work_impl.go # Repository bundle constructor
+│   │   │   ├── schema.go       # Baseline DDL (`BaseSchema`) applied on startup
 │   │   ├── cache/
-│   │   │   └── cache.go        # In-memory cache
+│   │   │   └── cache_impl.go   # In-memory cache
 │   │   └── coldindex/          # Cold doc chapter index (Bleve + HNSW + embedders)
-│   │       └── index.go        # storage.IColdIndex
+│   │       └── cold_index_impl.go # storage.IColdIndex
 │   ├── client/                 # Layer 4: External dependencies
 │   │   ├── interface.go
 │   │   └── llm/
-│   │       └── openai.go       # OpenAI/Anthropic
+│   │       ├── llm_provider_factory.go
+│   │       └── *_provider_impl.go # OpenAI / Anthropic / Ollama
 │   ├── job/                    # Background tasks
 │   │   ├── scheduler.go
 │   │   ├── jobs.go             # Topic regroup, promote, hot score
@@ -564,7 +560,7 @@ make build-all
 
 - Hot/Cold document tiering with auto-promotion
 - BM25 + Vector hybrid search over cold chapters (full chapter text)
-- 3-tier summarization engine (Document + Chapter + Source)
+- Three-level summarization (document summary + chapter summaries + source text), without legacy DB “tier” columns
 - Topics + catalog tags with LLM regroup
 - Progressive query with LLM filtering at each step
 - LLM auto-tagging for documents

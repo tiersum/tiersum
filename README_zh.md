@@ -83,7 +83,7 @@ TierSum 用两层策略平衡 **LLM 成本** 与 **检索效果**：
 ┌─────────────────────────────────────────────────────────────┐
 │                    Hot Documents                            │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  Full LLM Analysis → Tags + Summaries + Chapters     │  │
+│  │  Full LLM Analysis → Tags + doc summary + chapters    │  │
 │  │  Progressive Query（标签→文档→章节；主题辅助）        │  │
 │  └───────────────────────────────────────────────────────┘  │
 ├─────────────────────────────────────────────────────────────┤
@@ -288,7 +288,6 @@ curl -X POST http://localhost:8080/api/v1/query/progressive \
 # 批量检索（热/冷）
 curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_results=100"
 curl "http://localhost:8080/api/v1/hot/doc_chapters?doc_ids=uuid1,uuid2&max_results=100"
-curl "http://localhost:8080/api/v1/hot/doc_source?chapter_paths=docId/chapter-title&max_results=100"
 curl "http://localhost:8080/api/v1/cold/doc_source?q=scheduler,pods&max_results=100"
 
 # 列出主题（topics）
@@ -300,15 +299,15 @@ curl "http://localhost:8080/api/v1/tags?topic_ids=topic-uuid-1,topic-uuid-2&max_
 # 手动触发主题重归类（LLM 根据目录标签刷新 topics）
 curl -X POST http://localhost:8080/api/v1/topics/regroup
 
-# 获取单个文档 / 摘要
+# 获取单个文档 / 章节
 curl "http://localhost:8080/api/v1/documents/{id}"
-curl "http://localhost:8080/api/v1/documents/{id}/summaries"
+curl "http://localhost:8080/api/v1/documents/{id}/chapters"
 
 # 配额状态
 curl "http://localhost:8080/api/v1/quota"
 ```
 
-> **校验说明**：标签列表接口使用 **`topic_ids`**（复数、逗号分隔），与 `internal/api/handler_retrieval.go` 一致。
+> **校验说明**：标签列表接口使用 **`topic_ids`**（复数、逗号分隔），与 `internal/api/handler_catalog.go` 一致。
 
 ### MCP 工具（智能体）
 
@@ -320,14 +319,12 @@ MCP 工具名与入参与 **`/api/v1` 下 REST** 语义对齐（实现见 `inter
 | `api_v1_documents_list` | `GET /documents` |
 | `api_v1_documents_get` | `GET /documents/:id`（参数 `id`） |
 | `api_v1_documents_chapters_get` | `GET /documents/:id/chapters`（`id`） |
-| `api_v1_documents_summaries_get` | `GET /documents/:id/summaries`（`id`） |
 | `api_v1_query_progressive_post` | `POST /query/progressive`（`question`，`max_results`） |
 | `api_v1_tags_get` | `GET /tags`（可选 `topic_ids`、`max_results`） |
 | `api_v1_topics_get` | `GET /topics` |
 | `api_v1_topics_regroup_post` | `POST /topics/regroup` |
 | `api_v1_hot_doc_summaries_get` | `GET /hot/doc_summaries`（`tags`，`max_results`） |
 | `api_v1_hot_doc_chapters_get` | `GET /hot/doc_chapters`（`doc_ids`，`max_results`） |
-| `api_v1_hot_doc_source_get` | `GET /hot/doc_source`（`chapter_paths`，`max_results`） |
 | `api_v1_cold_doc_source_get` | `GET /cold/doc_source`（`q`，`max_results`） |
 | `api_v1_quota_get` | `GET /quota` |
 | `api_v1_metrics_get` | `GET /metrics` |
@@ -449,8 +446,6 @@ tiersum/
 ├── configs/
 ├── deployments/
 │   └── docker/
-├── db/
-│   └── migrations/
 ├── internal/
 │   ├── api/
 │   ├── service/

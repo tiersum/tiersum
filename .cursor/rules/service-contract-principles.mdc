@@ -1,0 +1,63 @@
+# TierSum — Service layer contract principles (mandatory)
+
+These rules constrain **all future refactors and feature changes** touching `internal/service/*`, `internal/api/*`, `internal/job/*`, `internal/di/*`, and `internal/service/svcimpl/*`.
+
+## 1) Layer boundaries (non-negotiable)
+
+- **API/Job → Service only**: `internal/api` and `internal/job` may depend on **service facades only** (interfaces in `internal/service/interface.go`) and `pkg/types`.
+- **No storage/client from API/Job**: API/Job must not import `internal/storage/*`, `internal/storage/db`, `internal/client/*`, or `internal/service/svcimpl`.
+- **Composition root only**: cross-layer wiring (concrete implementations) happens only in `internal/di/container.go`.
+
+## 2) Facade vs internal contracts (file governance)
+
+- **`internal/service/interface.go`**: contains only **facade interfaces** consumed directly by **API and Job layers**.
+  - Keep these interfaces **small and stable**.
+  - Expose the **minimum method surface** required by upper layers.
+- **`internal/service/internal_interface.go`**: contains only **internal composition interfaces** used by `svcimpl` (not intended for API/Job).
+  - These may evolve faster.
+- **`internal/service/types.go`**: shared service-layer DTOs and sentinel errors used across facades and implementations.
+- **`internal/service/helper.go`**: small, dependency-free helpers shared across `svcimpl`.
+
+## 2.1) Naming and dependency visibility (mandatory)
+
+- **Facade interfaces** (for API/Job) must use **service-oriented names** like `I…Service` (or `I…Facade` if introduced later). Do not expose internal decomposition in names (avoid `*ReadService` / `*WriteService` in facade naming unless it is intentionally part of the API/Job contract).
+- **Internal composition interfaces** (for svcimpl) must use **capability names**, not service facades (e.g. `IDocumentAnalyzer`, `IRelevanceFilter`, `IChapterMaterializer`).
+- **API/Job must not reference internal contracts**: `internal/api/*` and `internal/job/*` must not use interfaces defined in `internal/service/internal_interface.go`. If a capability is needed by API/Job, promote a facade method/interface into `interface.go`.
+
+## 3) High cohesion, low coupling (interface shape)
+
+- Prefer **multiple small interfaces** over one “god interface”.
+- Split by **read domain** / **write domain** / **capability domain**:
+  - **Read facades** should not include writes.
+  - **Observability** reads (stats/metrics DTOs) should not be mixed with business reads.
+- If an interface grows beyond a cohesive domain, **split it** and inject only what the caller needs.
+
+## 4) Separate workflow orchestration from reusable capabilities
+
+- **Workflow / pipeline entrypoints** (e.g. async hot ingest consumer) may exist as a single-method facade for jobs.
+- Reusable capabilities must be **factored into internal contracts** (e.g. analyzer vs relevance filter vs materializer), then composed by the workflow implementation.
+
+## 4.1) svcimpl dependency rule (mandatory)
+
+- **No implementation-to-implementation dependencies**: code under `internal/service/svcimpl/*` must not depend directly on other concrete svcimpl types (e.g. `*FooSvc` calling `*BarSvc`).
+- **Depend on internal contracts instead**: svcimpl code should depend on `internal/service/internal_interface.go` interfaces (capability contracts) and storage/client **interfaces**.
+- **Exception**: svcimpl code may use **pure helper functions** from `internal/service/helper.go` (dependency-free utilities). Helpers must not hide cross-layer construction or introduce new runtime dependencies.
+
+## 5) Separate generation vs filtering (LLM responsibilities)
+
+- **Generation** (e.g. `AnalyzeDocument`) and **filtering** (e.g. `FilterDocuments`, `FilterChapters`) are different domains.
+- Prefer distinct internal interfaces for these roles and compose them where needed.
+
+## 6) Naming must match intent
+
+- Avoid names that imply a search index when the component is “persist/materialize analysis results”.
+- Choose names that reflect actual responsibilities (e.g. *Materializer*, *Analyzer*, *Filter*).
+
+## 7) Changes checklist (before modifying code)
+
+When changing service contracts or API behavior:
+
+- Ensure API/Job depends only on facade interfaces (`interface.go`).
+- Ensure implementations only depend on storage/client **interfaces**.
+- If you touch non-trivial endpoints/flows, keep `docs/CORE_API_FLOWS.md` aligned.
+

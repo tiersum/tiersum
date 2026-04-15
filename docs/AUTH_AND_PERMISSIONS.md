@@ -1,6 +1,6 @@
 # Authentication and permissions
 
-TierSum separates **who can call the API** into two tracks: **human (browser)** and **program (integrations / MCP)**. Both are backed by the same database (`users`, `browser_sessions`, `api_keys`, `system_state`) and enforced in **`internal/api`** with **`internal/service`** (`svcimpl.AuthSvc`).
+TierSum separates **who can call the API** into two tracks: **human (browser)** and **program (integrations / MCP)**. Both are backed by the same database (`users`, `browser_sessions`, `api_keys`, `system_state`) and enforced in **`internal/api`** with **`internal/service`** (wired by `svcimpl.NewProgramAuth` + `svcimpl.NewAuthService`).
 
 For **day-to-day usage** (bootstrap, login, keys, UI), see **[Access control and permissions (user guide)](../README.md#access-control-and-permissions-user-guide)** in the root **README**.
 
@@ -42,7 +42,7 @@ Public (no TierSum auth): **`GET /health`**, **`GET /metrics`** at the server ro
 - `POST /bff/v1/auth/login`
 - `POST /bff/v1/auth/logout`
 
-**Bootstrap** (`AuthSvc.Bootstrap`): creates first **`admin`** user, one **read** API key, sets `system_state`. Returns plaintext secrets once.
+**Bootstrap** (`IAuthService.Bootstrap`): creates first **`admin`** user, one **read** API key, sets `system_state`. Returns plaintext secrets once.
 
 **Login** (`POST /bff/v1/auth/login`): body includes **access token** + **fingerprint** (timezone + optional client signal). Service checks token hash, optional user token expiry (**slide** mode), then **device cap**: distinct active fingerprints vs `max_devices`; may evict same-fingerprint old session. Issues opaque **session cookie** (`tiersum_session`, HttpOnly).
 
@@ -52,7 +52,7 @@ Public (no TierSum auth): **`GET /health`**, **`GET /metrics`** at the server ro
 
 **`/bff/v1/admin/*`**: **`BFFRequireAdmin`** — `BrowserPrincipal.Role == admin`. Routes include users, reset token, **`GET /admin/devices`** (all sessions + usernames; static route registered **before** `/admin/users/:id/devices` to avoid path ambiguity), API keys CRUD/revoke, usage snapshot, **`GET /admin/config/snapshot`** (read-only redacted `viper` tree for ops — no secrets in plaintext; UI **Management → Configuration** at `/admin/config`).
 
-**Implementation map:** `auth_bff_handlers.go` (handlers), `bff_session_middleware.go`, `auth_service.go`, `auth_repo.go`, `auth_iface.go` / `auth_entities.go`.
+**Implementation map:** `auth_bff_handlers.go` (handlers), `bff_session_middleware.go`, `program_auth_impl.go`, `auth_service_impl.go`, `internal/storage/db/*_repository_impl.go` (auth tables), `internal/service/interface.go` (facades) / `auth_entities.go`.
 
 ---
 

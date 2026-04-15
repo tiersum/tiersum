@@ -9,7 +9,7 @@ import (
 	"github.com/tiersum/tiersum/internal/service"
 )
 
-// StartHotIngestQueueConsumer reads HotIngestQueue and runs LLM analysis plus hierarchical indexing.
+// StartHotIngestQueueConsumer reads HotIngestQueue and invokes IHotIngestProcessor.ProcessHotIngest (LLM analysis + chapter materialization).
 // It runs until ctx is cancelled.
 func StartHotIngestQueueConsumer(ctx context.Context, proc service.IHotIngestProcessor, logger *zap.Logger) {
 	if proc == nil || logger == nil {
@@ -22,7 +22,7 @@ func StartHotIngestQueueConsumer(ctx context.Context, proc service.IHotIngestPro
 				return
 			case work := <-HotIngestQueue:
 				runCtx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
-				err := proc.ProcessHotIngestWork(runCtx, work)
+				err := proc.ProcessHotIngest(runCtx, work)
 				cancel()
 				if err != nil {
 					logger.Error("hot ingest queue: processing failed",

@@ -105,8 +105,8 @@ func setupServerDeps() (*ServerDeps, error) {
 	}
 
 	// Run database migrations
-	if err := runMigrations(sqlDB, getDriver()); err != nil {
-		logger.Error("Failed to run migrations, continuing anyway", zap.Error(err))
+	if err := initSchema(sqlDB, getDriver()); err != nil {
+		logger.Fatal("Failed to initialize database schema", zap.Error(err))
 	}
 
 	// Cold document index (Bleve + HNSW, in-process)
@@ -448,17 +448,15 @@ func initDB() (*sql.DB, error) {
 	}
 }
 
-func runMigrations(sqlDB *sql.DB, driver string) error {
-	migrator := db.NewMigrator(sqlDB, driver)
-	ctx := context.Background()
-	migErr := migrator.MigrateUpSimple()
-	if err := migrator.EnsureOtelSpansTable(ctx); err != nil {
-		return fmt.Errorf("ensure otel_spans: %w", err)
+func initSchema(sqlDB *sql.DB, driver string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ddl := db.BaseSchema(driver)
+	if strings.TrimSpace(ddl) == "" {
+		return fmt.Errorf("empty base schema for driver %q", driver)
 	}
-	if err := migrator.EnsureAuthTables(ctx); err != nil {
-		return fmt.Errorf("ensure auth tables: %w", err)
-	}
-	return migErr
+	_, err := sqlDB.ExecContext(ctx, ddl)
+	return err
 }
 
 func loadColdDocuments(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, logger *zap.Logger) error {

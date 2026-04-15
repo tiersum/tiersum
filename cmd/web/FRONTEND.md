@@ -47,7 +47,7 @@ make build
 ## Features
 
 - **Search** (`/`): Progressive query, server `answer` when available + reference list
-- **Documents** (`/docs`, `/docs/new`, `/docs/:id`): List/filter, full-page create, detail (summaries / chapters / source)
+- **Documents** (`/docs`, `/docs/new`, `/docs/:id`): List/filter, full-page create, detail (document summary / chapter summaries / source)
 - **Tags** (`/tags`): topics (themes) + catalog tags for the selected topic; trigger topic regroup
 - **About** (`/about`): bilingual (English then Chinese) end-user product overview — static copy only, no BFF calls; reachable **without a browser session** once the system is initialized (`main.js` router guard).
 - **Management** (top bar dropdown after login, `js/components/AppHeader.js`): **Observability** (`/observability`, `/monitoring` redirects here) — all signed-in roles; **Devices & sessions** (`/settings`) — all roles; **Users & API keys** (`/admin`) — **admin** only; **Configuration** (`/admin/config`) — **admin** only, redacted `GET /bff/v1/admin/config/snapshot`. Observability: **Monitoring** tab (health, runtime, cold index stats, Prometheus preview), **Cold probe** (`GET /bff/v1/cold/doc_source`, `?tab=cold`), **Traces** (`?tab=traces`).
@@ -91,7 +91,6 @@ Below: **route / feature** → **HTTP** (request shape and main JSON keys). Endp
 | **Search** — run query               | `POST /bff/v1/query/progressive`      | Body: `{ "question", "max_results" }`. Optional `?debug_trace=1` (UI “Trace sample”) force-samples the HTTP span for OpenTelemetry. Response adds `trace_id` when the request is part of a recording trace. Also `answer`, `steps`, `results`, …                                                                                                                    |
 | **Documents** — list                 | `GET /bff/v1/documents`               | Response: `{ "documents": [ ... ] }` — each item is a document object (`id`, `title`, `content`, `format`, `tags`, `status`, `hot_score`, …).                                                                                                                                                             |
 | **Documents** — open one             | `GET /bff/v1/documents/:id`           | Single document JSON (same fields as list item).                                                                                                                                                                                                                                                          |
-| **Documents** — summaries tab / data | `GET /bff/v1/documents/:id/summaries` | Response: `{ "summaries": [ ... ] }` — `tier`, `path`, `content`, `is_source`, …                                                                                                                                                                                                                          |
 | **Documents** — chapter nav / data   | `GET /bff/v1/documents/:id/chapters`  | Response: `{ "document_id", "chapters": [ { "path", "title", "summary" } ] }`.                                                                                                                                                                                                                            |
 | **Documents** — create               | `POST /bff/v1/documents`              | Body: `CreateDocumentRequest` — `title`, `content`, `format` (`markdown` | `md`), optional `tags`, optional `ingest_mode` (`auto` \| `hot` \| `cold`; default auto), optional prebuilt `summary` / `chapters` / `embedding`. Response: created document summary payload (`id`, `title`, `format`, `tags`, `summary`, `chapter_count`, `status`, `created_at`). |
 | **Tags** — topic list                | `GET /bff/v1/topics`                  | Response: `{ "topics": [ ... ] }` — each topic has `id`, `name`, `description`, …                                                                                                                                                                                                                         |
@@ -104,7 +103,7 @@ Below: **route / feature** → **HTTP** (request shape and main JSON keys). Endp
 
 **Not wired in the current UI** (REST exists under both `/bff/v1` and `/api/v1`; use curl/MCP against `/api/v1`, or extend `js/api_client.js` / pages):
 
-- `GET /bff/v1/hot/doc_summaries`, `.../hot/doc_chapters`, `.../hot/doc_source`
+- `GET /bff/v1/hot/doc_summaries`, `.../hot/doc_chapters`
 - `GET /bff/v1/quota`, `GET /health`
 
 **Auth:** **`/api/v1`** requires a valid DB API key on every request (scopes `read` \| `write` \| `admin`) unless the system is not yet initialized (**403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`). **`/bff/v1`** document routes require a browser session; public paths are **`/bff/v1/system/status`**, **`/bff/v1/system/bootstrap`**, **`/bff/v1/auth/login`**, **`/bff/v1/auth/logout`**. **`GET /health`** and **`GET /metrics`** at the server root stay public. MCP tools use **`TIERSUM_API_KEY`** (or `mcp.api_key`) with the same scope rules as REST.

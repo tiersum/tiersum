@@ -33,7 +33,10 @@ type Handler struct { DocRepo storage.IDocumentRepository }
 
 // GOOD — API uses a service façade
 import "github.com/tiersum/tiersum/internal/service"
-type Handler struct { Retrieval service.IRetrievalService }
+type Handler struct {
+  Docs service.IDocumentService
+  Query service.IQueryService
+}
 ```
 
 ```go
