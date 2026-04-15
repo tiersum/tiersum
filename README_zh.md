@@ -288,7 +288,7 @@ curl -X POST http://localhost:8080/api/v1/query/progressive \
 # 批量检索（热/冷）
 curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_results=100"
 curl "http://localhost:8080/api/v1/hot/doc_chapters?doc_ids=uuid1,uuid2&max_results=100"
-curl "http://localhost:8080/api/v1/cold/doc_source?q=scheduler,pods&max_results=100"
+curl "http://localhost:8080/api/v1/cold/chapter_hits?q=scheduler,pods&max_results=100"
 
 # 列出主题（topics）
 curl "http://localhost:8080/api/v1/topics"
@@ -325,7 +325,7 @@ MCP 工具名与入参与 **`/api/v1` 下 REST** 语义对齐（实现见 `inter
 | `api_v1_topics_regroup_post` | `POST /topics/regroup` |
 | `api_v1_hot_doc_summaries_get` | `GET /hot/doc_summaries`（`tags`，`max_results`） |
 | `api_v1_hot_doc_chapters_get` | `GET /hot/doc_chapters`（`doc_ids`，`max_results`） |
-| `api_v1_cold_doc_source_get` | `GET /cold/doc_source`（`q`，`max_results`） |
+| `api_v1_cold_chapter_hits_get` | `GET /cold/chapter_hits`（`q`，`max_results`） |
 | `api_v1_quota_get` | `GET /quota` |
 | `api_v1_metrics_get` | `GET /metrics` |
 
@@ -413,7 +413,7 @@ TierSum 采用 **五层架构** + **接口与实现分离**（`I*` 接口 + `svc
 
 冷文档 Markdown 按 **标题树 + 自下而上 token 合并**（`cold_index.markdown.chapter_max_tokens`）切成 **章节**。若单个叶子仍超预算，再用 **滑动窗口**（`cold_index.markdown.sliding_stride_tokens`，默认相邻窗起始相距 100 个估算 token；重叠约「预算 − 步长」）。路径为 **父级标题全路径 + 序号**（如 `docId/章节标题/1`）；无标题时增加合成根 **`__root__`**（如 `docId/__root__/1`）。
 
-章节写入 **Bleve（BM25）** 与 **HNSW**（可选文本向量），`GET /api/v1/cold/doc_source` 做混合检索；每条结果的 `context` 为对应 **整章正文**，而不是任意小块「片段」。
+章节写入 **Bleve（BM25）** 与 **HNSW**（可选文本向量），`GET /api/v1/cold/chapter_hits` 做混合检索；每条结果的 `context` 为对应 **整章正文**，而不是任意小块「片段」。
 
 ### 与传统 RAG 的对比
 

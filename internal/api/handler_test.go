@@ -75,31 +75,20 @@ func (m *mockDocService) GetDocument(ctx context.Context, id string) (*types.Doc
 	return m.docs[id], nil
 }
 
-func (m *mockDocService) ListRecentDocuments(ctx context.Context, limit int) ([]*types.Document, error) {
+func (m *mockDocService) ListDocuments(ctx context.Context, limit int) ([]types.Document, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	if limit <= 0 {
-		return nil, nil
-	}
-	out := make([]*types.Document, 0, len(m.docs))
-	for _, d := range m.docs {
-		out = append(out, d)
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out, nil
-}
-
-func (m *mockDocService) ListDocuments(ctx context.Context) ([]types.Document, error) {
-	if m.err != nil {
-		return nil, m.err
+		limit = 200
 	}
 	out := make([]types.Document, 0, len(m.docs))
 	for _, d := range m.docs {
 		if d != nil {
 			out = append(out, *d)
+			if len(out) >= limit {
+				break
+			}
 		}
 	}
 	return out, nil

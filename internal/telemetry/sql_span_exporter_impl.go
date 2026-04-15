@@ -44,9 +44,22 @@ func (e *SQLSpanExporter) exportOne(ctx context.Context, ro sdktrace.ReadOnlySpa
 	spanID := sc.SpanID().String()
 	parent := parentSpanIDFromReadOnly(ro)
 	attrs := ro.Attributes()
-	mp := make(map[string]any, len(attrs))
+	// Merge span attributes + resource attributes into one JSON map so storage queries
+	// can filter by resource fields like service.name.
+	mp := make(map[string]any, len(attrs)+8)
 	for _, kv := range attrs {
 		mp[string(kv.Key)] = kv.Value.AsInterface()
+	}
+	if res := ro.Resource(); res != nil {
+		for _, kv := range res.Attributes() {
+			// Resource attributes are stable identifiers (e.g. service.name).
+			// If a span attribute uses the same key, keep the span attribute.
+			k := string(kv.Key)
+			if _, exists := mp[k]; exists {
+				continue
+			}
+			mp[k] = kv.Value.AsInterface()
+		}
 	}
 	attrJSON, err := json.Marshal(mp)
 	if err != nil {

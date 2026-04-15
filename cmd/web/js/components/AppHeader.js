@@ -13,6 +13,11 @@ export const AppHeader = {
                 p === '/observability'
             );
         },
+        /** Highlight Documents for list, create, and detail routes. */
+        docsNavActive() {
+            const p = this.$route?.path || '';
+            return p === '/docs' || p.startsWith('/docs/');
+        },
         /** Two-letter (or one) initials from username for the header avatar. */
         userAvatarInitials() {
             const u = (this.me?.username || '').trim();
@@ -78,9 +83,14 @@ export const AppHeader = {
                             Search
                         </button>
                     </router-link>
-                    <router-link to="/docs" custom v-slot="{ navigate, isActive }">
-                        <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
+                    <router-link to="/docs" custom v-slot="{ navigate }">
+                        <button @click="navigate" :class="['btn btn-ghost btn-sm', docsNavActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
                             Documents
+                        </button>
+                    </router-link>
+                    <router-link to="/docs/new" custom v-slot="{ navigate, isActive }">
+                        <button @click="navigate" :class="['btn btn-ghost btn-sm hidden sm:inline-flex', isActive ? 'text-emerald-400 bg-emerald-500/10' : 'text-slate-400']" title="Create document">
+                            New doc
                         </button>
                     </router-link>
                     <router-link to="/tags" custom v-slot="{ navigate, isActive }">

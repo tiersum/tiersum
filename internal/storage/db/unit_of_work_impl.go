@@ -1,11 +1,15 @@
-// Package db implements database storage layer
+// Package db is the storage DB composition root: bundles domain repositories from subpackages.
 package db
 
 import (
 	"github.com/tiersum/tiersum/internal/storage"
+	"github.com/tiersum/tiersum/internal/storage/db/auth"
+	"github.com/tiersum/tiersum/internal/storage/db/document"
+	"github.com/tiersum/tiersum/internal/storage/db/observability"
+	"github.com/tiersum/tiersum/internal/storage/db/shared"
 )
 
-// UnitOfWork combines multiple repositories
+// UnitOfWork combines multiple repositories.
 type UnitOfWork struct {
 	Documents       storage.IDocumentRepository
 	Chapters        storage.IChapterRepository
@@ -19,18 +23,18 @@ type UnitOfWork struct {
 	APIKeyAudit     storage.IAPIKeyAuditRepository
 }
 
-// NewUnitOfWork creates a new unit of work
-func NewUnitOfWork(db sqlDB, driver string, cache storage.ICache) *UnitOfWork {
+// NewUnitOfWork creates a new unit of work.
+func NewUnitOfWork(db shared.SQLDB, driver string, cache storage.ICache) *UnitOfWork {
 	return &UnitOfWork{
-		Documents:       NewDocumentRepo(db, driver, cache),
-		Chapters:        NewChapterRepo(db, driver, cache),
-		Tags:            NewTagRepo(db, driver, cache),
-		Topics:          NewTopicRepo(db, driver, cache),
-		OtelSpans:       NewOtelSpanRepo(db, driver),
-		SystemAuth:      NewSystemAuthStateRepo(db, driver),
-		AuthUsers:       NewAuthUserRepo(db, driver),
-		BrowserSessions: NewBrowserSessionRepo(db, driver),
-		APIKeys:         NewAPIKeyRepo(db, driver),
-		APIKeyAudit:     NewAPIKeyAuditRepo(db, driver),
+		Documents:       document.NewDocumentRepo(db, driver, cache),
+		Chapters:        document.NewChapterRepo(db, driver, cache),
+		Tags:            document.NewTagRepo(db, driver, cache),
+		Topics:          document.NewTopicRepo(db, driver, cache),
+		OtelSpans:       observability.NewOtelSpanRepo(db, driver),
+		SystemAuth:      auth.NewSystemAuthStateRepo(db, driver),
+		AuthUsers:       auth.NewAuthUserRepo(db, driver),
+		BrowserSessions: auth.NewBrowserSessionRepo(db, driver),
+		APIKeys:         auth.NewAPIKeyRepo(db, driver),
+		APIKeyAudit:     auth.NewAPIKeyAuditRepo(db, driver),
 	}
 }

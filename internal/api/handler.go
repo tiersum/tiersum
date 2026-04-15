@@ -11,7 +11,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
-	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -28,8 +27,8 @@ type Handler struct {
 	TagsService     service.ITagService
 	ChaptersService service.IChapterService
 	ObsService      service.IObservabilityService
+	TraceService    service.ITraceService
 	Quota           QuotaSnapshot
-	OtelSpans       storage.IOtelSpanRepository
 	Logger          *zap.Logger
 	// ServerVersion is the release/build label (e.g. from main.Version ldflags). Empty uses moduleVersion().
 	ServerVersion string
@@ -43,8 +42,8 @@ func NewHandler(
 	tagService service.ITagService,
 	chapterService service.IChapterService,
 	observabilityService service.IObservabilityService,
+	traceService service.ITraceService,
 	quota QuotaSnapshot,
-	otelSpans storage.IOtelSpanRepository,
 	logger *zap.Logger,
 	serverVersion string,
 ) *Handler {
@@ -55,8 +54,8 @@ func NewHandler(
 		TagsService:     tagService,
 		ChaptersService: chapterService,
 		ObsService:      observabilityService,
+		TraceService:    traceService,
 		Quota:           quota,
-		OtelSpans:       otelSpans,
 		Logger:          logger,
 		ServerVersion:   strings.TrimSpace(serverVersion),
 	}
@@ -97,7 +96,9 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup, traceMiddleware gin.Ha
 	}
 	cold := core.Group("/cold")
 	{
-		cold.GET("/doc_source", h.SearchColdChapterHits)
+		cold.GET("/chapter_hits", h.SearchColdChapterHits)
+		// Back-compat alias for older UI builds.
+		cold.GET("/doc_source", h.SearchColdDocSource)
 	}
 }
 
@@ -115,7 +116,8 @@ func (h *Handler) CreateDocument(c *gin.Context) {
 
 // ListDocuments lists all documents
 func (h *Handler) ListDocuments(c *gin.Context) {
-	status, body := h.ExecuteListDocuments(c.Request.Context())
+	maxRaw := strings.TrimSpace(c.Query(maxResultsQueryParam))
+	status, body := h.ExecuteListDocuments(c.Request.Context(), maxRaw)
 	c.JSON(status, body)
 }
 

@@ -133,8 +133,8 @@ func (s *MCPServer) registerTools() {
 		mcp.WithNumber("max_results", mcp.Description("Max number of doc ids; default 100, max 500")),
 	), s.handleAPIv1HotDocChaptersGet)
 
-	s.mcp.AddTool(mcp.NewTool("api_v1_cold_doc_source_get",
-		mcp.WithDescription(descPrefix+"GET /api/v1/cold/doc_source — q comma-separated terms; hybrid search returns cold chapters (path + full text)"),
+	s.mcp.AddTool(mcp.NewTool("api_v1_cold_chapter_hits_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/cold/chapter_hits — q comma-separated terms; hybrid search returns cold chapters (path + full text)"),
 		mcp.WithString("q", mcp.Required(), mcp.Description("Comma-separated keywords (same as query param `q`)")),
 		mcp.WithNumber("max_results", mcp.Description("Default 100, max 500")),
 	), s.handleAPIv1ColdDocSourceGet)
@@ -329,7 +329,7 @@ func (s *MCPServer) handleAPIv1DocumentsList(ctx context.Context, request mcp.Ca
 		return res, err
 	}
 	_ = toolArgs(request)
-	status, body := s.api.ExecuteListDocuments(ctx)
+	status, body := s.api.ExecuteListDocuments(ctx, "")
 	return mcpJSONResult(status, body)
 }
 
@@ -452,7 +452,7 @@ func (s *MCPServer) handleAPIv1HotDocChaptersGet(ctx context.Context, request mc
 }
 
 func (s *MCPServer) handleAPIv1ColdDocSourceGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if res, err := s.mcpReadGate(ctx, "GET /api/v1/cold/doc_source"); res != nil {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/cold/chapter_hits"); res != nil {
 		return res, err
 	}
 	args := toolArgs(request)

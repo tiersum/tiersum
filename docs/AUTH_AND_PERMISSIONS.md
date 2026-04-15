@@ -52,7 +52,7 @@ Public (no TierSum auth): **`GET /health`**, **`GET /metrics`** at the server ro
 
 **`/bff/v1/admin/*`**: **`BFFRequireAdmin`** — `BrowserPrincipal.Role == admin`. Routes include users, reset token, **`GET /admin/devices`** (all sessions + usernames; static route registered **before** `/admin/users/:id/devices` to avoid path ambiguity), API keys CRUD/revoke, usage snapshot, **`GET /admin/config/snapshot`** (read-only redacted `viper` tree for ops — no secrets in plaintext; UI **Management → Configuration** at `/admin/config`).
 
-**Implementation map:** `auth_bff_handlers.go` (handlers), `bff_session_middleware.go`, `program_auth_impl.go`, `auth_service_impl.go`, `internal/storage/db/*_repository_impl.go` (auth tables), `internal/service/interface.go` (facades) / `auth_entities.go`.
+**Implementation map:** `auth_bff_handlers.go` (handlers), `bff_session_middleware.go`, service auth implementations (wired from `internal/di`), `internal/storage/db/auth/*_repository_impl.go` (auth tables), `internal/service/interface.go` (facades) / `auth_entities.go`.
 
 ---
 

@@ -138,7 +138,9 @@ type OtelSpanRow struct {
 // IOtelSpanRepository persists and reads OpenTelemetry spans (progressive-query debug traces).
 type IOtelSpanRepository interface {
 	InsertSpan(ctx context.Context, row *OtelSpanRow) error
-	ListTraceSummaries(ctx context.Context, limit, offset int) ([]types.OtelTraceSummary, error)
+	// ListTraceSummaries returns recent traces whose spans belong to the given service name
+	// (resource attribute `service.name` persisted into attributes_json by the exporter).
+	ListTraceSummaries(ctx context.Context, serviceName string, limit, offset int) ([]types.OtelTraceSummary, error)
 	ListSpansByTraceID(ctx context.Context, traceID string) ([]types.OtelSpanDTO, error)
 }
 

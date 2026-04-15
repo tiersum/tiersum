@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// ---- Common service errors (used across API/Job and svcimpl) ----
+// ---- Common service errors (used across API/Job and service implementations) ----
 
 // ErrColdIndexUnavailable is returned when cold hybrid search is requested but no cold index is configured.
 var ErrColdIndexUnavailable = errors.New("cold document index not available")
@@ -31,7 +31,7 @@ var (
 	ErrAuthInsufficientScope    = errors.New("insufficient scope")
 )
 
-// ---- Auth DTOs shared by API layer and svcimpl ----
+// ---- Auth DTOs shared by API layer and auth implementations ----
 
 // APIKeyPrincipal is the authenticated identity for /api/v1 and MCP (service track).
 type APIKeyPrincipal struct {

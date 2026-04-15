@@ -312,7 +312,7 @@ curl -X POST http://localhost:8080/api/v1/query/progressive \
 # Batch retrieval (hot / cold)
 curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_results=100"
 curl "http://localhost:8080/api/v1/hot/doc_chapters?doc_ids=uuid1,uuid2&max_results=100"
-curl "http://localhost:8080/api/v1/cold/doc_source?q=scheduler,pods&max_results=100"
+curl "http://localhost:8080/api/v1/cold/chapter_hits?q=scheduler,pods&max_results=100"
 
 # List topics (themes)
 curl "http://localhost:8080/api/v1/topics"
@@ -347,7 +347,7 @@ MCP tool names and JSON bodies align with the REST API under `/api/v1` (see `int
 | `api_v1_topics_regroup_post`     | `POST /topics/regroup`                                 |
 | `api_v1_hot_doc_summaries_get`   | `GET /hot/doc_summaries` (`tags`, `max_results`)       |
 | `api_v1_hot_doc_chapters_get`    | `GET /hot/doc_chapters` (`doc_ids`, `max_results`)     |
-| `api_v1_cold_doc_source_get`     | `GET /cold/doc_source` (`q`, `max_results`)            |
+| `api_v1_cold_chapter_hits_get`   | `GET /cold/chapter_hits` (`q`, `max_results`) |
 | `api_v1_quota_get`               | `GET /quota`                                           |
 | `api_v1_metrics_get`             | `GET /metrics`                                         |
 
@@ -432,7 +432,7 @@ TierSum includes a modern Vue 3 CDN-based frontend with the following features. 
 Reachable from the top bar **Management → Observability** after sign-in (same URL as before; `/monitoring` still redirects here).
 
 - **Monitoring** tab (`?tab=monitoring`): health, runtime, document counts, cold index stats, Prometheus text preview (same data as `GET /bff/v1/monitoring` and `/metrics`).
-- **Cold probe** tab (`?tab=cold`): calls `GET /bff/v1/cold/doc_source` with keywords and `max_results` to inspect hybrid cold hits (`path`, `score`, `source`, full chapter text) without running progressive query.
+- **Cold probe** tab (`?tab=cold`): calls `GET /bff/v1/cold/chapter_hits` with keywords and `max_results` to inspect hybrid cold hits (`path`, `score`, `source`, full chapter text) without running progressive query.
 - **Traces** tab (`?tab=traces`): stored OpenTelemetry traces for progressive-query debugging.
 
 ### Tech Stack
@@ -451,7 +451,7 @@ Reachable from the top bar **Management → Observability** after sign-in (same 
 
 Cold markdown is split into **chapters** (heading tree + bottom-up token merge under `cold_index.markdown.chapter_max_tokens`). If a leaf is still too large, **sliding windows** apply (`cold_index.markdown.sliding_stride_tokens`, default 100 tokens between window starts; overlap ≈ budget − stride). Chapter paths are **parent heading path + numeric suffix** (e.g. `docId/Section/1`); with no headings, a synthetic `**__root__`** segment is used (e.g. `docId/__root__/1`).
 
-Chunks are indexed in **Bleve (BM25)** and **HNSW** (optional text embeddings). `GET /api/v1/cold/doc_source` runs a hybrid search; each hit’s `context` is the **full chapter body** for that path (not a small arbitrary snippet).
+Chunks are indexed in **Bleve (BM25)** and **HNSW** (optional text embeddings). `GET /api/v1/cold/chapter_hits` runs a hybrid search; each hit’s `context` is the **full chapter body** for that path (not a small arbitrary snippet).
 
 ### Compared to traditional RAG
 
@@ -506,9 +506,11 @@ deployments/
 │   ├── storage/                # Layer 3: Data persistence
 │   │   ├── interface.go
 │   │   ├── db/
-│   │   │   ├── *_repository_impl.go # SQL repositories (documents, auth, otel spans, …)
-│   │   │   ├── unit_of_work_impl.go # Repository bundle constructor
-│   │   │   ├── schema.go       # Baseline DDL (`BaseSchema`) applied on startup
+│   │   │   ├── unit_of_work_impl.go # NewUnitOfWork (composition root)
+│   │   │   ├── shared/         # SQLDB helpers + Baseline DDL (`BaseSchema`)
+│   │   │   ├── document/       # Document, chapter, tag, topic repos
+│   │   │   ├── auth/           # system_state, users, sessions, API keys, audit
+│   │   │   └── observability/  # OpenTelemetry span rows
 │   │   ├── cache/
 │   │   │   └── cache_impl.go   # In-memory cache
 │   │   └── coldindex/          # Cold doc chapter index (Bleve + HNSW + embedders)

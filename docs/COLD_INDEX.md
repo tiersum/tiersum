@@ -153,7 +153,7 @@ See `configs/config.example.yaml`.
 
 ## 8. REST surface
 
-- **`GET /api/v1/cold/doc_source`**: comma-separated **`q`** terms → **`IColdIndex.Search`** → JSON hits with **full chapter** `context`. See [CORE_API_FLOWS.md §5](CORE_API_FLOWS.md).
+- **`GET /api/v1/cold/chapter_hits`**: comma-separated **`q`** terms → **`IColdIndex.Search`** → JSON hits with **full chapter** `context`. See [CORE_API_FLOWS.md §5](CORE_API_FLOWS.md).
 
 ---
 

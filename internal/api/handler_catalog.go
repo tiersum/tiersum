@@ -49,10 +49,16 @@ func (h *Handler) ListHotDocumentChaptersByDocumentIDs(c *gin.Context) {
 	c.JSON(status, body)
 }
 
-// SearchColdChapterHits handles GET /cold/doc_source — hybrid search over cold document chapters; returns full chapter text and optional path (no tag filter).
+// SearchColdChapterHits handles GET /cold/chapter_hits — hybrid search over cold document chapters;
+// returns full chapter text and optional path (no tag filter).
 func (h *Handler) SearchColdChapterHits(c *gin.Context) {
 	terms := parseCommaSeparated(c.Query("q"))
 	maxRaw := strings.TrimSpace(c.Query(maxResultsQueryParam))
 	status, body := h.ExecuteSearchColdChapterHits(c.Request.Context(), terms, maxRaw)
 	c.JSON(status, body)
+}
+
+// SearchColdDocSource is a legacy alias for /cold/chapter_hits kept for older frontend builds.
+func (h *Handler) SearchColdDocSource(c *gin.Context) {
+	h.SearchColdChapterHits(c)
 }

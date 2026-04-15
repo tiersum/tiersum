@@ -1,5 +1,5 @@
-// Package di provides dependency injection and application initialization
-// This is the composition root where all concrete implementations are wired together
+// Package di provides dependency injection and application initialization.
+// This is the composition root where all concrete implementations are wired together.
 package di
 
 import (
@@ -10,25 +10,22 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/api"
-	"github.com/tiersum/tiersum/internal/client"
-	"github.com/tiersum/tiersum/internal/client/llm"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/service"
-	"github.com/tiersum/tiersum/internal/service/svcimpl/admin"
-	"github.com/tiersum/tiersum/internal/service/svcimpl/auth"
-	"github.com/tiersum/tiersum/internal/service/svcimpl/catalog"
-	"github.com/tiersum/tiersum/internal/service/svcimpl/common"
-	"github.com/tiersum/tiersum/internal/service/svcimpl/document"
-	"github.com/tiersum/tiersum/internal/service/svcimpl/observability"
-	"github.com/tiersum/tiersum/internal/service/svcimpl/query"
-	"github.com/tiersum/tiersum/internal/service/svcimpl/topic"
+	"github.com/tiersum/tiersum/internal/service/impl/adminconfig"
+	authimpl "github.com/tiersum/tiersum/internal/service/impl/auth"
+	"github.com/tiersum/tiersum/internal/client/llm"
+	"github.com/tiersum/tiersum/internal/service/impl/catalog"
+	"github.com/tiersum/tiersum/internal/service/impl/document"
+	"github.com/tiersum/tiersum/internal/service/impl/observability"
+	queryimpl "github.com/tiersum/tiersum/internal/service/impl/query"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/internal/storage/cache"
 	"github.com/tiersum/tiersum/internal/storage/coldindex"
 	"github.com/tiersum/tiersum/internal/storage/db"
 )
 
-// Dependencies holds all application dependencies
+// Dependencies holds all application dependencies.
 type Dependencies struct {
 	// OtelSpans persists OpenTelemetry spans (progressive debug + optional HTTP tracing).
 	OtelSpans storage.IOtelSpanRepository
@@ -51,6 +48,9 @@ type Dependencies struct {
 	// AdminConfigView serves redacted viper snapshots for browser admins.
 	AdminConfigView service.IAdminConfigViewService
 
+	// TraceService exposes persisted OpenTelemetry traces to the BFF/API.
+	TraceService service.ITraceService
+
 	// Job Layer
 	JobScheduler        *job.Scheduler
 	DocumentMaintenance service.IDocumentMaintenanceService
@@ -62,74 +62,23 @@ type Dependencies struct {
 	Logger *zap.Logger
 }
 
-// NewDependencies creates all dependencies with proper wiring.
-// serverVersion is the process release label (e.g. main.Version from ldflags); passed to REST monitoring as server.version.
+// NewDependencies creates application dependencies.
+//
+// NOTE: During the rewrite phase, not all services are wired yet. Auth is fully wired because
+// it gates /api/v1 and /bff/v1, and is required for bootstrap/login flows.
 func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, logger *zap.Logger, serverVersion string) (*Dependencies, error) {
-	// 1. Storage Layer - Cache
+	// Storage: cache + repositories (UnitOfWork)
 	cacheTTL := viper.GetDuration("storage.cache.ttl")
 	if cacheTTL <= 0 {
 		cacheTTL = 10 * time.Minute
 	}
 	cacheMax := viper.GetInt("storage.cache.max_size")
 	cacheStore := cache.NewCache(cacheTTL, cacheMax)
-
-	// 2. Storage Layer - DB
 	uow := db.NewUnitOfWork(sqlDB, driver, cacheStore)
 
-	// 3. Client Layer - LLM
-	factory := llm.NewProviderFactory(logger)
-	baseLLM, err := factory.CreateProvider()
-	if err != nil {
-		return nil, err
-	}
-	llmProvider := common.NewOTelContextLLM(baseLLM)
-
-	// 4. Quota Manager - for hot/cold document processing control
-	quotaPerHour := viper.GetInt("quota.per_hour")
-	if quotaPerHour <= 0 {
-		quotaPerHour = 100 // default
-	}
-	quotaManager := common.NewQuotaManager(quotaPerHour)
-
-	// 5. Service Layer - Core domain logic
-	analyzer := document.NewDocumentAnalyzer(llmProvider, logger)
-	filter := query.NewRelevanceFilter(llmProvider, logger)
-	materializer := document.NewChapterMaterializer(uow.Chapters, uow.Documents, logger)
-
-	// 6. Service Layer - Topics (catalog tag regrouping)
-	topicService := topic.NewTopicService(
-		uow.Tags,
-		uow.Topics,
-		llmProvider,
-		logger,
-	)
-
-	// 7. Service Layer - Business logic
-	queryService := query.NewQueryService(
-		uow.Documents,
-		uow.Chapters,
-		uow.Tags,
-		uow.Topics,
-		filter,
-		coldIndex,
-		llmProvider,
-		logger,
-	)
-	docService := document.NewDocumentService(
-		uow.Documents,
-		materializer,
-		analyzer,
-		uow.Tags,
-		coldIndex,
-		quotaManager,
-		logger,
-		job.HotIngestQueue,
-	)
-	hotIngestProc := document.NewHotIngestProcessor(uow.Documents, analyzer, materializer, uow.Tags, logger)
-
-	// 8. Auth + API Layer — tag/chapter/observability read facades so HTTP handlers do not import storage interfaces
-	programAuth := auth.NewProgramAuth(uow.SystemAuth, uow.APIKeys, uow.APIKeyAudit)
-	authService := auth.NewAuthService(
+	// Service: auth (program + browser/admin)
+	programAuth := authimpl.NewProgramAuth(uow.SystemAuth, uow.APIKeys, uow.APIKeyAudit)
+	authService := authimpl.NewAuthService(
 		programAuth,
 		uow.SystemAuth,
 		uow.AuthUsers,
@@ -138,63 +87,102 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 		uow.APIKeyAudit,
 		logger,
 	)
-	adminConfigView := admin.NewAdminConfigViewService()
-	tagService := catalog.NewTagService(uow.Tags)
-	chapterService := catalog.NewChapterService(uow.Chapters, coldIndex)
-	observabilityService := observability.NewObservabilityService(coldIndex)
+
+	// Service: traces (observability)
+	traceSvc := observability.NewTraceService(uow.OtelSpans)
+	obsSvc := observability.NewObservabilityService(coldIndex)
+
+	// Service: admin config view (redacted viper snapshot)
+	adminCfgView := adminconfig.NewAdminConfigViewService()
+
+	// Service: topics + tags (Tag Browser UI)
+	topicSvc := catalog.NewTopicService(uow.Tags, uow.Topics)
+	tagSvc := catalog.NewTagService(uow.Tags)
+
+	quotaMgr := document.NewHotIngestQuota()
+
+	// Service: documents (list/detail/create ingest)
+	docSvc := document.NewDocumentService(uow.Documents, coldIndex, uow.Tags, uow.Chapters, quotaMgr, logger)
+
+	llmProv, llmErr := llm.NewProviderFactory(logger).CreateProvider()
+	if llmErr != nil {
+		logger.Warn("LLM provider unavailable; progressive query disabled", zap.Error(llmErr))
+	}
+
+	// Service: document analyze/materialize + maintenance (jobs)
+	var analyzer service.IDocumentAnalysisGenerator
+	var persister service.IDocumentAnalysisPersister
+	var hotIngestProc service.IHotIngestProcessor
+	var maintenance service.IDocumentMaintenanceService
+	if llmProv != nil {
+		analyzer = document.NewDocumentAnalysisGenerator(llmProv, logger)
+		persister = document.NewDocumentAnalysisPersister(uow.Chapters, uow.Documents, logger)
+		hotIngestProc = document.NewHotIngestProcessor(uow.Documents, analyzer, persister, uow.Tags, logger)
+		maintenance = document.NewDocumentMaintenanceService(uow.Documents, persister, analyzer, logger)
+	} else {
+		logger.Warn("LLM provider unavailable; hot ingest processor and maintenance jobs disabled")
+	}
+
+	// Service: chapters (detail UI + cold probe + hot chapter search)
+	chapterSvc := catalog.NewChapterService(uow.Chapters, uow.Documents, uow.Tags, uow.Topics, coldIndex, llmProv, logger)
+
+	var querySvc service.IQueryService
+	if llmProv == nil {
+		logger.Warn("LLM provider unavailable; progressive query disabled")
+	} else {
+		querySvc = queryimpl.NewQueryService(
+			uow.Documents,
+			chapterSvc,
+			llmProv,
+			logger,
+		)
+	}
+
+	// Job scheduler + jobs (job layer depends on service facades only).
+	sched := job.NewScheduler(logger)
+	if maintenance != nil {
+		sched.Register(job.NewPromoteJob(maintenance))
+		sched.Register(job.NewHotScoreJob(maintenance))
+	}
+	sched.Register(job.NewTopicRegroupJob(topicSvc, logger))
+
+	// API: REST + MCP servers (wired with minimal services during rewrite)
 	restHandler := api.NewHandler(
-		docService,
-		queryService,
-		topicService,
-		tagService,
-		chapterService,
-		observabilityService,
-		quotaManager,
-		uow.OtelSpans,
-		logger,
-		serverVersion,
+		docSvc,        // docService
+		querySvc,      // queryService
+		topicSvc,      // topicService
+		tagSvc,        // tagService
+		chapterSvc,    // chapterService
+		obsSvc,        // observabilityService (monitoring stats)
+		traceSvc,      // traceService
+		quotaMgr,      // quota (hot-ingest)
+		logger,        // logger
+		serverVersion, // serverVersion
 	)
 	mcpServer := api.NewMCPServer(restHandler, authService, logger)
 
-	// 9. Job Layer — jobs depend only on service.* contracts
-	docMaintenance := document.NewDocumentMaintenanceService(uow.Documents, materializer, analyzer, logger)
-	jobScheduler := job.NewScheduler(logger)
-	jobScheduler.Register(job.NewTopicRegroupJob(topicService, logger))
-	jobScheduler.Register(job.NewPromoteJob(docMaintenance))
-	jobScheduler.Register(job.NewHotScoreJob(docMaintenance))
-
 	return &Dependencies{
-		OtelSpans:           uow.OtelSpans,
-		DocumentService:     docService,
-		HotIngestProcessor:  hotIngestProc,
-		QueryService:        queryService,
-		TopicService:        topicService,
-		RESTHandler:         restHandler,
-		MCPServer:           mcpServer,
-		AuthService:         authService,
-		AdminConfigView:     adminConfigView,
-		JobScheduler:        jobScheduler,
-		DocumentMaintenance: docMaintenance,
-		ColdIndex:           coldIndex,
-		Logger:              logger,
+		// Storage
+		OtelSpans: uow.OtelSpans,
+
+		// Auth
+		AuthService: authService,
+		TraceService: traceSvc,
+		AdminConfigView: adminCfgView,
+		TopicService: topicSvc,
+		DocumentService: docSvc,
+		HotIngestProcessor: hotIngestProc,
+		QueryService:    querySvc,
+
+		JobScheduler:        sched,
+		DocumentMaintenance: maintenance,
+
+		// Cold index is owned by cmd/main.go and passed in here.
+		ColdIndex: coldIndex,
+
+		RESTHandler: restHandler,
+		MCPServer:   mcpServer,
+
+		Logger: logger,
 	}, nil
 }
-
-// Interface compliance checks
-var (
-	// Storage Layer
-	_ storage.IDocumentRepository = (*db.DocumentRepo)(nil)
-	_ storage.IChapterRepository  = (*db.ChapterRepo)(nil)
-	_ storage.ITagRepository      = (*db.TagRepo)(nil)
-	_ storage.ITopicRepository    = (*db.TopicRepo)(nil)
-	_ storage.ICache              = (*cache.Cache)(nil)
-	_ storage.IColdIndex          = (*coldindex.Index)(nil)
-
-	// Service Layer
-	// (Implementations live in internal/service/svcimpl; compile-time checks are on constructors + package-private types.)
-
-	// Client Layer
-	_ client.ILLMProvider = (*llm.OpenAIProvider)(nil)
-	_ client.ILLMProvider = (*llm.AnthropicProvider)(nil)
-	_ client.ILLMProvider = (*llm.OllamaProvider)(nil)
-)

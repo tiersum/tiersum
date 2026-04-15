@@ -134,6 +134,7 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
         /** Progressive query: where `content` text came from (API `content_source`). */
         contentSourceLabel(src) {
             const s = (src || '').toLowerCase();
+            if (s === 'hot_progressive') return 'Hot (LLM progressive)';
             if (s === 'chapter_summary') return 'Summary';
             if (s === 'bm25') return 'BM25';
             if (s === 'vector') return 'Vector';
@@ -161,6 +162,11 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                         <p class="text-slate-400 text-lg max-w-2xl mx-auto">
                             AI-powered search with hierarchical summarization.
                             Find exactly what you need across all your documents.
+                        </p>
+                        <p class="text-slate-500 text-sm mt-4">
+                            <router-link to="/docs/new" class="link link-primary">Add a document</router-link>
+                            <span class="text-slate-600 mx-2">·</span>
+                            <router-link to="/docs" class="link link-hover text-slate-400">Browse library</router-link>
                         </p>
                     </div>
 

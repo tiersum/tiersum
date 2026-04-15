@@ -153,7 +153,7 @@
 
 ## 8. REST 接口
 
-- **`GET /api/v1/cold/doc_source`**：逗号分隔的 **`q`** → **`IColdIndex.Search`** → JSON 命中项，`context` 为 **整章正文**。流程见 [CORE_API_FLOWS.md §5](CORE_API_FLOWS.md)。
+- **`GET /api/v1/cold/chapter_hits`**：逗号分隔的 **`q`** → **`IColdIndex.Search`** → JSON 命中项，`context` 为 **整章正文**。流程见 [CORE_API_FLOWS.md §5](CORE_API_FLOWS.md)。
 
 ---
 

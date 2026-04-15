@@ -197,6 +197,16 @@ export const apiClient = {
     getMetricsText: () => apiClient.requestText('/metrics'),
 
     /** Cold hybrid search: `q` comma-separated keywords; `max_results` 1–500 (server clamps). */
+    getColdChapterHits(q, maxResults) {
+        const params = new URLSearchParams();
+        params.set('q', String(q || '').trim());
+        if (maxResults != null && maxResults > 0) {
+            params.set('max_results', String(Math.min(500, maxResults)));
+        }
+        return apiClient.request(`/bff/v1/cold/chapter_hits?${params.toString()}`);
+    },
+
+    /** Legacy alias (tiersum_bak UI) for cold probe. */
     getColdDocSource(q, maxResults) {
         const params = new URLSearchParams();
         params.set('q', String(q || '').trim());

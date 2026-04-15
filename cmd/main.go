@@ -30,7 +30,8 @@ import (
 	"github.com/tiersum/tiersum/internal/di"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/storage/coldindex"
-	"github.com/tiersum/tiersum/internal/storage/db"
+	"github.com/tiersum/tiersum/internal/storage/db/document"
+	"github.com/tiersum/tiersum/internal/storage/db/shared"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -451,7 +452,7 @@ func initDB() (*sql.DB, error) {
 func initSchema(sqlDB *sql.DB, driver string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	ddl := db.BaseSchema(driver)
+	ddl := shared.BaseSchema(driver)
 	if strings.TrimSpace(ddl) == "" {
 		return fmt.Errorf("empty base schema for driver %q", driver)
 	}
@@ -466,7 +467,7 @@ func loadColdDocuments(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index,
 	cacheStore := &noopCache{}
 
 	// Create document repository
-	docRepo := db.NewDocumentRepo(sqlDB, driver, cacheStore)
+	docRepo := document.NewDocumentRepo(sqlDB, driver, cacheStore)
 
 	// Query all cold documents
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

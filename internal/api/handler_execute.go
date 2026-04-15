@@ -48,9 +48,10 @@ func (h *Handler) ExecuteCreateDocument(ctx context.Context, req types.CreateDoc
 	return http.StatusCreated, doc
 }
 
-// ExecuteListDocuments matches GET /api/v1/documents.
-func (h *Handler) ExecuteListDocuments(ctx context.Context) (int, any) {
-	docs, err := h.DocService.ListDocuments(ctx)
+// ExecuteListDocuments matches GET /api/v1/documents (max_results optional string like the query param).
+func (h *Handler) ExecuteListDocuments(ctx context.Context, maxResultsQuery string) (int, any) {
+	limit := parseMaxResultsFromString(maxResultsQuery, 200, 1000)
+	docs, err := h.DocService.ListDocuments(ctx, limit)
 	if err != nil {
 		h.Logger.Error("failed to list documents", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": "failed to list documents"}
@@ -138,6 +139,9 @@ func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, d
 
 // ExecuteProgressiveQuery matches POST /api/v1/query/progressive (request must satisfy binding rules).
 func (h *Handler) ExecuteProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (int, any) {
+	if h.QueryService == nil {
+		return http.StatusServiceUnavailable, gin.H{"error": "query service not available"}
+	}
 	if req.MaxResults == 0 {
 		req.MaxResults = 100
 	}
@@ -272,7 +276,7 @@ func (h *Handler) ExecuteListHotDocumentChaptersByDocumentIDs(ctx context.Contex
 	return http.StatusOK, gin.H{"documents": docsOut}
 }
 
-// ExecuteSearchColdChapterHits matches GET /api/v1/cold/doc_source.
+// ExecuteSearchColdChapterHits matches GET /api/v1/cold/chapter_hits.
 func (h *Handler) ExecuteSearchColdChapterHits(ctx context.Context, terms []string, maxResultsQuery string) (int, any) {
 	if len(terms) == 0 {
 		return http.StatusBadRequest, gin.H{"error": "q query parameter is required (comma-separated keywords)"}
@@ -284,7 +288,7 @@ func (h *Handler) ExecuteSearchColdChapterHits(ctx context.Context, terms []stri
 		return http.StatusServiceUnavailable, gin.H{"error": "cold document index not available"}
 	}
 	if err != nil {
-		h.Logger.Error("cold doc_source", zap.Error(err))
+		h.Logger.Error("cold chapter_hits", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": err.Error()}
 	}
 	items := make([]gin.H, 0, len(results))
@@ -314,7 +318,7 @@ func (h *Handler) ExecuteGetMonitoringSnapshot(ctx context.Context) (int, any) {
 		"cold":    0,
 		"warming": 0,
 	}
-	docs, err := h.DocService.ListDocuments(ctx)
+	docs, err := h.DocService.ListDocuments(ctx, 0)
 	if err != nil {
 		h.Logger.Warn("monitoring: list documents", zap.Error(err))
 	} else {
@@ -426,10 +430,10 @@ func (h *Handler) ExecuteGetQuotaSnapshot() (int, any) {
 
 // ExecuteListTraceSummaries matches GET /api/v1/traces.
 func (h *Handler) ExecuteListTraceSummaries(ctx context.Context, limit, offset int) (int, any) {
-	if h.OtelSpans == nil {
+	if h.TraceService == nil {
 		return http.StatusOK, gin.H{"traces": []types.OtelTraceSummary{}}
 	}
-	tr, err := h.OtelSpans.ListTraceSummaries(ctx, limit, offset)
+	tr, err := h.TraceService.ListTraceSummaries(ctx, limit, offset)
 	if err != nil {
 		h.Logger.Error("list traces failed", zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": "failed to list traces"}
@@ -446,10 +450,10 @@ func (h *Handler) ExecuteGetTraceSpans(ctx context.Context, traceID string) (int
 	if traceID == "" {
 		return http.StatusBadRequest, gin.H{"error": "trace_id is required"}
 	}
-	if h.OtelSpans == nil {
+	if h.TraceService == nil {
 		return http.StatusNotFound, gin.H{"error": "trace store not configured"}
 	}
-	spans, err := h.OtelSpans.ListSpansByTraceID(ctx, traceID)
+	spans, err := h.TraceService.ListSpansByTraceID(ctx, traceID)
 	if err != nil {
 		h.Logger.Error("get trace failed", zap.String("trace_id", traceID), zap.Error(err))
 		return http.StatusInternalServerError, gin.H{"error": "failed to load trace"}

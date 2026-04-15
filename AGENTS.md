@@ -86,7 +86,7 @@ cmd/
   main.go                    # API server entrypoint: /api/v1 (+ API key), /bff/v1 (browser BFF), /health & /metrics (public), /mcp/*, embedded UI
 configs/
   config.example.yaml        # Configuration template
-db/                          # (optional) local data dir in some deployments; baseline DDL is in internal/storage/db/schema.go
+db/                          # (optional) local data dir in some deployments; baseline DDL is in internal/storage/db/shared/schema.go
 deployments/
   docker/
     Dockerfile               # Multi-stage build (Go + Debian bookworm, ONNX Runtime for MiniLM)
@@ -102,28 +102,18 @@ internal/
     mcp.go                   # MCP protocol handlers
   service/                   # Layer 2: Service Layer
     interface.go             # I-prefixed facade interfaces (API + Job): documents, query, auth, tags, chapters, …
-    internal_interface.go    # Internal composition contracts (e.g. IChapterMaterializer, IDocumentAnalyzer) — not for API/Job
-    types.go                 # Shared sentinel errors (e.g. ErrColdIndexUnavailable, ErrIngestValidation)
-    svcimpl/                 # Implementation subpackages (wired from internal/di/container.go)
-      doc.go                   # Package map: common, auth, document, query, topic, catalog, observability, admin, stubs
-      common/                  # SummarizerCore (LLM prompts), quota, config redaction, progressive OTel context, OTel LLM wrapper
-      auth/                    # ProgramAuth, AuthService, auth_crypto
-      document/                # DocumentService, maintenance, materializer, analyzer, hot ingest
-      query/                   # QueryService, relevance filter, progressive answer helpers
-      topic/                   # TopicService (regroup + topics)
-      catalog/                 # TagService, ChapterService (catalog read facades)
-      observability/           # IObservabilityService (cold index stats for monitoring)
-      admin/                   # AdminConfigViewService
-      stubs/                   # Shared mocks for domain *_test.go
+    internal_interface.go    # Internal composition contracts (e.g. IDocumentAnalysisPersister, IDocumentAnalysisGenerator) — not for API/Job
+    types.go                 # Shared sentinel errors and auth-facing DTOs (e.g. ErrColdIndexUnavailable, principals)
+    # Service implementations: Go package(s) under or beside service/, composed **only** in internal/di/container.go (see .cursor/rules/layer-dependencies.mdc)
   storage/                   # Layer 3: Storage Layer
     interface.go             # I-prefixed storage interfaces
     auth_entities.go         # Auth row structs (users, sessions, api_keys, …)
-    db/                      # Database repository implementations
-      *_repository_impl.go    # Document/chapter/tag/topic/otel-span + auth table repos
-      unit_of_work_impl.go     # NewUnitOfWork bundles repository constructors
-      db_sql.go                # sqlDB + shared SQL helpers (arrays, IN placeholders)
-      db_row_scanner.go        # rowScanner used by auth repositories
-      schema.go                # Database schema definitions
+    db/                      # SQL repository implementations (composition root: package db)
+      unit_of_work_impl.go     # NewUnitOfWork bundles subpackage constructors
+      shared/                  # SQLDB, array/IN helpers, row scanner, BaseSchema DDL
+      document/                # Document, chapter, tag, topic repositories
+      auth/                    # system_state, users, browser_sessions, api_keys, audit
+      observability/           # OpenTelemetry span persistence
     cache/                   # Cache implementation
       cache_impl.go          # Cache implements ICache
     coldindex/               # Cold document index: chapter split, BM25 (Bleve), vectors (HNSW), cold text embedders
@@ -184,13 +174,13 @@ Job Layer (same dependency rule as API): Service Layer only (`internal/service`,
 
 ### Key Rules
 
-1. **Interface+Impl Pattern**: Each layer defines interfaces in `interface.go`, implementations in subpackage (`svcimpl/` for services)
+1. **Interface+Impl Pattern**: Each layer defines interfaces in `interface.go`; service facades are implemented in dedicated Go package(s) wired from `internal/di/container.go`
 2. **I-prefix Naming**: All interfaces start with I (e.g., `IDocumentService`, `ICache`, `ILLMProvider`)
 3. **Layer owns interfaces**: No central ports package, each layer manages its own interfaces
 4. **DI in di/**: All wiring happens in `internal/di/container.go`
 5. **API unified**: REST and MCP handlers in same package (`internal/api/`)
 6. **English Comments Only**: All code comments must be written in English
-7. **Strict layer boundaries**: Upper layers (**`internal/api`**, **`internal/job`**) may depend only on **`internal/service`** **interfaces** (`interface.go` and the same package’s contracts) and neutral **`pkg/types`** — not on **`internal/storage`**, **`internal/service/svcimpl`**, **`internal/storage/db`**, or **`internal/client`**. Service code uses storage and client **only through** `internal/storage/interface.go` and `internal/client/interface.go`. **`.cursor/rules/layer-dependencies.mdc`** summarizes allowed edges and forbidden cross-layer shortcuts (concrete repos, bypassing DI).
+7. **Strict layer boundaries**: Upper layers (**`internal/api`**, **`internal/job`**) may depend only on **`internal/service`** **interfaces** (`interface.go` and the same package’s contracts) and neutral **`pkg/types`** — not on **`internal/storage`**, **`internal/storage/db`**, **`internal/client`**, or concrete service implementation packages. Service code uses storage and client **only through** `internal/storage/interface.go` and `internal/client/interface.go`. **`.cursor/rules/layer-dependencies.mdc`** is the single mandatory Cursor rule for layer edges, DTO placement, service contract shape, and when to update **`docs/CORE_API_FLOWS.md`**.
 
 ---
 
@@ -332,8 +322,8 @@ llm:
 # Run all tests with coverage
 make test
 
-# Run specific package tests
-go test -v ./internal/service/svcimpl/
+# Run specific package tests (example)
+go test -v ./internal/api/
 
 # Run with race detection
 go test -race ./...
@@ -342,7 +332,7 @@ go test -race ./...
 ### Test Structure
 
 - Test files: `*_test.go` alongside source files
-- Mock implementations in `internal/service/svcimpl/stubs/stubs.go` (imported from domain `*_test.go`)
+- Mocks live next to tests or in small `*_test.go` helper types as needed
 - Uses `testify/assert` and `testify/require`
 - Tests cover:
   - Hot/cold document tiering logic
@@ -491,7 +481,7 @@ The **embedded Vue UI** (`cmd/web/js/`) calls the same handlers under **`/bff/v1
 | GET    | `/api/v1/topics`                  | List topics (themes)                                                                  |
 | GET    | `/api/v1/hot/doc_summaries`       | Hot/warming docs matching `tags`; document-level summary only (`tags`, `max_results`) |
 | GET    | `/api/v1/hot/doc_chapters`        | Chapter summaries for `doc_ids` (comma-separated, `max_results` caps doc count)       |
-| GET    | `/api/v1/cold/doc_source`         | Cold chapter hits via cold index (`q` comma-separated terms, `max_results`; JSON includes `path` per chapter) |
+| GET    | `/api/v1/cold/chapter_hits`       | Cold chapter hits via cold index (`q` comma-separated terms, `max_results`; JSON includes `path` per chapter). |
 | POST   | `/api/v1/topics/regroup`          | LLM regroup catalog tags into topics                                                  |
 | GET    | `/api/v1/quota`                   | Check quota status                                                                    |
 | GET    | `/api/v1/monitoring`              | JSON monitoring snapshot (version, document counts, cold index size + Bleve inverted + HNSW vector stats, quota) |
@@ -528,7 +518,7 @@ type IMyService interface {
     DoSomething(ctx context.Context) error
 }
 
-// In svcimpl/document/document_service_impl.go (example)
+// In a service implementation package (example)
 type MySvc struct{}
 
 func (s *MySvc) DoSomething(ctx context.Context) error { ... }
@@ -540,10 +530,10 @@ var _ service.IMyService = (*MySvc)(nil)
 ### Adding New Features
 
 1. **Define interface** in layer's `interface.go`
-2. **Implement** in subpackage (e.g., `service/svcimpl/`)
+2. **Implement** in a service implementation package (composed from `internal/di`)
 3. **Wire** in `di/container.go`
 4. **Add tests** in `*_test.go`
-5. **Core API docs:** If the change affects a **non–simple-CRUD** API (multi-step logic, LLM, tiering, hybrid search, topic regroup / catalog tags, hot/cold retrieval), update **`docs/CORE_API_FLOWS.md`** in the same PR/commit. Cursor rule: `.cursor/rules/core-api-flows-doc.mdc`.
+5. **Core API docs:** If the change affects a **non–simple-CRUD** API (multi-step logic, LLM, tiering, hybrid search, topic regroup / catalog tags, hot/cold retrieval), update **`docs/CORE_API_FLOWS.md`** in the same PR/commit (see **§6** in `.cursor/rules/layer-dependencies.mdc`).
 6. **AGENTS.md edits:** When changing **`AGENTS.md`**, in the same pass **strengthen Architecture-related sections** (`## Project Structure`, `## Architecture Principles`, and aligned topics such as hot/cold tiering or jobs) so structure, layers, and cross-links stay accurate. Cursor rule: `.cursor/rules/agents-architecture.mdc`.
 
 ---
@@ -551,7 +541,7 @@ var _ service.IMyService = (*MySvc)(nil)
 ## Security Considerations
 
 - **Dual-track auth (design):** see **[docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md)**; **operator / user steps:** **[README.md](README.md#access-control-and-permissions-user-guide)**.
-- **Dual-track auth (summary):** **`/api/v1/*`** and MCP tool calls require **database API keys** (`service.IProgramAuth` wired by `svcimpl.NewProgramAuth`; browser/admin flows via `service.IAuthService` wired by `svcimpl.NewAuthService`): send `X-API-Key` or `Authorization: Bearer` with `tsk_live_*` or `tsk_admin_*` values created in the admin UI (or the bootstrap response). Scopes: `read` (default GET + `POST /query/progressive`), `write` (+ document ingest + tag regroup), `admin` (superset). **`/bff/v1/*`** uses **HttpOnly session cookies** after `POST /bff/v1/auth/login` (`BFFSessionMiddleware`). Until first bootstrap, **`/api/v1`** returns **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`. **`GET /health`** and **`GET /metrics`** stay public at the root. MCP reads **`TIERSUM_API_KEY`** or `mcp.api_key` for the same validation as REST.
+- **Dual-track auth (summary):** **`/api/v1/*`** and MCP tool calls require **database API keys** validated via **`service.IProgramAuth`** (implementations wired from `internal/di`); browser/admin flows use **`service.IAuthService`**. Send `X-API-Key` or `Authorization: Bearer` with `tsk_live_*` or `tsk_admin_*` values created in the admin UI (or the bootstrap response). Scopes: `read` (default GET + `POST /query/progressive`), `write` (+ document ingest + tag regroup), `admin` (superset). **`/bff/v1/*`** uses **HttpOnly session cookies** after `POST /bff/v1/auth/login` (`BFFSessionMiddleware`). Until first bootstrap, **`/api/v1`** returns **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`. **`GET /health`** and **`GET /metrics`** stay public at the root. MCP reads **`TIERSUM_API_KEY`** or `mcp.api_key` for the same validation as REST.
 - JWT authentication for REST is not implemented (no corresponding config keys).
 - CORS configuration for web UI
 - No sensitive data in logs (use zap logging)
@@ -592,22 +582,18 @@ Default setup uses SQLite with volume-mounted data directory.
 | `cmd/main.go`                      | Main entrypoint for server binary                               |
 | `internal/api`                     | REST + MCP API handlers                                         |
 | `internal/service/interface.go`    | Service layer interfaces (I-prefix)                             |
-| `internal/service/svcimpl`         | Service implementations                                         |
+| `internal/di/container.go`         | Dependency injection — sole composition root for implementations   |
 | `internal/storage/interface.go`    | Storage interfaces (I-prefix)                                   |
-| `internal/storage/db`              | Repository implementations                                      |
+| `internal/storage/db`              | SQL persistence composition (`NewUnitOfWork`); subpackages: `shared`, `document`, `auth`, `observability` |
 | `internal/storage/coldindex/cold_index_impl.go` | BM25 + Vector hybrid index over cold **chapters** (`storage.IColdIndex`) |
 | `internal/storage/coldindex/markdown_chapter_splitter_impl.go` | `coldindex.IColdChapterSplitter`, default markdown tree / token merge |
-| `internal/di/container.go`         | Dependency injection / composition root                         |
-| `internal/service/svcimpl/catalog/tag_service_impl.go` / `catalog/chapter_service_impl.go` | Read facades for API: tags, chapters (handlers do not touch storage repos) |
-| `internal/service/svcimpl/observability/observability_service_impl.go` | `IObservabilityService`: cold index size / vector / inverted stats for monitoring |
 | `internal/client/llm/llm_provider_factory.go` | LLM provider factory (dynamic selection)                        |
 | `internal/client/llm/openai_provider_impl.go`    | OpenAI provider implementation                                  |
 | `internal/client/llm/anthropic_provider_impl.go` | Anthropic Claude provider implementation                        |
 | `internal/client/llm/ollama_provider_impl.go`    | Local Ollama provider implementation                            |
 | `internal/job`                     | Background scheduled tasks (depend on `internal/service` only)   |
-| `internal/service/svcimpl/document/document_maintenance_service_impl.go` | `IDocumentMaintenanceService`: promotion sweep, queue promote, hot scores |
 | `cmd/web/`                         | Vue 3 CDN frontend (embedded); ESM entry `js/main.js`, pages under `js/pages/` |
-| `internal/storage/db/schema.go`    | Baseline DDL (`BaseSchema`) applied on startup                    |
+| `internal/storage/db/shared/schema.go` | Baseline DDL (`shared.BaseSchema`) applied on startup          |
 | `pkg/types`                        | Public types used across all layers                             |
 | `docs/CORE_API_FLOWS.md`           | Core REST API algorithms and call flows (non-trivial endpoints) |
 | `docs/AUTH_AND_PERMISSIONS.md`     | Dual-track auth design: human vs program, roles, scopes, tables, config |

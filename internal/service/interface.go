@@ -15,8 +15,8 @@ type IDocumentService interface {
 	// CreateDocument persists a new document; ingest_mode (and legacy force_hot) selects hot vs cold handling and persistence paths.
 	CreateDocument(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error)
 	GetDocument(ctx context.Context, id string) (*types.Document, error)
-	ListRecentDocuments(ctx context.Context, limit int) ([]*types.Document, error)
-	ListDocuments(ctx context.Context) ([]types.Document, error)
+	// ListDocuments returns recent documents (descending by created_at). limit<=0 uses a service default.
+	ListDocuments(ctx context.Context, limit int) ([]types.Document, error)
 
 	// ListHotDocumentsWithSummariesByTags returns hot/warming document metadata including persisted document-level summaries.
 	// Used by GET /hot/doc_summaries.
@@ -107,9 +107,13 @@ type IChapterService interface {
 	// Used by GET /hot/doc_chapters.
 	ListChaptersByDocumentIDs(ctx context.Context, docIDs []string) (map[string][]types.Chapter, error)
 
-	// SearchColdChapters runs hybrid cold search and returns chapter-level hits.
-	// Used by GET /cold/doc_source.
+	// SearchColdChapterHits runs hybrid cold search and returns chapter-level hits.
+	// Used by GET /cold/chapter_hits.
 	SearchColdChapterHits(ctx context.Context, query string, limit int) ([]types.ColdSearchHit, error)
+
+	// SearchHotChapters runs the progressive hot path (catalog tags/topics → documents → chapters) with LLM relevance at each hop (cold candidates in the doc set use keyword gating only), then returns ranked chapter hits.
+	// Used by progressive query; symmetric with SearchColdChapterHits at the chapter-service boundary.
+	SearchHotChapters(ctx context.Context, query string, limit int) ([]types.HotSearchHit, error)
 }
 
 // IObservabilityService exposes monitoring reads for dashboards.
@@ -120,6 +124,14 @@ type IObservabilityService interface {
 	ColdIndexVectorStats() storage.ColdIndexVectorStats
 	// ColdIndexInvertedStats returns Bleve / inverted-text monitoring fields for the cold index (zero value if unavailable).
 	ColdIndexInvertedStats() storage.ColdIndexInvertedStats
+}
+
+// ITraceService exposes persisted OpenTelemetry traces for the browser observability UI.
+type ITraceService interface {
+	// ListTraceSummaries returns recent trace summaries (root span name, span count, timestamps).
+	ListTraceSummaries(ctx context.Context, limit, offset int) ([]types.OtelTraceSummary, error)
+	// ListSpansByTraceID returns all spans in one trace, ordered by start time.
+	ListSpansByTraceID(ctx context.Context, traceID string) ([]types.OtelSpanDTO, error)
 }
 
 // ITopicService runs LLM regrouping of catalog tags into themes (topics) and related reads.

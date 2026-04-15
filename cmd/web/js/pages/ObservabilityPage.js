@@ -9,10 +9,20 @@ export const ObservabilityPage = {
             traces: [],
             tracesError: null,
             tracesLoading: false,
+            traceListQuery: '',
             selectedTraceId: null,
             spans: [],
             spansError: null,
             spansLoading: false,
+            spanQuery: '',
+            spanStatusFilter: 'all',
+            spanKindFilter: 'all',
+            spanShowErrorsOnly: false,
+            spanShowSlowOnly: false,
+            spanSlowThresholdMs: 50,
+            spanSortBy: 'start', // start | duration
+            spanView: 'tree', // tree | table
+            focusedSpanId: null,
             attrsModalOpen: false,
             attrsModalSpanName: '',
             attrsModalRows: [],
@@ -94,6 +104,7 @@ export const ObservabilityPage = {
             this.spans = [];
             this.spansError = null;
             this.spansLoading = true;
+            this.focusedSpanId = null;
             this.$router.replace({ query: { ...this.$route.query, tab: 'traces', trace: traceId } });
             try {
                 const data = await apiClient.getTrace(traceId);
@@ -103,6 +114,159 @@ export const ObservabilityPage = {
             } finally {
                 this.spansLoading = false;
             }
+        },
+        traceRowMatches(t) {
+            const q = String(this.traceListQuery || '').trim().toLowerCase();
+            if (!q) return true;
+            return (
+                String(t.trace_id || '').toLowerCase().includes(q) ||
+                String(t.root_span_name || '').toLowerCase().includes(q)
+            );
+        },
+        filteredTraces() {
+            return (this.traces || []).filter((t) => this.traceRowMatches(t));
+        },
+        formatUnixNanoAsLocal(ns) {
+            const n = Number(ns);
+            if (!Number.isFinite(n) || n <= 0) return '—';
+            try {
+                return new Date(n / 1e6).toLocaleString();
+            } catch {
+                return '—';
+            }
+        },
+        spanDurationMs(sp) {
+            const d = (Number(sp.end_time_unix_nano) - Number(sp.start_time_unix_nano)) / 1e6;
+            return Number.isFinite(d) && d >= 0 ? d : NaN;
+        },
+        traceRootSpan() {
+            const roots = (this.spans || []).filter((s) => !s.parent_span_id);
+            if (!roots.length) return null;
+            roots.sort((a, b) => Number(a.start_time_unix_nano) - Number(b.start_time_unix_nano));
+            return roots[0] || null;
+        },
+        traceErrorCount() {
+            return (this.spans || []).filter((s) => String(s.status_code || '').toUpperCase() === 'ERROR').length;
+        },
+        parseAttrs(jsonStr) {
+            if (!jsonStr) return null;
+            try {
+                return JSON.parse(jsonStr);
+            } catch {
+                return null;
+            }
+        },
+        attrValue(sp, key) {
+            const o = this.parseAttrs(sp?.attributes_json);
+            if (!o) return '';
+            const v = o[key];
+            if (v === undefined || v === null) return '';
+            return String(v);
+        },
+        spanServiceName(sp) {
+            return this.attrValue(sp, 'service.name');
+        },
+        spanHTTPMethod(sp) {
+            return this.attrValue(sp, 'http.method') || this.attrValue(sp, 'http.request.method');
+        },
+        spanHTTPRoute(sp) {
+            return (
+                this.attrValue(sp, 'http.route') ||
+                this.attrValue(sp, 'http.target') ||
+                this.attrValue(sp, 'url.path')
+            );
+        },
+        spanHTTPStatus(sp) {
+            return this.attrValue(sp, 'http.status_code') || this.attrValue(sp, 'http.response.status_code');
+        },
+        spanMatchesFilters(sp) {
+            const q = String(this.spanQuery || '').trim().toLowerCase();
+            const st = String(this.spanStatusFilter || 'all').toLowerCase();
+            const kd = String(this.spanKindFilter || 'all').toLowerCase();
+
+            if (st !== 'all') {
+                const code = String(sp.status_code || '').toLowerCase();
+                if (code !== st) return false;
+            }
+            if (kd !== 'all') {
+                const kind = String(sp.kind || '').toLowerCase();
+                if (kind !== kd) return false;
+            }
+            if (this.spanShowErrorsOnly) {
+                if (String(sp.status_code || '').toUpperCase() !== 'ERROR') return false;
+            }
+            if (this.spanShowSlowOnly) {
+                const ms = this.spanDurationMs(sp);
+                const thr = Number(this.spanSlowThresholdMs);
+                if (!Number.isFinite(ms) || !Number.isFinite(thr) || ms < thr) return false;
+            }
+            if (!q) return true;
+            const attrs = String(sp.attributes_json || '').toLowerCase();
+            return (
+                String(sp.name || '').toLowerCase().includes(q) ||
+                String(sp.span_id || '').toLowerCase().includes(q) ||
+                String(sp.parent_span_id || '').toLowerCase().includes(q) ||
+                attrs.includes(q)
+            );
+        },
+        filteredSpans() {
+            const list = (this.spans || []).filter((s) => this.spanMatchesFilters(s));
+            if (this.spanSortBy === 'duration') {
+                return list.slice().sort((a, b) => {
+                    const da = this.spanDurationMs(a);
+                    const db = this.spanDurationMs(b);
+                    if (!Number.isFinite(da) && !Number.isFinite(db)) return 0;
+                    if (!Number.isFinite(da)) return 1;
+                    if (!Number.isFinite(db)) return -1;
+                    return db - da;
+                });
+            }
+            return list.slice().sort((a, b) => Number(a.start_time_unix_nano) - Number(b.start_time_unix_nano));
+        },
+        buildSpanTreeRows() {
+            const spans = this.filteredSpans();
+            if (!spans.length) return [];
+            const byID = new Map();
+            for (const s of spans) byID.set(s.span_id, s);
+            const children = new Map();
+            for (const s of spans) {
+                const pid = s.parent_span_id || '';
+                if (!children.has(pid)) children.set(pid, []);
+                children.get(pid).push(s);
+            }
+            for (const [k, arr] of children.entries()) {
+                arr.sort((a, b) => Number(a.start_time_unix_nano) - Number(b.start_time_unix_nano));
+                children.set(k, arr);
+            }
+            const roots = [];
+            for (const s of spans) {
+                const pid = s.parent_span_id || '';
+                if (!pid || !byID.has(pid)) roots.push(s);
+            }
+            roots.sort((a, b) => Number(a.start_time_unix_nano) - Number(b.start_time_unix_nano));
+            const out = [];
+            const dfs = (s, depth) => {
+                out.push({ s, depth });
+                const kids = children.get(s.span_id) || [];
+                for (const c of kids) dfs(c, depth + 1);
+            };
+            for (const r of roots) dfs(r, 0);
+            return out;
+        },
+        spanStatusBadgeClass(code) {
+            const c = String(code || '').toUpperCase();
+            if (c === 'ERROR') return 'badge-error';
+            if (c === 'OK') return 'badge-success';
+            if (c === 'UNSET') return 'badge-ghost';
+            return 'badge-ghost';
+        },
+        spanBarClass(code) {
+            const c = String(code || '').toUpperCase();
+            if (c === 'ERROR') return 'bg-rose-500/85 border-rose-300/30';
+            return 'bg-violet-600/85 border-violet-400/30';
+        },
+        focusSpan(spanId) {
+            this.focusedSpanId = spanId;
         },
         formatNanoRange(startNs, endNs) {
             const d = (Number(endNs) - Number(startNs)) / 1e6;
@@ -184,7 +348,7 @@ export const ObservabilityPage = {
             this.coldItems = [];
             this.coldExpanded = {};
             try {
-                const data = await apiClient.getColdDocSource(q, this.coldMaxResults);
+                const data = await apiClient.getColdChapterHits(q, this.coldMaxResults);
                 this.coldItems = data.items || [];
             } catch (e) {
                 this.coldError = e.message || String(e);
@@ -295,11 +459,11 @@ export const ObservabilityPage = {
                 <div v-if="tab === 'cold'" class="space-y-4">
                     <div>
                         <h2 class="text-lg font-semibold text-slate-200">Cold chapter probe</h2>
-                        <p class="text-[10px] font-mono text-slate-500 mt-0.5">GET /bff/v1/cold/doc_source</p>
+                        <p class="text-[10px] font-mono text-slate-500 mt-0.5">GET /bff/v1/cold/chapter_hits</p>
                     </div>
                     <p class="text-sm text-slate-500 leading-relaxed max-w-3xl">
                         Direct hybrid search (Bleve BM25 + HNSW vector) over <strong class="text-slate-400">cold</strong> document chapters.
-                        Same endpoint as <code class="text-cyan-600/90">/api/v1/cold/doc_source</code>. Use this to verify hits, scores, and
+                        Same endpoint as <code class="text-cyan-600/90">/api/v1/cold/chapter_hits</code>. Use this to verify hits, scores, and
                         <code class="text-cyan-600/90">source</code> (e.g. bm25 / vector / hybrid) without running progressive query.
                     </p>
                     <div class="flex flex-wrap items-end gap-2">
@@ -383,7 +547,16 @@ export const ObservabilityPage = {
                 <div v-if="tab === 'traces'" class="space-y-6">
                     <div class="flex items-center justify-between gap-4">
                         <h2 class="text-lg font-semibold text-slate-200">Stored traces</h2>
-                        <button type="button" class="btn btn-sm btn-outline border-slate-600" :disabled="tracesLoading" @click="loadTraces">Refresh list</button>
+                        <div class="flex items-center gap-2">
+                            <input
+                                v-model="traceListQuery"
+                                type="text"
+                                class="input input-bordered input-sm bg-slate-950 border-slate-700 w-56"
+                                placeholder="Search trace id / root span…"
+                                autocomplete="off"
+                            />
+                            <button type="button" class="btn btn-sm btn-outline border-slate-600" :disabled="tracesLoading" @click="loadTraces">Refresh</button>
+                        </div>
                     </div>
                     <p v-if="tracesError" class="text-sm text-red-400">{{ tracesError }}</p>
                     <div v-else-if="tracesLoading" class="text-slate-500 text-sm">Loading…</div>
@@ -394,22 +567,26 @@ export const ObservabilityPage = {
                                     <th>Trace ID</th>
                                     <th>Root span</th>
                                     <th>Spans</th>
+                                    <th>Started</th>
                                     <th>Duration</th>
                                     <th></th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="t in traces" :key="t.trace_id" class="hover:bg-slate-800/40">
-                                    <td class="font-mono text-xs text-cyan-300/90">{{ t.trace_id }}</td>
+                                <tr v-for="t in filteredTraces()" :key="t.trace_id" class="hover:bg-slate-800/40">
+                                    <td class="font-mono text-xs text-cyan-300/90">
+                                        <span :title="t.trace_id">{{ String(t.trace_id || '').slice(0, 16) }}…</span>
+                                    </td>
                                     <td class="text-sm text-slate-300">{{ t.root_span_name || '—' }}</td>
                                     <td class="text-slate-400">{{ t.span_count }}</td>
+                                    <td class="text-slate-400 text-xs whitespace-nowrap">{{ formatUnixNanoAsLocal(t.started_at_unix_nano) }}</td>
                                     <td class="text-slate-400 text-xs">{{ formatNanoRange(t.started_at_unix_nano, t.ended_at_unix_nano) }}</td>
                                     <td>
-                                        <button type="button" class="btn btn-ghost btn-xs" @click="openTrace(t.trace_id)">Waterfall</button>
+                                        <button type="button" class="btn btn-ghost btn-xs" @click="openTrace(t.trace_id)">Open</button>
                                     </td>
                                 </tr>
                                 <tr v-if="!traces.length">
-                                    <td colspan="5" class="text-slate-500 text-sm">No traces yet. Run a progressive search with “Trace sample” enabled (or rely on sampling).</td>
+                                    <td colspan="6" class="text-slate-500 text-sm">No traces yet. Run a progressive search with “Trace sample” enabled (or rely on sampling).</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -417,7 +594,70 @@ export const ObservabilityPage = {
 
                     <div v-if="selectedTraceId" class="card bg-slate-900/50 border border-slate-800">
                         <div class="card-body">
-                            <h3 class="card-title text-slate-200 text-base">Trace <span class="font-mono text-cyan-300/90 text-sm">{{ selectedTraceId }}</span></h3>
+                            <div class="flex flex-col gap-3">
+                                <div class="flex flex-wrap items-start justify-between gap-3">
+                                    <div class="min-w-0">
+                                        <h3 class="text-base font-semibold text-slate-200">
+                                            Trace
+                                            <span class="font-mono text-cyan-300/90 text-sm break-all">{{ selectedTraceId }}</span>
+                                        </h3>
+                                        <p class="text-xs text-slate-500 mt-1">
+                                            Root span:
+                                            <span class="text-slate-300">{{ traceRootSpan()?.name || '—' }}</span>
+                                            <span v-if="spanServiceName(traceRootSpan())" class="ml-2 text-slate-600">service.name={{ spanServiceName(traceRootSpan()) }}</span>
+                                        </p>
+                                    </div>
+                                    <div class="flex items-center gap-2">
+                                        <span class="badge badge-outline text-slate-300">{{ spans.length }} spans</span>
+                                        <span v-if="traceErrorCount() > 0" class="badge badge-error">{{ traceErrorCount() }} errors</span>
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                                        <div class="text-[11px] text-slate-500">Started</div>
+                                        <div class="text-xs text-slate-200 mt-1 font-mono">{{ formatUnixNanoAsLocal(traceRootSpan()?.start_time_unix_nano || 0) }}</div>
+                                    </div>
+                                    <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                                        <div class="text-[11px] text-slate-500">Total duration</div>
+                                        <div class="text-xs text-slate-200 mt-1 font-mono">{{ formatNanoRange(traceRootSpan()?.start_time_unix_nano || 0, traceRootSpan()?.end_time_unix_nano || 0) }}</div>
+                                    </div>
+                                    <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                                        <div class="text-[11px] text-slate-500">Span filters</div>
+                                        <div class="mt-1 flex flex-wrap gap-2">
+                                            <input v-model="spanQuery" type="text" class="input input-bordered input-xs bg-slate-950 border-slate-700 w-44" placeholder="Search spans…" />
+                                            <label class="flex items-center gap-1.5 text-[11px] text-slate-400 select-none">
+                                                <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" v-model="spanShowErrorsOnly" />
+                                                Errors only
+                                            </label>
+                                            <label class="flex items-center gap-1.5 text-[11px] text-slate-400 select-none">
+                                                <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" v-model="spanShowSlowOnly" />
+                                                Slow ≥
+                                            </label>
+                                            <input v-if="spanShowSlowOnly" v-model.number="spanSlowThresholdMs" type="number" min="0" class="input input-bordered input-xs bg-slate-950 border-slate-700 w-20" />
+                                            <select v-model="spanStatusFilter" class="select select-bordered select-xs bg-slate-950 border-slate-700">
+                                                <option value="all">status: all</option>
+                                                <option value="ok">ok</option>
+                                                <option value="error">error</option>
+                                                <option value="unset">unset</option>
+                                            </select>
+                                            <select v-model="spanKindFilter" class="select select-bordered select-xs bg-slate-950 border-slate-700">
+                                                <option value="all">kind: all</option>
+                                                <option value="server">server</option>
+                                                <option value="client">client</option>
+                                                <option value="internal">internal</option>
+                                            </select>
+                                            <select v-model="spanSortBy" class="select select-bordered select-xs bg-slate-950 border-slate-700">
+                                                <option value="start">sort: start</option>
+                                                <option value="duration">sort: duration</option>
+                                            </select>
+                                            <select v-model="spanView" class="select select-bordered select-xs bg-slate-950 border-slate-700">
+                                                <option value="tree">view: tree</option>
+                                                <option value="table">view: table</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
                             <p v-if="spansError" class="text-sm text-red-400">{{ spansError }}</p>
                             <div v-else-if="spansLoading" class="text-slate-500 text-sm py-4">Loading spans…</div>
                             <div v-else class="space-y-4 mt-2">
@@ -426,29 +666,122 @@ export const ObservabilityPage = {
                                         <div class="w-8 text-[10px] text-slate-500 text-right shrink-0">{{ row.depth }}</div>
                                         <div class="flex-1 relative h-6 bg-slate-800/60 rounded overflow-hidden min-w-0">
                                             <div
-                                                class="absolute top-1 bottom-1 rounded bg-violet-600/85 border border-violet-400/30 min-w-[2px]"
+                                                class="absolute top-1 bottom-1 rounded border min-w-[2px] cursor-pointer"
+                                                :class="[spanBarClass(row.s.status_code), focusedSpanId === row.s.span_id ? 'ring-2 ring-cyan-300/40' : '']"
                                                 :title="row.s.name + ' — ' + formatNanoRange(row.s.start_time_unix_nano, row.s.end_time_unix_nano)"
                                                 :style="{ left: row.leftPct + '%', width: row.widthPct + '%' }"
+                                                @click="focusSpan(row.s.span_id)"
                                             ></div>
                                         </div>
                                         <div class="w-40 lg:w-52 truncate text-[11px] text-slate-400 shrink-0" :title="row.s.name">{{ row.s.name }}</div>
                                     </div>
                                 </div>
-                                <div class="overflow-x-auto max-h-96 overflow-y-auto rounded border border-slate-800">
+                                <div v-if="spanView === 'tree'" class="rounded border border-slate-800 overflow-hidden">
+                                    <div class="max-h-96 overflow-y-auto">
+                                        <table class="table table-xs">
+                                            <thead>
+                                                <tr class="text-slate-400 bg-slate-900/60">
+                                                    <th>Name</th>
+                                                    <th>Kind</th>
+                                                    <th>Status</th>
+                                                    <th>Duration</th>
+                                                    <th>Service</th>
+                                                    <th>HTTP</th>
+                                                    <th>Attributes</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr
+                                                    v-for="row in buildSpanTreeRows()"
+                                                    :key="row.s.span_id"
+                                                    :class="focusedSpanId === row.s.span_id ? 'bg-slate-800/40' : ''"
+                                                    class="hover:bg-slate-800/30"
+                                                >
+                                                    <td class="text-xs text-slate-200 min-w-[18rem]">
+                                                        <div class="flex items-center gap-2 min-w-0">
+                                                            <span class="text-slate-600 shrink-0" :style="{ width: (row.depth * 12) + 'px' }"></span>
+                                                            <span v-if="row.depth" class="text-slate-700 shrink-0">↳</span>
+                                                            <button type="button" class="link link-hover text-slate-200 font-mono truncate" @click="focusSpan(row.s.span_id)" :title="row.s.name">{{ row.s.name }}</button>
+                                                        </div>
+                                                    </td>
+                                                    <td class="text-xs text-slate-500">{{ row.s.kind }}</td>
+                                                    <td class="text-xs">
+                                                        <span class="badge badge-xs" :class="spanStatusBadgeClass(row.s.status_code)">{{ row.s.status_code || '—' }}</span>
+                                                    </td>
+                                                    <td class="text-xs text-slate-400 font-mono whitespace-nowrap">{{ formatNanoRange(row.s.start_time_unix_nano, row.s.end_time_unix_nano) }}</td>
+                                                    <td class="text-[10px] text-slate-500 font-mono max-w-[10rem] truncate" :title="spanServiceName(row.s)">{{ spanServiceName(row.s) || '—' }}</td>
+                                                    <td class="text-[10px] text-slate-500 font-mono max-w-[14rem] truncate" :title="spanHTTPMethod(row.s) + ' ' + spanHTTPRoute(row.s)">
+                                                        <span v-if="spanHTTPMethod(row.s) || spanHTTPRoute(row.s)">
+                                                            {{ spanHTTPMethod(row.s) || '—' }} {{ spanHTTPRoute(row.s) || '' }}
+                                                            <span v-if="spanHTTPStatus(row.s)" class="text-slate-600">({{ spanHTTPStatus(row.s) }})</span>
+                                                        </span>
+                                                        <span v-else>—</span>
+                                                    </td>
+                                                    <td class="max-w-xs lg:max-w-md">
+                                                        <div class="flex items-start gap-2 min-w-0">
+                                                            <p class="text-[10px] text-slate-500 truncate flex-1 min-w-0 m-0" :title="spanAttrsPreview(row.s.attributes_json)">{{ spanAttrsPreview(row.s.attributes_json) || '—' }}</p>
+                                                            <button type="button" class="btn btn-ghost btn-xs shrink-0 text-violet-300/90 hover:text-violet-200" @click="openAttrsModal(row.s)">Table</button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="!buildSpanTreeRows().length">
+                                                    <td colspan="7" class="text-slate-500 text-sm">No spans match the filters.</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <div v-else class="overflow-x-auto max-h-96 overflow-y-auto rounded border border-slate-800">
                                     <table class="table table-xs">
-                                        <thead><tr class="text-slate-400"><th>Name</th><th>Kind</th><th>Status</th><th>Duration</th><th>Attributes</th></tr></thead>
+                                        <thead>
+                                            <tr class="text-slate-400">
+                                                <th>Name</th>
+                                                <th>Kind</th>
+                                                <th>Status</th>
+                                                <th>Duration</th>
+                                                <th>Service</th>
+                                                <th>HTTP</th>
+                                                <th>Span</th>
+                                                <th>Attributes</th>
+                                            </tr>
+                                        </thead>
                                         <tbody>
-                                            <tr v-for="sp in spans" :key="sp.span_id">
-                                                <td class="font-mono text-xs text-slate-200">{{ sp.name }}</td>
+                                            <tr
+                                                v-for="sp in filteredSpans()"
+                                                :key="sp.span_id"
+                                                :class="focusedSpanId === sp.span_id ? 'bg-slate-800/40' : ''"
+                                                class="hover:bg-slate-800/30"
+                                            >
+                                                <td class="font-mono text-xs text-slate-200">
+                                                    <button type="button" class="link link-hover text-slate-200" @click="focusSpan(sp.span_id)" :title="sp.name">{{ sp.name }}</button>
+                                                </td>
                                                 <td class="text-xs text-slate-500">{{ sp.kind }}</td>
-                                                <td class="text-xs">{{ sp.status_code }}</td>
-                                                <td class="text-xs text-slate-400">{{ formatNanoRange(sp.start_time_unix_nano, sp.end_time_unix_nano) }}</td>
+                                                <td class="text-xs">
+                                                    <span class="badge badge-xs" :class="spanStatusBadgeClass(sp.status_code)">{{ sp.status_code || '—' }}</span>
+                                                </td>
+                                                <td class="text-xs text-slate-400 font-mono">{{ formatNanoRange(sp.start_time_unix_nano, sp.end_time_unix_nano) }}</td>
+                                                <td class="text-[10px] text-slate-500 font-mono max-w-[10rem] truncate" :title="spanServiceName(sp)">{{ spanServiceName(sp) || '—' }}</td>
+                                                <td class="text-[10px] text-slate-500 font-mono max-w-[14rem] truncate" :title="spanHTTPMethod(sp) + ' ' + spanHTTPRoute(sp)">
+                                                    <span v-if="spanHTTPMethod(sp) || spanHTTPRoute(sp)">
+                                                        {{ spanHTTPMethod(sp) || '—' }} {{ spanHTTPRoute(sp) || '' }}
+                                                        <span v-if="spanHTTPStatus(sp)" class="text-slate-600">({{ spanHTTPStatus(sp) }})</span>
+                                                    </span>
+                                                    <span v-else>—</span>
+                                                </td>
+                                                <td class="text-[10px] font-mono text-slate-500">
+                                                    <div :title="sp.span_id">id {{ String(sp.span_id || '').slice(0, 8) }}…</div>
+                                                    <div v-if="sp.parent_span_id" :title="sp.parent_span_id">parent {{ String(sp.parent_span_id).slice(0, 8) }}…</div>
+                                                </td>
                                                 <td class="max-w-xs lg:max-w-md">
                                                     <div class="flex items-start gap-2 min-w-0">
                                                         <p class="text-[10px] text-slate-500 truncate flex-1 min-w-0 m-0" :title="spanAttrsPreview(sp.attributes_json)">{{ spanAttrsPreview(sp.attributes_json) || '—' }}</p>
                                                         <button type="button" class="btn btn-ghost btn-xs shrink-0 text-violet-300/90 hover:text-violet-200" @click="openAttrsModal(sp)">Table</button>
                                                     </div>
                                                 </td>
+                                            </tr>
+                                            <tr v-if="!filteredSpans().length">
+                                                <td colspan="8" class="text-slate-500 text-sm">No spans match the filters.</td>
                                             </tr>
                                         </tbody>
                                     </table>
