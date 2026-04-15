@@ -46,7 +46,7 @@ export const DocumentDetailPage = {
         summaryBodyMarkdown() {
             if (this.selectedNav === 'overview') {
                 if (this.hotAnalysisPending) {
-                    return '_异步生成摘要与章节中，请稍候…_';
+                    return '_Generating document summary and chapters. Please wait…_';
                 }
                 return this.docSummaryText || '_No document-level summary._';
             }
@@ -252,7 +252,7 @@ export const DocumentDetailPage = {
                                     class="badge badge-sm border border-sky-500/40 bg-sky-950/50 text-sky-200 gap-1"
                                 >
                                     <span class="inline-block h-2.5 w-2.5 rounded-full bg-sky-400 animate-pulse shrink-0" aria-hidden="true"></span>
-                                    异步生成中
+                                    Generating…
                                 </span>
                                 <span v-if="doc.tags?.length" class="text-slate-500">{{ doc.tags.join(', ') }}</span>
                             </div>
