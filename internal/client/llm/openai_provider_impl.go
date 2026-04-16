@@ -85,6 +85,8 @@ type openAIResponse struct {
 	Choices []struct {
 		Message struct {
 			Content chatMessageContent `json:"content"`
+			// Moonshot Kimi returns content in this field when thinking is enabled.
+			ReasoningContent string `json:"reasoning_content,omitempty"`
 		} `json:"message"`
 		FinishReason string `json:"finish_reason,omitempty"`
 	} `json:"choices"`
@@ -117,6 +119,7 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 		MaxTokens:          maxTokens,
 		Temperature:        temperature,
 		ChatTemplateKwargs: openAIThinkOffChatTemplate(p.baseURL, p.model),
+		Thinking:           openAIThinkingField(p.baseURL, p.model),
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -160,7 +163,12 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 	}
 
 	if len(result.Choices) > 0 {
-		out := strings.TrimSpace(result.Choices[0].Message.Content.Text)
+		msg := result.Choices[0].Message
+		out := strings.TrimSpace(msg.Content.Text)
+		if out == "" {
+			// OpenAI-compatible variants may return text in reasoning_content instead of content.
+			out = strings.TrimSpace(msg.ReasoningContent)
+		}
 		if out == "" {
 			snip := string(body)
 			if len(snip) > 800 {
@@ -176,6 +184,19 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 	}
 
 	return "", fmt.Errorf("no response from OpenAI")
+}
+
+func openAIThinkingField(baseURL, model string) map[string]any {
+	if !disableThinkEnabled() {
+		return nil
+	}
+	u := strings.ToLower(baseURL)
+	m := strings.ToLower(model)
+	// Moonshot Kimi: prefer disabling thinking so final content lands in message.content.
+	if strings.Contains(u, "moonshot") || strings.Contains(u, "moonshot.cn") || strings.Contains(m, "kimi") {
+		return map[string]any{"type": "disabled"}
+	}
+	return nil
 }
 
 // openAIThinkOffChatTemplate returns chat_template_kwargs for OpenAI-compatible APIs that support disabling CoT.
