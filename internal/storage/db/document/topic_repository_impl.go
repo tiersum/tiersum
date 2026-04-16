@@ -38,17 +38,12 @@ func (r *TopicRepo) Create(ctx context.Context, topic *types.Topic) error {
 	topic.CreatedAt = now
 	topic.UpdatedAt = now
 
-	tagNamesArg := interface{}(topic.TagNames)
-	if r.driver == "sqlite" {
-		tagNamesArg = shared.FormatStringArray(topic.TagNames)
-	}
-
 	query := `INSERT INTO topics (id, name, description, tag_names, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
 	if r.driver == "postgres" {
 		query = `INSERT INTO topics (id, name, description, tag_names, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
 	}
 
-	_, err := r.db.ExecContext(ctx, query, topic.ID, topic.Name, topic.Description, tagNamesArg, topic.CreatedAt, topic.UpdatedAt)
+	_, err := r.db.ExecContext(ctx, query, topic.ID, topic.Name, topic.Description, shared.FormatStringArray(topic.TagNames), topic.CreatedAt, topic.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create topic: %w", err)
 	}
