@@ -82,8 +82,45 @@ Guidelines:
 		a.logger.Warn("AnalyzeDocument: llm generate failed", zap.Error(err))
 		return fallbackAnalysis(title, content), err
 	}
+	out = strings.TrimSpace(out)
 	res, perr := parseAnalysisJSON(out)
 	if perr != nil {
+		// Best-effort: models sometimes wrap JSON in prose or code fences, or produce minor syntax issues.
+		// Try a minimal "repair" pass once before falling back.
+		repairPrompt := fmt.Sprintf(`You will be given a model output that was intended to be a JSON object.
+
+Rewrite it as a valid JSON object ONLY, with this exact schema:
+{
+  "summary": "document summary (max 300 chars)",
+  "tags": ["tag1", "tag2", ...],
+  "chapters": [
+    { "title": "chapter title", "summary": "chapter summary (max 200 chars)", "content": "full chapter content" }
+  ]
+}
+
+Rules:
+- Return ONLY the JSON object.
+- Do NOT wrap in markdown.
+- Ensure every chapter has non-empty title, summary, and content.
+
+Input:
+%s
+`, truncateString(out, 12000))
+		repaired, rerr := a.provider.Generate(ctx, repairPrompt, 2000)
+		if rerr == nil {
+			if rres, rperr := parseAnalysisJSON(repaired); rperr == nil {
+				ensureChapterSummaries(rres)
+				rres.Tags = normalizeTags(rres.Tags, 10)
+				if len(rres.Chapters) == 0 {
+					rres.Chapters = []types.ChapterInfo{{
+						Title:   titleOrDefault(title),
+						Summary: truncateString(rres.Summary, 200),
+						Content: content,
+					}}
+				}
+				return rres, nil
+			}
+		}
 		a.logger.Warn("AnalyzeDocument: parse failed, using fallback", zap.Error(perr))
 		return fallbackAnalysis(title, content), nil
 	}

@@ -121,7 +121,11 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 	}
 
 	if len(result.Choices) > 0 {
-		return result.Choices[0].Message.Content, nil
+		out := strings.TrimSpace(result.Choices[0].Message.Content)
+		if out == "" {
+			return "", fmt.Errorf("empty content from LLM")
+		}
+		return out, nil
 	}
 
 	return "", fmt.Errorf("no response from OpenAI")
