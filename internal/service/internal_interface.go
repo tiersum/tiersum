@@ -17,7 +17,8 @@ type IDocumentAnalysisPersister interface {
 	PersistAnalysis(ctx context.Context, doc *types.Document, analysis *types.DocumentAnalysisResult) error
 }
 
-// IDocumentAnalysisGenerator performs LLM-backed analysis to produce summaries/tags/chapters.
+// IDocumentAnalysisGenerator performs one LLM-backed analysis call and parses the JSON result (no hidden repair passes;
+// parsed summary/tags/chapters are not post-truncated or tag-normalized—constraints belong in the prompt).
 type IDocumentAnalysisGenerator interface {
 	GenerateAnalysis(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error)
 }

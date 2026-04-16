@@ -118,8 +118,8 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 		)
 	}
 
-	// Document analysis generator accepts nil ILLMProvider: GenerateAnalysis uses markdown-only structuring
-	// so deferred hot ingest can still persist summary + chapter rows without an API key.
+	// Document analysis generator may be constructed with a nil ILLMProvider; GenerateAnalysis then returns
+	// an error so deferred hot ingest can persist a virtual failure chapter instead of inventing analysis.
 	analyzer := document.NewDocumentAnalysisGenerator(llmProv, logger)
 	persister := document.NewDocumentAnalysisPersister(uow.Chapters, uow.Documents, logger)
 	hotIngestProc := document.NewHotIngestProcessor(uow.Documents, analyzer, persister, uow.Tags, logger)

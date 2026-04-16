@@ -40,6 +40,7 @@ type openAIRequest struct {
 	Messages           []message      `json:"messages"`
 	MaxTokens          int            `json:"max_tokens"`
 	Temperature        float64        `json:"temperature"`
+	ResponseFormat     map[string]any `json:"response_format,omitempty"`
 	ChatTemplateKwargs map[string]any `json:"chat_template_kwargs,omitempty"`
 	// Thinking is Moonshot Kimi K2 API: {"type":"disabled"} turns off chain-of-thought for compatible models.
 	Thinking map[string]any `json:"thinking,omitempty"`
@@ -108,11 +109,12 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 	reqBody := openAIRequest{
 		Model: p.model,
 		Messages: []message{
-			{Role: "system", Content: "You are a helpful assistant."},
+			{Role: "system", Content: "You are a concise assistant. Respond briefly and accurately."},
 			{Role: "user", Content: prompt},
 		},
 		MaxTokens:          maxTokens,
 		Temperature:        temperature,
+		ResponseFormat:     openAIResponseFormat(p.baseURL, p.model),
 		ChatTemplateKwargs: openAIThinkOffChatTemplate(p.baseURL, p.model),
 		Thinking:           openAIThinkingField(p.baseURL, p.model),
 	}
@@ -255,6 +257,18 @@ func openAIThinkOffChatTemplate(baseURL, model string) map[string]any {
 	}
 	if strings.Contains(u, "siliconflow.cn") {
 		return map[string]any{"enable_thinking": false}
+	}
+	return nil
+}
+
+// openAIResponseFormat returns response_format for providers that support json_object (e.g. Moonshot Kimi)
+// to reduce token waste from prose around the JSON.
+func openAIResponseFormat(baseURL, model string) map[string]any {
+	u := strings.ToLower(baseURL)
+	m := strings.ToLower(model)
+	// Moonshot Kimi supports json_object response format.
+	if strings.Contains(u, "moonshot") || strings.Contains(u, "moonshot.cn") || strings.Contains(m, "kimi") {
+		return map[string]any{"type": "json_object"}
 	}
 	return nil
 }

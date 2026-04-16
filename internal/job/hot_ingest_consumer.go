@@ -9,7 +9,7 @@ import (
 	"github.com/tiersum/tiersum/internal/service"
 )
 
-// StartHotIngestQueueConsumer reads HotIngestQueue and invokes IHotIngestProcessor.ProcessHotIngest (LLM analysis + chapter materialization).
+// StartHotIngestQueueConsumer reads HotIngestQueue and invokes IHotIngestProcessor.ProcessHotIngest (LLM + parse, then persist; failures become a virtual failure chapter when possible).
 // It runs until ctx is cancelled.
 func StartHotIngestQueueConsumer(ctx context.Context, proc service.IHotIngestProcessor, logger *zap.Logger) {
 	if proc == nil || logger == nil {

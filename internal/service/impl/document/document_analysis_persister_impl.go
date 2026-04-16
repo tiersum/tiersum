@@ -43,19 +43,21 @@ func (m *chapterMaterializer) PersistAnalysis(ctx context.Context, doc *types.Do
 	chRows := make([]types.Chapter, 0, len(analysis.Chapters))
 	for i := range analysis.Chapters {
 		ch := &analysis.Chapters[i]
-		title := strings.TrimSpace(ch.Title)
-		if title == "" {
-			title = fmt.Sprintf("Section %d", i+1)
-		}
-		path := fmt.Sprintf("%s/%s", doc.ID, sanitizePath(title))
-		if strings.TrimSpace(path) == doc.ID+"/" {
+		var path string
+		if ch.Title == "" {
 			path = fmt.Sprintf("%s/chapter/%d", doc.ID, i+1)
+		} else {
+			seg := sanitizePath(ch.Title)
+			path = fmt.Sprintf("%s/%s", doc.ID, seg)
+			if seg == "" || strings.TrimSpace(path) == doc.ID+"/" {
+				path = fmt.Sprintf("%s/chapter/%d", doc.ID, i+1)
+			}
 		}
 		chRows = append(chRows, types.Chapter{
 			DocumentID: doc.ID,
 			Path:       path,
-			Title:      title,
-			Summary:    strings.TrimSpace(ch.Summary),
+			Title:      ch.Title,
+			Summary:    ch.Summary,
 			Content:    ch.Content,
 		})
 	}

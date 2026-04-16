@@ -13,6 +13,9 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
+// failureChapterSummaryMax caps only the synthetic virtual failure chapter summary (not LLM output).
+const failureChapterSummaryMax = 100
+
 // NewHotIngestProcessor constructs the IHotIngestProcessor implementation.
 func NewHotIngestProcessor(
 	docRepo storage.IDocumentRepository,
@@ -120,7 +123,7 @@ func analysisFailureResult(title string, err error) *types.DocumentAnalysisResul
 	if msg == "" {
 		msg = "unknown error"
 	}
-	summary := truncateString("LLM analysis failed: "+msg, 200)
+	summary := truncateString("Document analysis failed: "+msg, failureChapterSummaryMax)
 	// Persist the error once as a single virtual chapter so operators can see the failure in UI and via GET /chapters.
 	return &types.DocumentAnalysisResult{
 		Summary: "",
@@ -128,27 +131,23 @@ func analysisFailureResult(title string, err error) *types.DocumentAnalysisResul
 		Chapters: []types.ChapterInfo{{
 			Title:   "[analysis failed] " + titleOrDefault(title),
 			Summary: summary,
-			Content: "LLM analysis failed.\n\nError:\n" + truncateString(msg, 4000),
+			Content: "Document analysis failed.\n\nError:\n" + truncateString(msg, 4000),
 		}},
 	}
 }
 
 func mergeTags(prebuilt, generated []string) []string {
-	if len(prebuilt) == 0 {
-		return dedupeTagNames(generated)
-	}
+	// Preserve exact tag strings from the LLM (and prebuilt request tags); dedupe by string identity only.
 	set := make(map[string]struct{}, len(prebuilt)+len(generated))
 	out := make([]string, 0, len(prebuilt)+len(generated))
 	push := func(t string) {
-		t = strings.TrimSpace(t)
 		if t == "" {
 			return
 		}
-		key := strings.ToLower(t)
-		if _, ok := set[key]; ok {
+		if _, ok := set[t]; ok {
 			return
 		}
-		set[key] = struct{}{}
+		set[t] = struct{}{}
 		out = append(out, t)
 	}
 	for _, t := range prebuilt {
