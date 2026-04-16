@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -96,20 +98,13 @@ type openAIResponse struct {
 	} `json:"error,omitempty"`
 }
 
+var (
+	onlyTemperatureRe = regexp.MustCompile(`(?i)invalid temperature:\s*only\s*([0-9]*\.?[0-9]+)\s*is allowed`)
+)
+
 // Generate implements ILLMProvider.Generate
 func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
-	// Get temperature from config, default to 0.3
-	temperature := viper.GetFloat64("llm.openai.temperature")
-	if temperature == 0 {
-		temperature = 0.3
-	}
-
-	// Some models (like kimi-k2.5) only support temperature=1
-	// Check if we need to override for specific models
-	if strings.Contains(p.model, "kimi-k2") || strings.Contains(p.model, "k2.5") {
-		temperature = 1.0
-	}
-
+	temperature := p.resolveTemperature()
 	reqBody := openAIRequest{
 		Model: p.model,
 		Messages: []message{
@@ -121,15 +116,62 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 		ChatTemplateKwargs: openAIThinkOffChatTemplate(p.baseURL, p.model),
 		Thinking:           openAIThinkingField(p.baseURL, p.model),
 	}
+	// Retry once when the backend enforces a single temperature value for this model.
+	out, body, result, err := p.doChatCompletion(ctx, reqBody)
+	if err != nil {
+		if onlyTemp, ok := parseOnlyTemperature(err.Error()); ok {
+			reqBody.Temperature = onlyTemp
+			out2, _, _, err2 := p.doChatCompletion(ctx, reqBody)
+			if err2 == nil {
+				return out2, nil
+			}
+			return "", err2
+		}
+		return "", err
+	}
+	_ = body
+	_ = result
+	return out, nil
+}
 
+func (p *OpenAIProvider) resolveTemperature() float64 {
+	// Get temperature from config, default to 0.3.
+	t := viper.GetFloat64("llm.openai.temperature")
+	if t == 0 {
+		t = 0.3
+	}
+	// Moonshot Kimi sometimes enforces a fixed temperature per model; default to 0.6 when configured model suggests it.
+	m := strings.ToLower(p.model)
+	if strings.Contains(m, "kimi") || strings.Contains(m, "k2") {
+		// If the user explicitly configured a non-zero temperature, keep it; otherwise pick a safer default.
+		if viper.GetFloat64("llm.openai.temperature") == 0 {
+			t = 0.6
+		}
+	}
+	return t
+}
+
+func parseOnlyTemperature(errMsg string) (float64, bool) {
+	m := onlyTemperatureRe.FindStringSubmatch(errMsg)
+	if len(m) != 2 {
+		return 0, false
+	}
+	f, err := strconv.ParseFloat(m[1], 64)
+	if err != nil {
+		return 0, false
+	}
+	return f, true
+}
+
+func (p *OpenAIProvider) doChatCompletion(ctx context.Context, reqBody openAIRequest) (string, []byte, openAIResponse, error) {
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", err
+		return "", nil, openAIResponse{}, err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/chat/completions", bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return "", err
+		return "", nil, openAIResponse{}, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -137,53 +179,52 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 
 	resp, err := p.client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("http request failed: %w", err)
+		return "", nil, openAIResponse{}, fmt.Errorf("http request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Check HTTP status code
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("api error: status=%d, body=%s", resp.StatusCode, string(body))
+	body, rerr := io.ReadAll(resp.Body)
+	if rerr != nil {
+		return "", nil, openAIResponse{}, fmt.Errorf("read response body: %w", rerr)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("read response body: %w", err)
+	// Check HTTP status code
+	if resp.StatusCode != http.StatusOK {
+		return "", body, openAIResponse{}, fmt.Errorf("api error: status=%d, body=%s", resp.StatusCode, string(body))
 	}
 
 	var result openAIResponse
 	if err := json.Unmarshal(body, &result); err != nil {
-		return "", fmt.Errorf("failed to decode response: %w", err)
+		return "", body, openAIResponse{}, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	// Check for API error
 	if result.Error != nil {
-		return "", fmt.Errorf("api error: %s - %s", result.Error.Type, result.Error.Message)
+		return "", body, result, fmt.Errorf("api error: %s - %s", result.Error.Type, result.Error.Message)
 	}
 
-	if len(result.Choices) > 0 {
-		msg := result.Choices[0].Message
-		out := strings.TrimSpace(msg.Content.Text)
-		if out == "" {
-			// OpenAI-compatible variants may return text in reasoning_content instead of content.
-			out = strings.TrimSpace(msg.ReasoningContent)
-		}
-		if out == "" {
-			snip := string(body)
-			if len(snip) > 800 {
-				snip = snip[:800] + "...(truncated)"
-			}
-			fr := strings.TrimSpace(result.Choices[0].FinishReason)
-			if fr != "" {
-				return "", fmt.Errorf("empty content from LLM (finish_reason=%s, body=%s)", fr, snip)
-			}
-			return "", fmt.Errorf("empty content from LLM (body=%s)", snip)
-		}
-		return out, nil
+	if len(result.Choices) == 0 {
+		return "", body, result, fmt.Errorf("no response from OpenAI")
 	}
 
-	return "", fmt.Errorf("no response from OpenAI")
+	msg := result.Choices[0].Message
+	out := strings.TrimSpace(msg.Content.Text)
+	if out == "" {
+		// OpenAI-compatible variants may return text in reasoning_content instead of content.
+		out = strings.TrimSpace(msg.ReasoningContent)
+	}
+	if out == "" {
+		snip := string(body)
+		if len(snip) > 800 {
+			snip = snip[:800] + "...(truncated)"
+		}
+		fr := strings.TrimSpace(result.Choices[0].FinishReason)
+		if fr != "" {
+			return "", body, result, fmt.Errorf("empty content from LLM (finish_reason=%s, body=%s)", fr, snip)
+		}
+		return "", body, result, fmt.Errorf("empty content from LLM (body=%s)", snip)
+	}
+	return out, body, result, nil
 }
 
 func openAIThinkingField(baseURL, model string) map[string]any {
