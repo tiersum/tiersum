@@ -181,7 +181,7 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                 <router-link to="/docs/new" class="link link-primary">Add a document</router-link>
                                 <span class="text-slate-600 mx-2">·</span>
                             </template>
-                            <router-link to="/docs" class="link link-hover text-slate-400">Browse library</router-link>
+                            <router-link to="/library" class="link link-hover text-slate-400">Browse library</router-link>
                         </p>
                     </div>
 

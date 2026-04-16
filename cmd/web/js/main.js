@@ -4,9 +4,8 @@ import { createRouter, createWebHistory } from 'vue-router';
 import { AppHeader } from './components/AppHeader.js';
 import { SearchPage } from './pages/SearchPage.js';
 import { DocumentCreatePage } from './pages/DocumentCreatePage.js';
-import { DocumentsPage } from './pages/DocumentsPage.js';
 import { DocumentDetailPage } from './pages/DocumentDetailPage.js';
-import { TagsPage } from './pages/TagsPage.js';
+import { LibraryPage } from './pages/LibraryPage.js';
 import { ObservabilityPage } from './pages/ObservabilityPage.js';
 import { ProductIntroPage } from './pages/ProductIntroPage.js';
 import { InitPage } from './pages/InitPage.js';
@@ -23,10 +22,11 @@ const routes = [
     { path: '/admin/config', component: AdminConfigPage },
     { path: '/admin', component: AdminPage },
     { path: '/', component: SearchPage },
-    { path: '/docs', component: DocumentsPage },
+    { path: '/library', component: LibraryPage },
+    { path: '/docs', redirect: '/library' },
+    { path: '/tags', redirect: '/library' },
     { path: '/docs/new', component: DocumentCreatePage },
     { path: '/docs/:id', component: DocumentDetailPage, props: true },
-    { path: '/tags', component: TagsPage },
     { path: '/about', component: ProductIntroPage },
     { path: '/observability', component: ObservabilityPage },
     { path: '/monitoring', redirect: '/observability' }
@@ -77,7 +77,7 @@ router.beforeEach(async (to, _from, next) => {
             return;
         }
         if (to.path === '/docs/new' && isBrowserViewerRole(me.role)) {
-            next('/docs');
+            next('/library');
             return;
         }
     } catch {

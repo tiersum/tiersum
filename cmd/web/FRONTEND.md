@@ -23,7 +23,7 @@ cmd/web/
 │   ├── markdown.js       # Marked wrappers (vendored `vendor/marked.esm.js`)
 │   ├── vendor/           # Vue, Vue Router, @vue/devtools-api, Marked ESM (importmap; no CDN for core UI)
 │   ├── components/       # Shared Vue SFC-style objects (e.g. AppHeader)
-│   └── pages/            # Route views: Search, Documents, Topics & tags (/tags), Monitoring, …
+│   └── pages/            # Route views: Search, Library (/library), Monitoring, …
 └── FRONTEND.md   # This file — stack, routes, UI ↔ REST mapping
 ```
 
@@ -47,8 +47,7 @@ make build
 ## Features
 
 - **Search** (`/`): Progressive query, server `answer` when available + reference list
-- **Documents** (`/docs`, `/docs/new`, `/docs/:id`): List/filter, full-page create, detail (document summary / chapter summaries / source)
-- **Topics & tags** (`/tags`): topics (themes) + catalog tags for the selected topic; trigger topic regroup
+- **Library** (`/library`; `/docs` and `/tags` redirect here): document list with buckets (**All**, **Cold**, **Untagged**) and **Topics** → catalog **Tags** → filter documents (client-side); **Regroup into topics** and **Add document** (non-viewer); create/detail remain **`/docs/new`** and **`/docs/:id`**
 - **About** (`/about`): bilingual (English then Chinese) end-user product overview — static copy only, no BFF calls; reachable **without a browser session** once the system is initialized (`main.js` router guard).
 - **Management** (top bar dropdown after login, `js/components/AppHeader.js`): **Observability** (`/observability`, `/monitoring` redirects here) — **admin** human role only (BFF: `GET /bff/v1/monitoring`, `GET /bff/v1/traces*`). **Devices & sessions** (`/settings`) — all signed-in roles. **Users & API keys** (`/admin`) — **admin** only; **Configuration** (`/admin/config`) — **admin** only, redacted `GET /bff/v1/admin/config/snapshot`. Human **`viewer`** is read-only in the UI (no ingest / regroup; `BFFHumanRBAC` allows `GET` + `POST /bff/v1/query/progressive` only). Observability: **Monitoring** tab (health, runtime, cold index stats, Prometheus preview), **Cold probe** (`GET /bff/v1/cold/chapter_hits`, `?tab=cold`), **Traces** (`?tab=traces`).
 - **Dark theme**: Slate-style palette
@@ -58,14 +57,15 @@ make build
 ## Routes
 
 - `/` — Search
-- `/docs` — Document list
+- `/library` — Library (documents + topics/catalog tags + regroup)
+- `/docs` — Redirects to `/library`
+- `/tags` — Redirects to `/library`
 - `/docs/new` — Create document (Markdown + preview)
 - `/docs/:id` — Document detail
-- `/tags` — Topics & tags (topic list + catalog tags for selected topic)
 - `/about` — Product introduction (bilingual); public after bootstrap (no login required)
 - `/observability` — Monitoring + cold probe + traces (`/monitoring` redirects here); linked from **Management → Observability** (not a top-level nav button).
 
-Vue Router uses **HTML5 history** mode (`createWebHistory`): `/`, `/docs`, `/tags`, `/about`, `/observability`, etc. The API server serves `index.html` for unknown non-API paths so direct URLs and refresh work.
+Vue Router uses **HTML5 history** mode (`createWebHistory`): `/`, `/library`, `/docs`, `/docs/new`, `/docs/:id`, `/about`, `/observability`, etc. The API server serves `index.html` for unknown non-API paths so direct URLs and refresh work.
 
 **Permission / management UI entry:** After login, the top bar shows a **Management** dropdown (`js/components/AppHeader.js`): **Observability** (`/observability`, **admin** only), **Devices & sessions** (`/settings`, every role), **Users & API keys** (`/admin`, **admin** only), **Configuration** (`/admin/config`, **admin** only). Direct URLs: `/observability`, `/settings`, `/admin`, `/admin/config` (non-admins hitting `/observability` are redirected by `main.js` guards; BFF still enforces `ADMIN_ROLE_REQUIRED`).
 
@@ -91,13 +91,13 @@ Below: **route / feature** → **HTTP** (request shape and main JSON keys). Endp
 | UI area                              | REST                                  | Notes                                                                                                                                                                                                                                                                                                     |
 | ------------------------------------ | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **Search** — run query               | `POST /bff/v1/query/progressive`      | Body: `{ "question", "max_results" }`. Optional `?debug_trace=1` (UI “Trace sample”) force-samples the HTTP span for OpenTelemetry. Response adds `trace_id` when the request is part of a recording trace. Also `answer`, `steps`, `results`, …                                                                                                                    |
-| **Documents** — list                 | `GET /bff/v1/documents`               | Response: `{ "documents": [ ... ] }` — each item is a document object (`id`, `title`, `content`, `format`, `tags`, `status`, `hot_score`, …).                                                                                                                                                             |
+| **Library** — document list          | `GET /bff/v1/documents`               | Response: `{ "documents": [ ... ] }` — each item is a document object (`id`, `title`, `content`, `format`, `tags`, `status`, `hot_score`, …). Filtering by bucket/topic/tag is **client-side** in `js/pages/LibraryPage.js`.                                                                                                                                              |
 | **Documents** — open one             | `GET /bff/v1/documents/:id`           | Single document JSON (same fields as list item).                                                                                                                                                                                                                                                          |
 | **Documents** — chapter nav / data   | `GET /bff/v1/documents/:id/chapters`  | Response: `{ "document_id", "chapters": [ { "path", "title", "summary" } ] }`.                                                                                                                                                                                                                            |
 | **Documents** — create               | `POST /bff/v1/documents`              | Body: `CreateDocumentRequest` — `title`, `content`, `format` (`markdown` | `md`), optional `tags`, optional `ingest_mode` (`auto` \| `hot` \| `cold`; default auto), optional prebuilt `summary` / `chapters` / `embedding`. Response: created document summary payload (`id`, `title`, `format`, `tags`, `summary`, `chapter_count`, `status`, `created_at`). |
-| **Topics & tags** — topic list       | `GET /bff/v1/topics`                  | Response: `{ "topics": [ ... ] }` — each topic has `id`, `name`, `description`, …                                                                                                                                                                                                                         |
-| **Topics & tags** — catalog tags in topic | `GET /bff/v1/tags?topic_ids=…`      | Response: `{ "tags": [ ... ] }` — each tag includes `topic_id` when assigned. UI passes the selected topic’s `id` as `topic_ids` (comma-separated; supports multiple) and `max_results`.                                                                                                                  |
-| **Topics & tags** — topic regroup    | `POST /bff/v1/topics/regroup`       | Response: `{ "message": "..." }`.                                                                                                                                                                                                                                                                         |
+| **Library** — topic list             | `GET /bff/v1/topics`                  | Response: `{ "topics": [ ... ] }` — each topic has `id`, `name`, `description`, …                                                                                                                                                                                                                         |
+| **Library** — catalog tags in topic | `GET /bff/v1/tags?topic_ids=…`       | Response: `{ "tags": [ ... ] }` — each tag includes `topic_id` when assigned. UI passes the selected topic’s `id` as `topic_ids` (comma-separated; supports multiple) and `max_results`.                                                                                                                |
+| **Library** — topic regroup          | `POST /bff/v1/topics/regroup`         | Response: `{ "message": "..." }`.                                                                                                                                                                                                                                                                         |
 | **Observability / Monitoring** — snapshot | `GET /bff/v1/monitoring`              | JSON: `server.version`, `go` (`version`, `goos`, `goarch`, `compiler`, `num_cpu`, `gomaxprocs` from `runtime`), `documents` (counts by status), `cold_index.approx_chapters`, `cold_index.inverted` (`bleve_doc_count`, `storage_backend`, `text_analyzer`), `cold_index.vector` (`hnsw_nodes`, `vector_dim`, `hnsw_m`, `hnsw_ef_search`, `text_embedder_configured`), `telemetry`, `quota`, `prometheus_metrics_path` (always `/metrics`). Also `GET /health` for `status`, `version`, `cold_doc_count`. |
 | **Observability — Cold probe** tab | `GET /bff/v1/cold/chapter_hits?q=…&max_results=` | Own tab (`?tab=cold`) in `js/pages/ObservabilityPage.js`, sibling to Monitoring and Traces. Query `q`: comma- or space-separated keywords. Response `{ "items": [ { "document_id", "title", "path?", "score", "context", "source?" } ] }` — `source` when present indicates branch (e.g. bm25 / vector / hybrid). **503** if cold index unavailable. |
 | **Observability / Monitoring** — Prometheus text | `GET /metrics`                        | Plain-text exposition (Prometheus scrape path at server root; no API key); loaded in-page as preview.                                                                                                                                                                                                                                                                    |

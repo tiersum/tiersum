@@ -13,10 +13,10 @@ export const AppHeader = {
                 p === '/observability'
             );
         },
-        /** Highlight Documents for list, create, and detail routes. */
-        docsNavActive() {
+        /** Highlight Library for browse, create, and detail routes. */
+        libraryNavActive() {
             const p = this.$route?.path || '';
-            return p === '/docs' || p.startsWith('/docs/');
+            return p === '/library' || p === '/docs' || p.startsWith('/docs/');
         },
         /** Two-letter (or one) initials from username for the header avatar. */
         userAvatarInitials() {
@@ -94,14 +94,9 @@ export const AppHeader = {
                             Search
                         </button>
                     </router-link>
-                    <router-link to="/docs" custom v-slot="{ navigate }">
-                        <button @click="navigate" :class="['btn btn-ghost btn-sm', docsNavActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
-                            Documents
-                        </button>
-                    </router-link>
-                    <router-link to="/tags" custom v-slot="{ navigate, isActive }">
-                        <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
-                            Topics &amp; tags
+                    <router-link to="/library" custom v-slot="{ navigate }">
+                        <button @click="navigate" :class="['btn btn-ghost btn-sm', libraryNavActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
+                            Library
                         </button>
                     </router-link>
                     <router-link to="/about" custom v-slot="{ navigate, isActive }">

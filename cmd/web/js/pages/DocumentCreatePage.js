@@ -63,7 +63,7 @@ export const DocumentCreatePage = {
                 if (id) {
                     this.$router.push(`/docs/${id}`);
                 } else {
-                    this.$router.push('/docs');
+                    this.$router.push('/library');
                 }
             } catch (error) {
                 console.error('Failed to create document:', error);
@@ -74,7 +74,7 @@ export const DocumentCreatePage = {
             }
         },
         goBack() {
-            this.$router.push('/docs');
+            this.$router.push('/library');
         },
         triggerMarkdownFilePick() {
             this.$refs.markdownFile?.click();
