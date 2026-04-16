@@ -102,7 +102,7 @@ func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, d
 			out = append(out, gin.H{
 				"path":    c.Path,
 				"title":   c.Title,
-				"summary": c.Content,
+				"summary": "",
 				"content": c.Content,
 			})
 		}
@@ -132,7 +132,7 @@ func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, d
 			out = append(out, gin.H{
 				"path":    c.Path,
 				"title":   c.Title,
-				"summary": c.Content,
+				"summary": "",
 				"content": c.Content,
 			})
 		}
