@@ -48,11 +48,45 @@ type message struct {
 	Content string `json:"content"`
 }
 
+// chatMessageContent supports both:
+// - OpenAI chat.completions: "content": "..."
+// - OpenAI-compatible variants: "content": [{ "type": "text", "text": "..." }, ...]
+type chatMessageContent struct {
+	Text string
+}
+
+func (c *chatMessageContent) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		c.Text = s
+		return nil
+	}
+	var parts []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(b, &parts); err == nil {
+		var sb strings.Builder
+		for _, p := range parts {
+			if strings.TrimSpace(p.Text) == "" {
+				continue
+			}
+			sb.WriteString(p.Text)
+		}
+		c.Text = sb.String()
+		return nil
+	}
+	// Unknown shape; keep empty and let callers decide.
+	c.Text = ""
+	return nil
+}
+
 type openAIResponse struct {
 	Choices []struct {
 		Message struct {
-			Content string `json:"content"`
+			Content chatMessageContent `json:"content"`
 		} `json:"message"`
+		FinishReason string `json:"finish_reason,omitempty"`
 	} `json:"choices"`
 	Error *struct {
 		Message string `json:"message"`
@@ -110,8 +144,13 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 		return "", fmt.Errorf("api error: status=%d, body=%s", resp.StatusCode, string(body))
 	}
 
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read response body: %w", err)
+	}
+
 	var result openAIResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+	if err := json.Unmarshal(body, &result); err != nil {
 		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
@@ -121,9 +160,17 @@ func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens 
 	}
 
 	if len(result.Choices) > 0 {
-		out := strings.TrimSpace(result.Choices[0].Message.Content)
+		out := strings.TrimSpace(result.Choices[0].Message.Content.Text)
 		if out == "" {
-			return "", fmt.Errorf("empty content from LLM")
+			snip := string(body)
+			if len(snip) > 800 {
+				snip = snip[:800] + "...(truncated)"
+			}
+			fr := strings.TrimSpace(result.Choices[0].FinishReason)
+			if fr != "" {
+				return "", fmt.Errorf("empty content from LLM (finish_reason=%s, body=%s)", fr, snip)
+			}
+			return "", fmt.Errorf("empty content from LLM (body=%s)", snip)
 		}
 		return out, nil
 	}

@@ -80,8 +80,18 @@ Guidelines:
 	out, err := a.provider.Generate(ctx, prompt, 4000)
 	if err != nil {
 		a.logger.Warn("AnalyzeDocument: llm generate failed", zap.Error(err))
+		// Best-effort: some OpenAI-compatible backends occasionally return an empty content on the first try.
+		// Retry once with a slightly smaller token budget before falling back.
+		if strings.Contains(strings.ToLower(err.Error()), "empty content") {
+			out2, err2 := a.provider.Generate(ctx, prompt, 2500)
+			if err2 == nil && strings.TrimSpace(out2) != "" {
+				out = out2
+				goto parseOutput
+			}
+		}
 		return fallbackAnalysis(title, content), err
 	}
+parseOutput:
 	out = strings.TrimSpace(out)
 	res, perr := parseAnalysisJSON(out)
 	if perr != nil {
