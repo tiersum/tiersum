@@ -70,7 +70,7 @@ Please analyze this document and return a JSON object with the following structu
 
 Guidelines:
 - Return ONLY the JSON object, no other text.
-- Do NOT wrap the JSON in markdown fences (no backticks / ```).
+- Do NOT wrap the JSON in markdown code fences.
 - Tags should be relevant keywords (lowercase, no spaces use-hyphens).
 - For EVERY chapter object you MUST include all three fields "title", "summary", and "content".
 - "summary" is REQUIRED and must be NON-EMPTY: write 2-4 sentences capturing that chapter only.
@@ -167,8 +167,8 @@ func parseAnalysisJSON(raw string) (*types.DocumentAnalysisResult, error) {
 
 var (
 	// Matches a single fenced code block. This is intentionally conservative: we only use it as a fast-path to unwrap
-	// ```json\n{...}\n``` responses. If the model produced extra text around the fence, extractFirstJSONObject handles it.
-	codeFenceRe = regexp.MustCompile(`(?s)^\s*```[a-zA-Z0-9_-]*\s*\n(.*?)\n```\s*$`)
+	// fenced JSON responses. If the model produced extra text around the fence, extractFirstJSONObject handles it.
+	codeFenceRe = regexp.MustCompile("(?s)^\\s*```[a-zA-Z0-9_-]*\\s*\\n(.*?)\\n```\\s*$")
 )
 
 func stripMarkdownCodeFence(s string) string {
