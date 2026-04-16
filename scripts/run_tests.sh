@@ -1,22 +1,19 @@
 #!/bin/bash
-# Run all unit tests for the service layer
+# Run unit tests for the service package (interfaces only until implementations return).
 
 set -e
 
-echo "Running service layer unit tests..."
+echo "Running internal/service tests..."
 
-# Run all tests in svcimpl package
-go test -v ./internal/service/svcimpl/...
+go test -v ./internal/service/...
 
-# Run with coverage
 echo ""
 echo "Running tests with coverage..."
-go test -cover ./internal/service/svcimpl/...
+go test -cover ./internal/service/...
 
-# Generate coverage report
 echo ""
 echo "Generating coverage report..."
-go test -coverprofile=coverage.out ./internal/service/svcimpl/...
+go test -coverprofile=coverage.out ./internal/service/...
 go tool cover -html=coverage.out -o coverage.html
 
 echo ""

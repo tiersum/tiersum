@@ -86,10 +86,7 @@ cmd/
   main.go                    # API server entrypoint: /api/v1 (+ API key), /bff/v1 (browser BFF), /health & /metrics (public), /mcp/*, embedded UI
 configs/
   config.example.yaml        # Configuration template
-db/
-  migrations/                # Database migration files
-    001_initial_schema.sql
-    002_topic_summaries.sql
+db/                          # (optional) local data dir in some deployments; baseline DDL is in internal/storage/db/shared/schema.go
 deployments/
   docker/
     Dockerfile               # Multi-stage build (Go + Debian bookworm, ONNX Runtime for MiniLM)
@@ -99,62 +96,56 @@ internal/
     handler.go               # REST handlers (depends on service.* only, no storage repos)
     auth_bff_handlers.go     # BFF-only JSON: bootstrap, login, /me/*, /admin/*
     bff_session_middleware.go # Browser session cookie gate for /bff/v1 (public auth paths exempt)
+    bff_human_rbac_middleware.go # Human roles on /bff/v1 after session (viewer read-only; observability admin-only)
     program_auth_middleware.go # DB API key + scope gate for /api/v1
     mcp_gate.go              # MCP tool gate (same IProgramAuth + scopes as REST)
     handler_test.go          # Handler tests
     mcp.go                   # MCP protocol handlers
   service/                   # Layer 2: Service Layer
-    interface.go             # I-prefixed service interfaces (includes IRetrievalService for API read paths)
-    auth_iface.go            # IAuthService / IProgramAuth, BrowserPrincipal, API key summaries
-    admin_config_view_iface.go # IAdminConfigViewService — redacted viper snapshot for browser admins
-    errors_auth.go           # Auth-related sentinel errors
-    errors.go                # Shared service errors (e.g. cold index unavailable)
-    svcimpl/                 # Implementation subpackage
-      auth_service.go        # AuthSvc: bootstrap, sessions, users, API keys, program validation
-      auth_crypto.go         # Token/key generation and hashing helpers
-      admin_config_view.go   # AdminConfigViewSvc: redacted effective config (viper) for GET /admin/config/snapshot
-      document.go            # DocumentSvc implements IDocumentService
-      retrieval.go           # RetrievalSvc implements IRetrievalService (tags/summaries/hot/cold reads for HTTP)
-      query.go               # QuerySvc implements IQueryService
-      topic.go               # TopicSvc implements ITopicService (LLM regroup + topics)
-      document_maintenance.go # DocumentMaintenanceSvc implements IDocumentMaintenanceService (jobs)
-      indexer.go             # IndexerSvc implements IIndexer
-      summarizer.go          # SummarizerSvc implements ISummarizer
-      quota.go               # QuotaManager for hot doc rate limiting
-      *_test.go              # Unit tests with mocks
+    interface.go             # I-prefixed facade interfaces (API + Job): documents, query, auth, tags, chapters, …
+    internal_interface.go    # Internal composition contracts (e.g. IDocumentAnalysisPersister, IDocumentAnalysisGenerator) — not for API/Job
+    types.go                 # Shared sentinel errors and auth-facing DTOs (e.g. ErrColdIndexUnavailable, principals)
+    # Service implementations: Go package(s) under or beside service/, composed **only** in internal/di/container.go (see .cursor/rules/layer-dependencies.mdc)
   storage/                   # Layer 3: Storage Layer
     interface.go             # I-prefixed storage interfaces
     auth_entities.go         # Auth row structs (users, sessions, api_keys, …)
-    db/                      # Database repository implementations
-      repository.go          # DocumentRepo, SummaryRepo, TagRepo, TopicRepo
-      auth_repo.go            # system_state, users, browser_sessions, api_keys, audit
-      schema.go              # Database schema definitions
-      migrator.go            # Schema migration manager
+    db/                      # SQL repository implementations (composition root: package db)
+      unit_of_work_impl.go     # NewUnitOfWork bundles subpackage constructors
+      shared/                  # SQLDB, array/IN helpers, row scanner, BaseSchema DDL
+      document/                # Document, chapter, tag, topic repositories
+      auth/                    # system_state, users, browser_sessions, api_keys, audit
+      observability/           # OpenTelemetry span persistence
     cache/                   # Cache implementation
-      cache.go               # Cache implements ICache
+      cache_impl.go          # Cache implements ICache
     coldindex/               # Cold document index: chapter split, BM25 (Bleve), vectors (HNSW), cold text embedders
-      index.go               # storage.IColdIndex impl (documents + text Search); SetTextEmbedder optional for internal vectors
-      chapter_split.go       # IColdChapterSplitter, MarkdownSplitter, IColdTextEmbedder contract
+      cold_index_impl.go      # storage.IColdIndex impl (documents + text Search); SetTextEmbedder optional for internal vectors
+      markdown_chapter_splitter_impl.go # IColdChapterSplitter, MarkdownSplitter
+      chapter_split_stride.go # Global sliding stride config for markdown splitter
       coldvec/               # Deterministic hash embedding fallback (no imports from service/api)
-      inverted_bleve.go      # Bleve BM25 cold chapter index
-      vector_hnsw.go         # HNSW vector cold chapter index
-      embed_*.go             # MiniLM / simple cold embeddings; NewTextEmbedderFromViper
+      cold_inverted_index_bleve_impl.go # Bleve BM25 cold chapter index
+      cold_vector_index_hnsw_impl.go    # HNSW vector cold chapter index
+      cold_text_embedder_*_impl.go      # MiniLM / simple cold embeddings
+      cold_text_embedder_factory.go     # NewTextEmbedderFromViper
+      cold_text_embedding_fallback.go   # FallbackColdTextEmbedding helper
   client/                    # Layer 4: Client Layer (third-party systems, e.g. LLM APIs)
     interface.go             # I-prefixed client interfaces (e.g. ILLMProvider)
     llm/                     # LLM client implementations (OpenAI, Anthropic, Ollama)
-      openai.go              # OpenAIProvider implements ILLMProvider
+      llm_provider_factory.go  # ProviderFactory → CreateProvider
+      openai_provider_impl.go  # OpenAIProvider implements ILLMProvider
+      anthropic_provider_impl.go
+      ollama_provider_impl.go
   job/                       # Job Layer (background tasks; depends on internal/service only)
     scheduler.go             # Job scheduler
     jobs.go                  # TopicRegroupJob
     promote_job.go           # Schedules IDocumentMaintenanceService.RunColdPromotionSweep
-    promote_consumer.go      # Async queue → PromoteColdDocumentByID
-    hotscore_job.go          # Schedules RecalculateDocumentHotScores
+    promote_consumer.go      # Async queue → IDocumentMaintenanceService.PromoteColdDocumentByID
+    hotscore_job.go          # Schedules IDocumentMaintenanceService.RecalculateDocumentHotScores
   di/                        # Dependency Injection (composition root)
     container.go             # Wires all layers together
 pkg/metrics/                 # Prometheus metric definitions (LLM, query, documents, jobs); init registers collectors
   metrics.go
 pkg/types/                   # Public API types + shared cold-embedding constants
-  document.go                # Document, Summary, Tag types
+  document.go                # Document, Chapter, Tag types
   query.go                   # Query request/response types
   auth.go                    # AuthRole*, AuthScope*, token expiry mode constants
   cold_embedding.go          # ColdEmbeddingVectorDimension, DefaultColdChapterMaxTokens
@@ -184,13 +175,13 @@ Job Layer (same dependency rule as API): Service Layer only (`internal/service`,
 
 ### Key Rules
 
-1. **Interface+Impl Pattern**: Each layer defines interfaces in `interface.go`, implementations in subpackage (`svcimpl/` for services)
+1. **Interface+Impl Pattern**: Each layer defines interfaces in `interface.go`; service facades are implemented in dedicated Go package(s) wired from `internal/di/container.go`
 2. **I-prefix Naming**: All interfaces start with I (e.g., `IDocumentService`, `ICache`, `ILLMProvider`)
 3. **Layer owns interfaces**: No central ports package, each layer manages its own interfaces
 4. **DI in di/**: All wiring happens in `internal/di/container.go`
 5. **API unified**: REST and MCP handlers in same package (`internal/api/`)
 6. **English Comments Only**: All code comments must be written in English
-7. **Strict layer boundaries**: Upper layers (**`internal/api`**, **`internal/job`**) may depend only on **`internal/service`** **interfaces** (`interface.go` and the same package’s contracts) and neutral **`pkg/types`** — not on **`internal/storage`**, **`internal/service/svcimpl`**, **`internal/storage/db`**, or **`internal/client`**. Service code uses storage and client **only through** `internal/storage/interface.go` and `internal/client/interface.go`. **`.cursor/rules/layer-dependencies.mdc`** summarizes allowed edges and forbidden cross-layer shortcuts (concrete repos, bypassing DI).
+7. **Strict layer boundaries**: Upper layers (**`internal/api`**, **`internal/job`**) may depend only on **`internal/service`** **interfaces** (`interface.go` and the same package’s contracts) and neutral **`pkg/types`** — not on **`internal/storage`**, **`internal/storage/db`**, **`internal/client`**, or concrete service implementation packages. Service code uses storage and client **only through** `internal/storage/interface.go` and `internal/client/interface.go`. **`.cursor/rules/layer-dependencies.mdc`** is the single mandatory Cursor rule for layer edges, DTO placement, service contract shape, and when to update **`docs/CORE_API_FLOWS.md`**.
 
 ---
 
@@ -332,8 +323,8 @@ llm:
 # Run all tests with coverage
 make test
 
-# Run specific package tests
-go test -v ./internal/service/svcimpl/
+# Run specific package tests (example)
+go test -v ./internal/api/
 
 # Run with race detection
 go test -race ./...
@@ -342,7 +333,7 @@ go test -race ./...
 ### Test Structure
 
 - Test files: `*_test.go` alongside source files
-- Mock implementations in `internal/service/svcimpl/mocks_test.go`
+- Mocks live next to tests or in small `*_test.go` helper types as needed
 - Uses `testify/assert` and `testify/require`
 - Tests cover:
   - Hot/cold document tiering logic
@@ -359,7 +350,7 @@ func TestFeature(t *testing.T) {
     docRepo := NewMockDocumentRepository()
     
     // Create service with mocks
-    svc := NewDocumentSvc(docRepo, ...)
+    svc := NewDocumentService(docRepo, ...)
     
     // Execute and assert
     result, err := svc.Method(ctx, req)
@@ -379,6 +370,7 @@ func TestFeature(t *testing.T) {
 | ------------- | --------- | ------------------------ |
 | id            | TEXT      | Primary key (UUID)       |
 | title         | TEXT      | Document title           |
+| summary       | TEXT      | Document-level summary (hot/warming; often empty for cold) |
 | content       | TEXT      | Full markdown content    |
 | format        | TEXT      | 'markdown' or 'md'       |
 | tags          | TEXT[]    | Document tags (hot docs) |
@@ -389,16 +381,21 @@ func TestFeature(t *testing.T) {
 | created_at    | TIMESTAMP | Creation time            |
 
 
-### Summaries Table
+### Chapters Table (hot-document sections)
+
+Persisted chapter rows for hot/warming documents (path from heading tree or materializer; `summary` / `content` per row).
 
 
-| Column      | Type | Description                        |
-| ----------- | ---- | ---------------------------------- |
-| id          | TEXT | Primary key                        |
-| document_id | FK   | Reference to documents             |
-| tier        | TEXT | 'document', 'chapter', 'source'    |
-| path        | TEXT | 'doc_id' or 'doc_id/chapter_title' |
-| content     | TEXT | Summary or source content          |
+| Column      | Type | Description                                |
+| ----------- | ---- | ------------------------------------------ |
+| id          | TEXT | Primary key                                |
+| document_id | FK   | Reference to documents                     |
+| path        | TEXT | Stable path (e.g. doc_id/section_heading)  |
+| title       | TEXT | Section title                              |
+| summary     | TEXT | Chapter-level summary                      |
+| content     | TEXT | Original section body                      |
+| created_at  | TS   | Creation time                              |
+| updated_at  | TS   | Last update time                           |
 
 
 ### Catalog tags & topics
@@ -412,7 +409,7 @@ func TestFeature(t *testing.T) {
 
 ### Document Status
 
-- `**hot**` - Full LLM analysis, tagged, indexed with summaries (requires quota)
+- `**hot**` - Full LLM analysis, tagged, persisted with document-level summary + chapter rows (requires quota)
 - `**cold**` - Minimal processing, indexed in cold index (BM25 + vector search)
 - `**warming**` - Being promoted from cold to hot (async process)
 
@@ -479,22 +476,20 @@ The **embedded Vue UI** (`cmd/web/js/`) calls the same handlers under **`/bff/v1
 | POST   | `/api/v1/documents`               | Ingest document                                                                       |
 | GET    | `/api/v1/documents`               | List documents                                                                        |
 | GET    | `/api/v1/documents/:id`           | Get document                                                                          |
-| GET    | `/api/v1/documents/:id/summaries` | Get document summaries                                                                |
 | GET    | `/api/v1/documents/:id/chapters`  | List chapter summaries for a document                                                 |
 | POST   | `/api/v1/query/progressive`       | Progressive query (recommended)                                                       |
 | GET    | `/api/v1/tags`                    | List tags (optional `topic_ids=comma&max_results`)                                     |
 | GET    | `/api/v1/topics`                  | List topics (themes)                                                                  |
 | GET    | `/api/v1/hot/doc_summaries`       | Hot/warming docs matching `tags`; document-level summary only (`tags`, `max_results`) |
 | GET    | `/api/v1/hot/doc_chapters`        | Chapter summaries for `doc_ids` (comma-separated, `max_results` caps doc count)       |
-| GET    | `/api/v1/hot/doc_source`          | Original text for `chapter_paths` (comma-separated, `max_results`)                    |
-| GET    | `/api/v1/cold/doc_source`         | Cold chapter hits via cold index (`q` comma-separated terms, `max_results`; JSON includes `path` per chapter) |
+| GET    | `/api/v1/cold/chapter_hits`       | Cold chapter hits via cold index (`q` comma-separated terms, `max_results`; JSON includes `path` per chapter). |
 | POST   | `/api/v1/topics/regroup`          | LLM regroup catalog tags into topics                                                  |
 | GET    | `/api/v1/quota`                   | Check quota status                                                                    |
 | GET    | `/api/v1/monitoring`              | JSON monitoring snapshot (version, document counts, cold index size + Bleve inverted + HNSW vector stats, quota) |
 | GET    | `/metrics`                        | Prometheus metrics (root path; **not** under `/api/v1`; public) |
 | GET    | `/health`                         | Liveness JSON (root path; **not** under `/api/v1`; public)        |
 
-The same **relative paths** (e.g. `GET /documents`, `POST /query/progressive`) are also mounted under **`/bff/v1`**, authenticated by **`BFFSessionMiddleware`** (HttpOnly session cookie after browser login), not by `/api/v1` API keys.
+The same **relative paths** (e.g. `GET /documents`, `POST /query/progressive`) are also mounted under **`/bff/v1`**, authenticated by **`BFFSessionMiddleware`** (HttpOnly session cookie after browser login) and **`BFFHumanRBAC`** (human roles: `viewer` is read-only on the BFF; observability `GET`s require `admin`), not by `/api/v1` API keys.
 
 ### MCP Endpoints
 
@@ -524,7 +519,7 @@ type IMyService interface {
     DoSomething(ctx context.Context) error
 }
 
-// In svcimpl/my_service.go
+// In a service implementation package (example)
 type MySvc struct{}
 
 func (s *MySvc) DoSomething(ctx context.Context) error { ... }
@@ -536,10 +531,10 @@ var _ service.IMyService = (*MySvc)(nil)
 ### Adding New Features
 
 1. **Define interface** in layer's `interface.go`
-2. **Implement** in subpackage (e.g., `service/svcimpl/`)
+2. **Implement** in a service implementation package (composed from `internal/di`)
 3. **Wire** in `di/container.go`
 4. **Add tests** in `*_test.go`
-5. **Core API docs:** If the change affects a **non–simple-CRUD** API (multi-step logic, LLM, tiering, hybrid search, topic regroup / catalog tags, hot/cold retrieval), update **`docs/CORE_API_FLOWS.md`** in the same PR/commit. Cursor rule: `.cursor/rules/core-api-flows-doc.mdc`.
+5. **Core API docs:** If the change affects a **non–simple-CRUD** API (multi-step logic, LLM, tiering, hybrid search, topic regroup / catalog tags, hot/cold retrieval), update **`docs/CORE_API_FLOWS.md`** in the same PR/commit (see **§6** in `.cursor/rules/layer-dependencies.mdc`).
 6. **AGENTS.md edits:** When changing **`AGENTS.md`**, in the same pass **strengthen Architecture-related sections** (`## Project Structure`, `## Architecture Principles`, and aligned topics such as hot/cold tiering or jobs) so structure, layers, and cross-links stay accurate. Cursor rule: `.cursor/rules/agents-architecture.mdc`.
 
 ---
@@ -547,7 +542,7 @@ var _ service.IMyService = (*MySvc)(nil)
 ## Security Considerations
 
 - **Dual-track auth (design):** see **[docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md)**; **operator / user steps:** **[README.md](README.md#access-control-and-permissions-user-guide)**.
-- **Dual-track auth (summary):** **`/api/v1/*`** and MCP tool calls require **database API keys** (`service.IProgramAuth` / `svcimpl.AuthSvc`): send `X-API-Key` or `Authorization: Bearer` with `tsk_live_*` or `tsk_admin_*` values created in the admin UI (or the bootstrap response). Scopes: `read` (default GET + `POST /query/progressive`), `write` (+ document ingest + tag regroup), `admin` (superset). **`/bff/v1/*`** uses **HttpOnly session cookies** after `POST /bff/v1/auth/login` (`BFFSessionMiddleware`). Until first bootstrap, **`/api/v1`** returns **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`. **`GET /health`** and **`GET /metrics`** stay public at the root. MCP reads **`TIERSUM_API_KEY`** or `mcp.api_key` for the same validation as REST.
+- **Dual-track auth (summary):** **`/api/v1/*`** and MCP tool calls require **database API keys** validated via **`service.IProgramAuth`** (implementations wired from `internal/di`); browser/admin flows use **`service.IAuthService`**. Send `X-API-Key` or `Authorization: Bearer` with `tsk_live_*` or `tsk_admin_*` values created in the admin UI (or the bootstrap response). Scopes: `read` (default GET + `POST /query/progressive`), `write` (+ document ingest + tag regroup), `admin` (superset). **`/bff/v1/*`** uses **HttpOnly session cookies** after `POST /bff/v1/auth/login` (`BFFSessionMiddleware`, then **`BFFHumanRBAC`**: human roles `admin` / `user` / `viewer`; **`viewer`** is read-only except `POST /query/progressive`; **`GET /monitoring`** and **`GET /traces*`** require human **`admin`**). Until first bootstrap, **`/api/v1`** returns **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`. **`GET /health`** and **`GET /metrics`** stay public at the root. MCP reads **`TIERSUM_API_KEY`** or `mcp.api_key` for the same validation as REST.
 - JWT authentication for REST is not implemented (no corresponding config keys).
 - CORS configuration for web UI
 - No sensitive data in logs (use zap logging)
@@ -588,27 +583,24 @@ Default setup uses SQLite with volume-mounted data directory.
 | `cmd/main.go`                      | Main entrypoint for server binary                               |
 | `internal/api`                     | REST + MCP API handlers                                         |
 | `internal/service/interface.go`    | Service layer interfaces (I-prefix)                             |
-| `internal/service/svcimpl`         | Service implementations                                         |
+| `internal/di/container.go`         | Dependency injection — sole composition root for implementations   |
 | `internal/storage/interface.go`    | Storage interfaces (I-prefix)                                   |
-| `internal/storage/db`              | Repository implementations                                      |
-| `internal/storage/coldindex/index.go` | BM25 + Vector hybrid index over cold **chapters** (`storage.IColdIndex`) |
-| `internal/storage/coldindex/chapter_split.go` | `coldindex.IColdChapterSplitter`, `coldindex.IColdTextEmbedder`, default markdown tree / token merge |
-| `internal/di/container.go`         | Dependency injection / composition root                         |
-| `internal/service/svcimpl/retrieval.go` | `IRetrievalService`: API-only read facade over repos + cold index |
-| `internal/client/llm/factory.go`   | LLM provider factory (dynamic selection)                        |
-| `internal/client/llm/openai.go`    | OpenAI provider implementation                                  |
-| `internal/client/llm/anthropic.go` | Anthropic Claude provider implementation                        |
-| `internal/client/llm/ollama.go`    | Local Ollama provider implementation                            |
+| `internal/storage/db`              | SQL persistence composition (`NewUnitOfWork`); subpackages: `shared`, `document`, `auth`, `observability` |
+| `internal/storage/coldindex/cold_index_impl.go` | BM25 + Vector hybrid index over cold **chapters** (`storage.IColdIndex`) |
+| `internal/storage/coldindex/markdown_chapter_splitter_impl.go` | `coldindex.IColdChapterSplitter`, default markdown tree / token merge |
+| `internal/client/llm/llm_provider_factory.go` | LLM provider factory (dynamic selection)                        |
+| `internal/client/llm/openai_provider_impl.go`    | OpenAI provider implementation                                  |
+| `internal/client/llm/anthropic_provider_impl.go` | Anthropic Claude provider implementation                        |
+| `internal/client/llm/ollama_provider_impl.go`    | Local Ollama provider implementation                            |
 | `internal/job`                     | Background scheduled tasks (depend on `internal/service` only)   |
-| `internal/service/svcimpl/document_maintenance.go` | `IDocumentMaintenanceService`: promotion sweep, queue promote, hot scores |
 | `cmd/web/`                         | Vue 3 CDN frontend (embedded); ESM entry `js/main.js`, pages under `js/pages/` |
-| `db/migrations/`                   | Database migration files                                        |
+| `internal/storage/db/shared/schema.go` | Baseline DDL (`shared.BaseSchema`) applied on startup          |
 | `pkg/types`                        | Public types used across all layers                             |
 | `docs/CORE_API_FLOWS.md`           | Core REST API algorithms and call flows (non-trivial endpoints) |
 | `docs/AUTH_AND_PERMISSIONS.md`     | Dual-track auth design: human vs program, roles, scopes, tables, config |
 | `docs/COLD_INDEX.md`               | Cold index **core algorithms** (English): chapter extraction, Bleve+HNSW, hybrid merge, config |
 | `docs/COLD_INDEX_zh.md`            | 同上，**中文**设计说明 |
-| `internal/storage/coldindex/embed_*.go` | MiniLM / simple cold embeddings; `coldindex.NewTextEmbedderFromViper`, `coldindex.FallbackColdTextEmbedding` |
+| `internal/storage/coldindex/cold_text_embedder_*_impl.go` / `cold_text_embedder_factory.go` / `cold_text_embedding_fallback.go` | MiniLM / simple cold embeddings; `coldindex.NewTextEmbedderFromViper`, `coldindex.FallbackColdTextEmbedding` |
 | `internal/storage/coldindex/coldvec/`   | Deterministic hash embedding (cold index fallback)                 |
 | `third_party/minilm/README.md`     | Fetching MiniLM `model.onnx` + `tokenizer.json` (gitignored)       |
 | `third_party/onnxruntime/README.md`| Vendoring ONNX Runtime libs (gitignored)                            |

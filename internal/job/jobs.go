@@ -11,18 +11,18 @@ import (
 
 // TopicRegroupJob periodically regroups catalog tags into topics when ShouldRefresh is true.
 type TopicRegroupJob struct {
-	topicSvc service.ITopicService
-	logger   *zap.Logger
+	topicService service.ITopicService
+	logger       *zap.Logger
 }
 
 // NewTopicRegroupJob creates a topic regroup job.
 func NewTopicRegroupJob(
-	topicSvc service.ITopicService,
+	topicService service.ITopicService,
 	logger *zap.Logger,
 ) *TopicRegroupJob {
 	return &TopicRegroupJob{
-		topicSvc: topicSvc,
-		logger:   logger,
+		topicService: topicService,
+		logger:       logger,
 	}
 }
 
@@ -35,7 +35,7 @@ func (j *TopicRegroupJob) Interval() time.Duration {
 }
 
 func (j *TopicRegroupJob) Execute(ctx context.Context) error {
-	shouldRefresh, err := j.topicSvc.ShouldRefresh(ctx)
+	shouldRefresh, err := j.topicService.ShouldRefresh(ctx)
 	if err != nil {
 		j.logger.Error("failed to check topic regroup refresh", zap.Error(err))
 		return err
@@ -47,7 +47,7 @@ func (j *TopicRegroupJob) Execute(ctx context.Context) error {
 	}
 
 	j.logger.Info("running scheduled topic regroup")
-	if err := j.topicSvc.RegroupTags(ctx); err != nil {
+	if err := j.topicService.RegroupTags(ctx); err != nil {
 		j.logger.Error("topic regroup failed", zap.Error(err))
 		return err
 	}

@@ -17,7 +17,7 @@ type IDocumentRepository interface {
 	// ListByTags retrieves documents that match ANY of the given tags (OR logic)
 	ListByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error)
 	// ListMetaByTagsAndStatuses returns documents matching any tag (OR) and any of the given statuses,
-	// without loading body content (content field is empty).
+	// without loading body content (content field is empty; summary is loaded).
 	ListMetaByTagsAndStatuses(ctx context.Context, tags []string, statuses []types.DocumentStatus, limit int) ([]types.Document, error)
 	// ListByStatus retrieves documents by status (hot/cold/warming)
 	ListByStatus(ctx context.Context, status types.DocumentStatus, limit int) ([]types.Document, error)
@@ -29,25 +29,23 @@ type IDocumentRepository interface {
 	UpdateHotScore(ctx context.Context, docID string, score float64) error
 	// UpdateTags updates document tags (e.g. after async LLM analysis).
 	UpdateTags(ctx context.Context, docID string, tags []string) error
+	// UpdateSummary updates the persisted document-level summary (hot/warming docs).
+	UpdateSummary(ctx context.Context, docID string, summary string) error
 	// ListAll returns all documents for hot score calculation
 	ListAll(ctx context.Context, limit int) ([]types.Document, error)
 }
 
-// ISummaryRepository defines summary storage operations
-type ISummaryRepository interface {
-	Create(ctx context.Context, summary *types.Summary) error
-	GetByDocument(ctx context.Context, docID string) ([]types.Summary, error)
-	// GetByPath retrieves a summary by its exact path
-	GetByPath(ctx context.Context, path string) (*types.Summary, error)
-	// QueryByTierAndPrefix queries summaries by tier and path prefix
-	// Used for hierarchical queries: e.g., tier=chapter, prefix="doc_001" returns all chapters of doc_001
-	QueryByTierAndPrefix(ctx context.Context, tier types.SummaryTier, pathPrefix string) ([]types.Summary, error)
-	// ListDocumentTierByDocumentIDs returns document-tier summaries for the given document IDs.
-	ListDocumentTierByDocumentIDs(ctx context.Context, documentIDs []string) ([]types.Summary, error)
-	// ListSourcesByPaths returns source (original) rows for chapter paths. Each path may be "doc/chapter" or "doc/chapter/source".
-	ListSourcesByPaths(ctx context.Context, chapterPaths []string) ([]types.Summary, error)
-	// DeleteByDocument removes all summaries for a document (useful for re-indexing)
-	DeleteByDocument(ctx context.Context, docID string) error
+// IChapterRepository persists hot-document chapters.
+// Schema: chapters(id, document_id, path, title, summary, content, created_at, updated_at)
+type IChapterRepository interface {
+	// ReplaceByDocument deletes all chapters for document_id and inserts the given rows.
+	ReplaceByDocument(ctx context.Context, documentID string, chapters []types.Chapter) error
+	// ListByDocument returns chapters for one document (order is implementation-defined).
+	ListByDocument(ctx context.Context, documentID string) ([]types.Chapter, error)
+	// ListByDocumentIDs returns chapters for multiple documents.
+	ListByDocumentIDs(ctx context.Context, documentIDs []string) ([]types.Chapter, error)
+	// ListByIDs returns chapters for the given primary keys (used when resolving chapter ids to text).
+	ListByIDs(ctx context.Context, chapterIDs []string) ([]types.Chapter, error)
 }
 
 // ITagRepository defines catalog tag storage (deduplicated tag names + document counts).
@@ -70,6 +68,33 @@ type ITopicRepository interface {
 	List(ctx context.Context) ([]types.Topic, error)
 	DeleteAll(ctx context.Context) error
 	GetCount(ctx context.Context) (int, error)
+}
+
+// IDeviceTokenRepository persists persistent browser "keep me signed in" tokens.
+type IDeviceTokenRepository interface {
+	Create(ctx context.Context, t *DeviceToken) error
+	GetByTokenHash(ctx context.Context, tokenHash string) (*DeviceToken, error)
+	ListByUser(ctx context.Context, userID string) ([]DeviceToken, error)
+	TouchUse(ctx context.Context, id string, at time.Time) error
+	Revoke(ctx context.Context, id string, at time.Time) error
+	RevokeAllForUser(ctx context.Context, userID string, at time.Time) error
+}
+
+// IPasskeyCredentialRepository persists WebAuthn credentials per user.
+type IPasskeyCredentialRepository interface {
+	Create(ctx context.Context, c *PasskeyCredential) error
+	ListByUser(ctx context.Context, userID string) ([]PasskeyCredential, error)
+	GetByID(ctx context.Context, id string) (*PasskeyCredential, error)
+	GetByCredentialID(ctx context.Context, credentialIDB64 string) (*PasskeyCredential, error)
+	UpdateSignCountAndLastUsed(ctx context.Context, id string, signCount int64, at time.Time) error
+	Delete(ctx context.Context, id string) error
+}
+
+// IPasskeySessionVerificationRepository records recent passkey verification per browser session.
+type IPasskeySessionVerificationRepository interface {
+	Put(ctx context.Context, v *PasskeySessionVerification) error
+	GetBySessionID(ctx context.Context, sessionID string) (*PasskeySessionVerification, error)
+	DeleteBySessionID(ctx context.Context, sessionID string) error
 }
 
 // ICache defines cache operations
@@ -117,8 +142,9 @@ type IColdIndex interface {
 	InvertedIndexStats() ColdIndexInvertedStats
 	// RebuildFromDocuments replaces the entire index from the given documents (typically all cold docs).
 	RebuildFromDocuments(ctx context.Context, docs []types.Document) error
-	// MarkdownChapters splits markdown like cold ingest for document-detail chapter UI.
-	MarkdownChapters(docID, title, markdown string) []types.DocumentMarkdownChapter
+	// MarkdownChapters extracts chapters from markdown like cold ingest for document-detail chapter UI.
+	// Returned chapters are not persisted; fields like ID/timestamps may be empty.
+	MarkdownChapters(docID, title, markdown string) []types.Chapter
 	Close() error
 }
 
@@ -139,7 +165,9 @@ type OtelSpanRow struct {
 // IOtelSpanRepository persists and reads OpenTelemetry spans (progressive-query debug traces).
 type IOtelSpanRepository interface {
 	InsertSpan(ctx context.Context, row *OtelSpanRow) error
-	ListTraceSummaries(ctx context.Context, limit, offset int) ([]types.OtelTraceSummary, error)
+	// ListTraceSummaries returns recent traces whose spans belong to the given service name
+	// (resource attribute `service.name` persisted into attributes_json by the exporter).
+	ListTraceSummaries(ctx context.Context, serviceName string, limit, offset int) ([]types.OtelTraceSummary, error)
 	ListSpansByTraceID(ctx context.Context, traceID string) ([]types.OtelSpanDTO, error)
 }
 

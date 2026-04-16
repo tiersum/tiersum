@@ -16,7 +16,7 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Topics (themes, LLM regroup)                               │
+│  Topics (themes; refreshed via /topics/regroup)            │
 │  ├── Cloud Native                                           │
 │  │      └── Catalog tags: kubernetes, docker, helm           │
 │  └── Programming Languages                                  │
@@ -33,7 +33,7 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 └─────────────────────────────────────┘
 ```
 
-**Terminology:** **Catalog tags** are deduplicated tag names in the `tags` table (document counts; optional `topic_id`). **Topics** are LLM-built themes that group those names for browsing and for adaptive narrowing in progressive query when the catalog is large. Hot documents also store per-document **tags** that feed the same catalog.
+**Terminology:** **Catalog tags** are deduplicated tag names in the `tags` table (document counts; optional `topic_id`). **Topics** are rows in `topics` that group tag names for browsing and for optional `topic_ids` filtering on `GET /tags`. **`POST /api/v1/topics/regroup`** rebuilds topics from the catalog; **today’s implementation is deterministic** (one catch-all topic over all catalog tags — see **`docs/CORE_API_FLOWS.md`** §3). **Progressive query** still uses an LLM (when configured) to score tags, documents, and chapters. Hot documents also store per-document **tags** that feed the same catalog.
 
 **Query flows through intelligent filtering**: **Tags → documents → chapters** (when there are many catalog tags, the service may first narrow tags **via topics**), with LLM relevance scoring at each step. No vector similarity guessing — **precise hierarchical navigation**.
 
@@ -46,9 +46,9 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 | ------------------------------- | --------------------------------------------------------------------------------- |
 | **Hot/Cold Tiering**            | Smart document storage: Hot (full LLM analysis) vs Cold (BM25 + vector search)    |
 | **3-Tier Summarization**        | Document → Chapter → Source, auto-generated via LLM                               |
-| **Topics + catalog tags**       | LLM **topic regroup** assigns catalog tags to themes (`topics`); optional `topic_ids` on `GET /tags` |
+| **Topics + catalog tags**       | **`POST /topics/regroup`** rebuilds `topics` from catalog tags (**deterministic** today); optional `topic_ids` on `GET /tags` |
 | **Progressive Query**           | LLM filters **tags → documents → chapters**; may narrow tags **via topics** when the catalog is large |
-| **Auto topic regroup**          | Scheduled or manual `POST /api/v1/topics/regroup` refreshes themes from the catalog |
+| **Auto topic regroup**          | Scheduled or manual **`POST /api/v1/topics/regroup`** runs the same regroup path as the UI button |
 | **BM25 + Vector Hybrid Search** | Keyword + semantic search over cold markdown chapters (full chapter text in hits) |
 | **RAG Alternative**             | Zero chunk fragmentation; full context preservation                               |
 | **Dual API**                    | REST API + MCP Tools for seamless agent integration                               |
@@ -68,7 +68,7 @@ TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 - ✅ Full LLM analysis with document + chapter summaries
 - ✅ Up to 10 auto-generated tags
 - ✅ LLM-based filtering during queries
-- ✅ Stored in database with tiered summaries
+- ✅ Stored in database with document summaries + chapter rows
 - ⚡ Requires quota (100/hour default)
 
 **Criteria (ingest_mode `auto`)**: prebuilt summary+chapters OR (quota available AND content > 5000 chars). Override with `ingest_mode`: `hot` or `cold`.
@@ -87,7 +87,7 @@ TierSum uses a two-tier system to balance LLM cost and retrieval performance:
 ┌─────────────────────────────────────────────────────────────┐
 │                    Hot Documents                            │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │  Full LLM Analysis → Tags + Summaries + Chapters     │  │
+│  │  Full LLM Analysis → Tags + doc summary + chapters     │  │
 │  │  Progressive Query (tags→docs→chapters; topics assist) │  │
 │  └───────────────────────────────────────────────────────┘  │
 ├─────────────────────────────────────────────────────────────┤
@@ -232,9 +232,9 @@ TierSum uses **two tracks**: the **browser** (embedded UI at `/`, session cookie
 
 | Area | Who | What |
 | ---- | --- | ---- |
-| **Search, documents, tags** | Any signed-in **user** or **admin** | Core product features via `/bff/v1`. |
-| **Management → Observability** (`/observability`) | Any signed-in **user** or **admin** | Monitoring snapshot, cold probe, stored traces (top bar after login). |
-| **Management → Devices & sessions** (`/settings`) | Everyone | Rename devices, sign out individual sessions, **Sign out all my devices**. **Admins** additionally see **every user’s** browser sessions on this page. |
+| **Search, documents, tags** | Signed-in **user**, **admin**, or read-only **viewer** | Core read features via `/bff/v1`. **Viewer** cannot ingest documents or run topic regroup (`viewer` = read-only BFF; `POST /bff/v1/query/progressive` allowed). |
+| **Management → Observability** (`/observability`) | **`admin` human role only** | Monitoring snapshot, cold probe, stored traces (`GET /bff/v1/monitoring`, `GET /bff/v1/traces*`). |
+| **Management → Devices & sessions** (`/settings`) | Everyone signed in | Rename devices, sign out individual sessions, **Sign out all my devices**. **Admins** additionally see **every user’s** browser sessions on this page. |
 | **Management → Users & API keys** (`/admin`) | **`admin` role only** | Create users, reset user tokens, list/create/revoke **API keys**, view **all devices** (Devices tab on this page), see key usage snapshot. |
 | **Management → Configuration** (`/admin/config`) | **`admin` role only** | Read-only redacted effective config (`GET /bff/v1/admin/config/snapshot`). |
 
@@ -310,10 +310,12 @@ curl -X POST http://localhost:8080/api/v1/query/progressive \
 # Remaining examples: add -H "X-API-Key: $TIERSUM_API_KEY" to each /api/v1 request.
 
 # Batch retrieval (hot / cold)
+# Hot: documents whose status is hot or warming AND tags match any of the comma-separated names (OR).
+# Returns document id, title, format, status, tags, and persisted document-level summary only (no body).
 curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_results=100"
+# Hot: persisted chapter rows (path, title, summary) for the given document ids.
 curl "http://localhost:8080/api/v1/hot/doc_chapters?doc_ids=uuid1,uuid2&max_results=100"
-curl "http://localhost:8080/api/v1/hot/doc_source?chapter_paths=docId/chapter-title&max_results=100"
-curl "http://localhost:8080/api/v1/cold/doc_source?q=scheduler,pods&max_results=100"
+curl "http://localhost:8080/api/v1/cold/chapter_hits?q=scheduler,pods&max_results=100"
 
 # List topics (themes)
 curl "http://localhost:8080/api/v1/topics"
@@ -321,14 +323,11 @@ curl "http://localhost:8080/api/v1/topics"
 # List catalog tags, optionally scoped to topics (comma-separated topic_ids; optional max_results)
 curl "http://localhost:8080/api/v1/tags?topic_ids=topic-uuid-1,topic-uuid-2&max_results=100"
 
-# Trigger topic regroup manually (LLM refreshes topics from catalog tags)
+# Trigger topic regroup manually (deterministic rebuild from catalog tags; see CORE_API_FLOWS.md §3)
 curl -X POST http://localhost:8080/api/v1/topics/regroup
 
 # Get document
 curl "http://localhost:8080/api/v1/documents/{id}"
-
-# Get document summaries
-curl "http://localhost:8080/api/v1/documents/{id}/summaries"
 
 # Check quota
 curl "http://localhost:8080/api/v1/quota"
@@ -345,15 +344,13 @@ MCP tool names and JSON bodies align with the REST API under `/api/v1` (see `int
 | `api_v1_documents_list`          | `GET /documents`                                       |
 | `api_v1_documents_get`           | `GET /documents/:id` (`id`)                            |
 | `api_v1_documents_chapters_get`  | `GET /documents/:id/chapters` (`id`)                   |
-| `api_v1_documents_summaries_get` | `GET /documents/:id/summaries` (`id`)                  |
 | `api_v1_query_progressive_post`  | `POST /query/progressive` (`question`, `max_results`)  |
 | `api_v1_tags_get`                | `GET /tags` (`topic_ids`, `max_results` optional)      |
 | `api_v1_topics_get`              | `GET /topics`                                          |
 | `api_v1_topics_regroup_post`     | `POST /topics/regroup`                                 |
 | `api_v1_hot_doc_summaries_get`   | `GET /hot/doc_summaries` (`tags`, `max_results`)       |
 | `api_v1_hot_doc_chapters_get`    | `GET /hot/doc_chapters` (`doc_ids`, `max_results`)     |
-| `api_v1_hot_doc_source_get`      | `GET /hot/doc_source` (`chapter_paths`, `max_results`) |
-| `api_v1_cold_doc_source_get`     | `GET /cold/doc_source` (`q`, `max_results`)            |
+| `api_v1_cold_chapter_hits_get`   | `GET /cold/chapter_hits` (`q`, `max_results`) |
 | `api_v1_quota_get`               | `GET /quota`                                           |
 | `api_v1_metrics_get`             | `GET /metrics`                                         |
 
@@ -409,36 +406,36 @@ TierSum uses a **5-Layer Architecture** with Interface+Impl Pattern:
 
 TierSum includes a modern Vue 3 CDN-based frontend with the following features. **Which screen calls which REST endpoint** is documented in **[cmd/web/FRONTEND.md](cmd/web/FRONTEND.md)** (“Web UI ↔ REST API”). **Sign-in, admin, and devices:** [Access control and permissions (user guide)](#access-control-and-permissions-user-guide).
 
-### About (`/#/about`)
+### About (`/about`)
 
 - Bilingual product overview (English, then Chinese): use cases, hot/cold in plain language, who TierSum is for
 - No API calls; available without signing in once the system has been bootstrapped
 
-### Query Page (`/#/`)
+### Query Page (`/`)
 
 - Central search box with Progressive Query support
 - Split-panel results: AI Answer (left) + Reference results (right)
 - Displays both hot and cold document results (from `POST /api/v1/query/progressive`)
 - Shows relevance scores and tier/status indicators
 
-### Documents (`/#/docs`, `/#/docs/new`, `/#/docs/:id`)
+### Documents (`/docs`, `/docs/new`, `/docs/:id`)
 
-- **List** (`/#/docs`): filter by title/tags; opens detail on row click
-- **Create** (`/#/docs/new`): full-page Markdown editor + live preview
-- **Detail** (`/#/docs/:id`): loads document, summaries, and chapters via parallel GETs; cold docs emphasize source view
+- **List** (`/docs`): filter by title/tags; opens detail on row click
+- **Create** (`/docs/new`): full-page Markdown editor + live preview
+- **Detail** (`/docs/:id`): loads the document and chapter list via GETs; cold docs emphasize source view
 
-### Tag Browser (`/#/tags`)
+### Topics & tags (`/tags`)
 
 - **Topics** (left): themes from `GET /api/v1/topics`
 - **Catalog tags** (right): `GET /api/v1/tags?topic_ids=<selected id>&max_results=…` (each row is a deduplicated name with document count and optional `topic_id`)
 - Regroup button triggers `POST /api/v1/topics/regroup`
 
-### Observability (`/#/observability`)
+### Observability (`/observability`)
 
 Reachable from the top bar **Management → Observability** after sign-in (same URL as before; `/monitoring` still redirects here).
 
 - **Monitoring** tab (`?tab=monitoring`): health, runtime, document counts, cold index stats, Prometheus text preview (same data as `GET /bff/v1/monitoring` and `/metrics`).
-- **Cold probe** tab (`?tab=cold`): calls `GET /bff/v1/cold/doc_source` with keywords and `max_results` to inspect hybrid cold hits (`path`, `score`, `source`, full chapter text) without running progressive query.
+- **Cold probe** tab (`?tab=cold`): calls `GET /bff/v1/cold/chapter_hits` with keywords and `max_results` to inspect hybrid cold hits (`path`, `score`, `source`, full chapter text) without running progressive query.
 - **Traces** tab (`?tab=traces`): stored OpenTelemetry traces for progressive-query debugging.
 
 ### Tech Stack
@@ -457,7 +454,7 @@ Reachable from the top bar **Management → Observability** after sign-in (same 
 
 Cold markdown is split into **chapters** (heading tree + bottom-up token merge under `cold_index.markdown.chapter_max_tokens`). If a leaf is still too large, **sliding windows** apply (`cold_index.markdown.sliding_stride_tokens`, default 100 tokens between window starts; overlap ≈ budget − stride). Chapter paths are **parent heading path + numeric suffix** (e.g. `docId/Section/1`); with no headings, a synthetic `**__root__`** segment is used (e.g. `docId/__root__/1`).
 
-Chunks are indexed in **Bleve (BM25)** and **HNSW** (optional text embeddings). `GET /api/v1/cold/doc_source` runs a hybrid search; each hit’s `context` is the **full chapter body** for that path (not a small arbitrary snippet).
+Chunks are indexed in **Bleve (BM25)** and **HNSW** (optional text embeddings). `GET /api/v1/cold/chapter_hits` runs a hybrid search; each hit’s `context` is the **full chapter body** for that path (not a small arbitrary snippet).
 
 ### Compared to traditional RAG
 
@@ -495,33 +492,36 @@ tiersum/
 │   └── config.yaml
 deployments/
 │   └── docker/                 # Docker and docker-compose files
-db/
-│   └── migrations/             # Database migration files (7 versions)
 ├── internal/
 │   ├── api/                    # Layer 1: API (REST + MCP handlers)
-│   ├── service/                # Layer 2: Business logic
-│   │   ├── interface.go        # I* interfaces
-│   │   └── svcimpl/            # Implementations
-│   │       ├── document.go     # Hot/cold tiering
-│   │       ├── query.go        # Progressive query
-│   │       ├── topic.go        # LLM topic regrouping + topics
-│   │       ├── indexer.go      # Summary indexing
-│   │       ├── summarizer.go   # LLM analysis
-│   │       └── quota.go        # Rate limiting
+│   ├── service/                # Layer 2: Contracts + facade DTOs
+│   │   ├── interface.go
+│   │   ├── internal_interface.go
+│   │   ├── types.go
+│   │   └── impl/               # Implementations (wired only from internal/di/container.go)
+│   │       ├── auth/
+│   │       ├── document/
+│   │       ├── query/
+│   │       ├── catalog/
+│   │       ├── observability/
+│   │       └── adminconfig/
 │   ├── storage/                # Layer 3: Data persistence
 │   │   ├── interface.go
 │   │   ├── db/
-│   │   │   ├── repository.go   # SQL repositories
-│   │   │   ├── schema.go       # DB schemas
-│   │   │   └── migrator.go     # Migrations
+│   │   │   ├── unit_of_work_impl.go # NewUnitOfWork (composition root)
+│   │   │   ├── shared/         # SQLDB helpers + Baseline DDL (`BaseSchema`)
+│   │   │   ├── document/       # Document, chapter, tag, topic repos
+│   │   │   ├── auth/           # system_state, users, sessions, API keys, audit
+│   │   │   └── observability/  # OpenTelemetry span rows
 │   │   ├── cache/
-│   │   │   └── cache.go        # In-memory cache
+│   │   │   └── cache_impl.go   # In-memory cache
 │   │   └── coldindex/          # Cold doc chapter index (Bleve + HNSW + embedders)
-│   │       └── index.go        # storage.IColdIndex
+│   │       └── cold_index_impl.go # storage.IColdIndex
 │   ├── client/                 # Layer 4: External dependencies
 │   │   ├── interface.go
 │   │   └── llm/
-│   │       └── openai.go       # OpenAI/Anthropic
+│   │       ├── llm_provider_factory.go
+│   │       └── *_provider_impl.go # OpenAI / Anthropic / Ollama
 │   ├── job/                    # Background tasks
 │   │   ├── scheduler.go
 │   │   ├── jobs.go             # Topic regroup, promote, hot score
@@ -564,8 +564,8 @@ make build-all
 
 - Hot/Cold document tiering with auto-promotion
 - BM25 + Vector hybrid search over cold chapters (full chapter text)
-- 3-tier summarization engine (Document + Chapter + Source)
-- Topics + catalog tags with LLM regroup
+- Three-level summarization (document summary + chapter summaries + source text), without legacy DB “tier” columns
+- Topics + catalog tags (deterministic regroup today; richer LLM-driven regroup optional future work)
 - Progressive query with LLM filtering at each step
 - LLM auto-tagging for documents
 - REST API + MCP Server

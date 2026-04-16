@@ -30,7 +30,8 @@ import (
 	"github.com/tiersum/tiersum/internal/di"
 	"github.com/tiersum/tiersum/internal/job"
 	"github.com/tiersum/tiersum/internal/storage/coldindex"
-	"github.com/tiersum/tiersum/internal/storage/db"
+	"github.com/tiersum/tiersum/internal/storage/db/document"
+	"github.com/tiersum/tiersum/internal/storage/db/shared"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -105,8 +106,8 @@ func setupServerDeps() (*ServerDeps, error) {
 	}
 
 	// Run database migrations
-	if err := runMigrations(sqlDB, getDriver()); err != nil {
-		logger.Error("Failed to run migrations, continuing anyway", zap.Error(err))
+	if err := initSchema(sqlDB, getDriver()); err != nil {
+		logger.Fatal("Failed to initialize database schema", zap.Error(err))
 	}
 
 	// Cold document index (Bleve + HNSW, in-process)
@@ -230,13 +231,14 @@ func registerAPIRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc)
 // registerBFFRoutes registers the same REST surface under /bff/v1 for the embedded UI (browser session).
 func registerBFFRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc, serverVersion string) {
 	authBFF := api.NewAuthBFFHandler(deps.DI.AuthService, deps.DI.AdminConfigView, deps.Logger, serverVersion)
-	bff := r.Group("/bff/v1")
+	bff := r.Group("/bff/v1", api.BFFSameOriginMiddleware())
 	authBFF.RegisterPublicRoutes(bff)
 	bff.Use(api.BFFSessionMiddleware(deps.DI.AuthService))
+	bff.Use(api.BFFHumanRBAC())
 	deps.DI.RESTHandler.RegisterRoutes(bff, traceMw)
 	me := bff.Group("/me")
 	authBFF.RegisterMeRoutes(me)
-	admin := bff.Group("/admin", api.BFFRequireAdmin())
+	admin := bff.Group("/admin", api.BFFRequireAdmin(), api.BFFRequireAdminPasskey(deps.DI.AuthService))
 	authBFF.RegisterAdminRoutes(admin)
 }
 
@@ -448,17 +450,17 @@ func initDB() (*sql.DB, error) {
 	}
 }
 
-func runMigrations(sqlDB *sql.DB, driver string) error {
-	migrator := db.NewMigrator(sqlDB, driver)
-	ctx := context.Background()
-	migErr := migrator.MigrateUpSimple()
-	if err := migrator.EnsureOtelSpansTable(ctx); err != nil {
-		return fmt.Errorf("ensure otel_spans: %w", err)
+func initSchema(sqlDB *sql.DB, driver string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ddl := shared.BaseSchema(driver)
+	if strings.TrimSpace(ddl) == "" {
+		return fmt.Errorf("empty base schema for driver %q", driver)
 	}
-	if err := migrator.EnsureAuthTables(ctx); err != nil {
-		return fmt.Errorf("ensure auth tables: %w", err)
+	if _, err := sqlDB.ExecContext(ctx, ddl); err != nil {
+		return err
 	}
-	return migErr
+	return shared.MigrateHumanBrowserRoles(ctx, sqlDB, driver)
 }
 
 func loadColdDocuments(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, logger *zap.Logger) error {
@@ -468,7 +470,7 @@ func loadColdDocuments(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index,
 	cacheStore := &noopCache{}
 
 	// Create document repository
-	docRepo := db.NewDocumentRepo(sqlDB, driver, cacheStore)
+	docRepo := document.NewDocumentRepo(sqlDB, driver, cacheStore)
 
 	// Query all cold documents
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)

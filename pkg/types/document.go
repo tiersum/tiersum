@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// DocumentStatus represents the hot/cold tier status of a document
+// DocumentStatus is the persisted lifecycle/status of a document in the hot/cold model (not a summaries-table tier).
 type DocumentStatus string
 
 const (
@@ -20,8 +20,10 @@ const (
 
 // Document represents a document in the system
 type Document struct {
-	ID          string         `json:"id"`
-	Title       string         `json:"title"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// Summary is the document-level summary (persisted for hot/warming docs; often empty for cold docs).
+	Summary     string         `json:"summary,omitempty"`
 	Content     string         `json:"content"`
 	Format      string         `json:"format"`
 	Tags        []string       `json:"tags,omitempty"`
@@ -33,27 +35,17 @@ type Document struct {
 	UpdatedAt   time.Time      `json:"updated_at"`
 }
 
-// SummaryTier represents the level of summarization
-// Hierarchy: Document > Chapter > Source
-// Note: Topic and Paragraph tiers are removed in the new architecture
-type SummaryTier string
-
-const (
-	TierDocument SummaryTier = "document" // Document level summary
-	TierChapter  SummaryTier = "chapter"  // Chapter/section level summary
-	TierSource   SummaryTier = "source"   // Original source text
-)
-
-// Summary represents a summary at a specific tier
-type Summary struct {
-	ID         string      `json:"id"`
-	DocumentID string      `json:"document_id"`
-	Tier       SummaryTier `json:"tier"`
-	Path       string      `json:"path"`    // Format: doc_id or doc_id/chapter_title
-	Content    string      `json:"content"` // Summary content or source content
-	IsSource   bool        `json:"is_source"`
-	CreatedAt  time.Time   `json:"created_at"`
-	UpdatedAt  time.Time   `json:"updated_at"`
+// Chapter represents one persisted hot-document chapter row.
+// Schema: chapters(id, document_id, path, title, summary, content, created_at, updated_at)
+type Chapter struct {
+	ID         string    `json:"id"`
+	DocumentID string    `json:"document_id"`
+	Path       string    `json:"path"`
+	Title      string    `json:"title"`
+	Summary    string    `json:"summary"`
+	Content    string    `json:"content"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // ChapterInfo represents a chapter/section in a document
@@ -109,14 +101,6 @@ func NormalizeDocumentIngestMode(s string) string {
 	default:
 		return DocumentIngestModeAuto
 	}
-}
-
-// DocumentMarkdownChapter is one path-addressable slice of document markdown
-// (cold splitter semantics) for document-detail chapter navigation when DB has no chapter-tier summaries.
-type DocumentMarkdownChapter struct {
-	Path    string `json:"path"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
 }
 
 // HotIngestWork is queued after a hot document is persisted when LLM analysis
@@ -209,30 +193,6 @@ type CreateDocumentResponse struct {
 	ChapterCount int            `json:"chapter_count"`
 	Status       DocumentStatus `json:"status"`
 	CreatedAt    time.Time      `json:"created_at"`
-}
-
-// QueryRequest represents a query request
-type QueryRequest struct {
-	Question string      `form:"question" binding:"required"`
-	Depth    SummaryTier `form:"depth" binding:"omitempty,oneof=document chapter source"`
-	Tags     []string    `form:"tags,omitempty"` // Optional tag filter
-}
-
-// QueryResponse represents a query response
-type QueryResponse struct {
-	Question string        `json:"question"`
-	Depth    SummaryTier   `json:"depth"`
-	Results  []QueryResult `json:"results"`
-}
-
-// QueryResult represents a single query result
-type QueryResult struct {
-	DocumentID    string      `json:"document_id"`
-	DocumentTitle string      `json:"document_title"`
-	Tier          SummaryTier `json:"tier"`
-	Path          string      `json:"path"`
-	Content       string      `json:"content"`
-	Relevance     float64     `json:"relevance"`
 }
 
 // TagFilterResult represents a tag filter result from LLM

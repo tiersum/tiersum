@@ -16,7 +16,7 @@
 
 ## 2. 章节抽取（Markdown → 冷章节）
 
-**主要代码：** `internal/storage/coldindex/chapter_split.go`、`chapter_split_stride.go`，以及 `internal/storage/coldindex/*_test.go` 中的切分相关测试。
+**主要代码：** `internal/storage/coldindex/markdown_chapter_splitter_impl.go`、`chapter_split_stride.go`，以及 `internal/storage/coldindex/*_test.go` 中的切分相关测试。
 
 ### 2.1 解析树
 
@@ -55,7 +55,7 @@
 
 ## 3. 双路索引（按「章」建库）
 
-**主要代码：** `internal/storage/coldindex/index.go`、`inverted_bleve.go`、`vector_hnsw.go`。
+**主要代码：** `internal/storage/coldindex/cold_index_impl.go`、`cold_inverted_index_bleve_impl.go`、`cold_vector_index_hnsw_impl.go`。
 
 ### 3.1 行模型
 
@@ -99,7 +99,7 @@
 
 ## 5. 混合检索与合并
 
-**主要代码：** `index.go` 中的 `Search`、`hybridSearch`、`searchWithBleve`、`searchWithVector`、`mergeHybridResults`、`branchRecallSize`。
+**主要代码：** `cold_index_impl.go` 中的 `Search`、`hybridSearch`、`searchWithBleve`、`searchWithVector`、`mergeHybridResults`、`branchRecallSize`。
 
 ### 5.1 分支召回（为何大于 topK）
 
@@ -134,7 +134,7 @@
 | `cold_index.search.branch_recall_floor` | 分支召回下限 |
 | `cold_index.search.branch_recall_ceiling` | 分支召回上限 |
 | `cold_index.embedding.*` | 冷文本 embedder（MiniLM / simple / auto）及 ONNX 等路径 |
-| *（尚无 viper 项）* | HNSW 的 `M` / `EfSearch` 等目前为 `internal/storage/coldindex/index.go` 中的默认值 |
+| *（尚无 viper 项）* | HNSW 的 `M` / `EfSearch` 等目前为 `internal/storage/coldindex/cold_index_impl.go` 中的默认值 |
 
 完整示例见 `configs/config.example.yaml`。
 
@@ -153,7 +153,7 @@
 
 ## 8. REST 接口
 
-- **`GET /api/v1/cold/doc_source`**：逗号分隔的 **`q`** → **`IColdIndex.Search`** → JSON 命中项，`context` 为 **整章正文**。流程见 [CORE_API_FLOWS.md §5](CORE_API_FLOWS.md)。
+- **`GET /api/v1/cold/chapter_hits`**：逗号分隔的 **`q`** → **`IColdIndex.Search`** → JSON 命中项，`context` 为 **整章正文**。流程见 [CORE_API_FLOWS.md §5](CORE_API_FLOWS.md)。
 
 ---
 
@@ -161,12 +161,12 @@
 
 | 文件 | 职责 |
 |------|------|
-| `chapter_split.go` | 解析树、合并、`splitOversizedRaw`、`MarkdownSplitter` |
+| `markdown_chapter_splitter_impl.go` | 解析树、合并、`splitOversizedRaw`、`MarkdownSplitter` |
 | `chapter_split_stride.go` | 包级滑动步长配置 |
-| `index.go` | `Index`、`AddDocument`、`Search`、混合合并、分支召回 |
-| `inverted_bleve.go` | Bleve 增删查 |
-| `vector_hnsw.go` | HNSW 增删查 |
-| `embed_*.go`、`embed_factory.go` | 冷 embedder 实现与 `NewTextEmbedderFromViper` |
+| `cold_index_impl.go` | `Index`、`AddDocument`、`Search`、混合合并、分支召回 |
+| `cold_inverted_index_bleve_impl.go` | Bleve 增删查 |
+| `cold_vector_index_hnsw_impl.go` | HNSW 增删查 |
+| `cold_text_embedder_*_impl.go`、`cold_text_embedder_factory.go`、`cold_text_embedding_fallback.go` | 冷 embedder 实现、工厂与回退嵌入 |
 | `internal/storage/interface.go` | `IColdIndex`、`ColdIndexHit` |
 | `cmd/main.go` | `SetColdChapterMaxTokens`、`SetColdMarkdownSlidingStrideTokens`、`SetColdSearchRecall`、`SetTextEmbedder`、加载冷文档 |
 

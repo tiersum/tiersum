@@ -13,10 +13,22 @@ export const DocumentCreatePage = {
             },
             tagInput: '',
             submitting: false,
-            contentDragActive: false
+            contentDragActive: false,
+            errorMessage: ''
         };
     },
+    computed: {
+        canSubmit() {
+            return Boolean(this.newDoc.title.trim() && this.newDoc.content.trim()) && !this.submitting;
+        },
+        contentChars() {
+            return [...this.newDoc.content].length;
+        }
+    },
     methods: {
+        clearError() {
+            this.errorMessage = '';
+        },
         addTag() {
             if (this.tagInput.trim() && !this.newDoc.tags.includes(this.tagInput.trim())) {
                 this.newDoc.tags.push(this.tagInput.trim());
@@ -30,15 +42,18 @@ export const DocumentCreatePage = {
             return parseMarkdownPreview(text);
         },
         async submitDocument() {
-            if (!this.newDoc.title.trim() || !this.newDoc.content.trim()) return;
+            if (!this.canSubmit) return;
+            this.clearError();
             this.submitting = true;
             try {
                 const payload = {
                     title: this.newDoc.title.trim(),
                     content: this.newDoc.content,
-                    format: this.newDoc.format || 'markdown',
-                    tags: this.newDoc.tags
+                    format: (this.newDoc.format || 'markdown').toLowerCase() === 'md' ? 'md' : 'markdown'
                 };
+                if (this.newDoc.tags.length) {
+                    payload.tags = [...this.newDoc.tags];
+                }
                 const mode = (this.newDoc.ingest_mode || 'auto').toLowerCase();
                 if (mode === 'hot' || mode === 'cold') {
                     payload.ingest_mode = mode;
@@ -48,17 +63,18 @@ export const DocumentCreatePage = {
                 if (id) {
                     this.$router.push(`/docs/${id}`);
                 } else {
-                    this.$router.push('/docs');
+                    this.$router.push('/library');
                 }
             } catch (error) {
                 console.error('Failed to create document:', error);
-                alert('Failed to create document: ' + error.message);
+                this.errorMessage =
+                    (error && error.message) || 'Could not create the document. Check your connection and permissions.';
             } finally {
                 this.submitting = false;
             }
         },
         goBack() {
-            this.$router.push('/docs');
+            this.$router.push('/library');
         },
         triggerMarkdownFilePick() {
             this.$refs.markdownFile?.click();
@@ -94,7 +110,7 @@ export const DocumentCreatePage = {
                 await this.applyMarkdownFromFile(file);
             } catch (err) {
                 console.error('Failed to read file:', err);
-                alert('Could not read this file: ' + (err.message || String(err)));
+                this.errorMessage = 'Could not read this file: ' + (err.message || String(err));
             } finally {
                 input.value = '';
             }
@@ -117,20 +133,25 @@ export const DocumentCreatePage = {
             if (!this.transferHasFiles(event)) return;
             const file = this.pickMarkdownFromFileList(event.dataTransfer.files);
             if (!file) {
-                alert('Please drop a Markdown file (.md, .markdown, …).');
+                this.errorMessage = 'Please drop a Markdown file (.md, .markdown, …).';
                 return;
             }
             try {
                 await this.applyMarkdownFromFile(file);
+                this.clearError();
             } catch (err) {
                 console.error('Failed to read dropped file:', err);
-                alert('Could not read this file: ' + (err.message || String(err)));
+                this.errorMessage = 'Could not read this file: ' + (err.message || String(err));
             }
         }
     },
     template: `
         <div class="min-h-screen bg-slate-950">
             <main class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-16">
+                <div v-if="errorMessage" role="alert" class="alert alert-error border border-red-900/60 bg-red-950/50 text-red-100 mb-4 flex flex-row items-start justify-between gap-3">
+                    <span class="text-sm leading-snug pt-0.5">{{ errorMessage }}</span>
+                    <button type="button" class="btn btn-ghost btn-xs shrink-0 text-red-200" @click="clearError">Dismiss</button>
+                </div>
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                     <div class="flex items-center gap-3">
                         <button type="button" @click="goBack" class="btn btn-ghost btn-sm gap-2 text-slate-400">
@@ -152,7 +173,7 @@ export const DocumentCreatePage = {
                         </label>
                         <button type="button"
                             @click="submitDocument"
-                            :disabled="submitting || !newDoc.title.trim() || !newDoc.content.trim()"
+                            :disabled="!canSubmit"
                             class="btn btn-primary">
                             <span v-if="submitting" class="loading loading-spinner loading-sm mr-2"></span>
                             Create &amp; open
@@ -167,7 +188,8 @@ export const DocumentCreatePage = {
                                 <div>
                                     <label class="label"><span class="label-text text-slate-300">Title</span></label>
                                     <input v-model="newDoc.title" type="text" placeholder="Document title"
-                                        class="input input-bordered w-full bg-slate-800/80 border-slate-700 text-slate-100" />
+                                        class="input input-bordered w-full bg-slate-800/80 border-slate-700 text-slate-100"
+                                        @input="clearError" />
                                 </div>
                                 <div>
                                     <label class="label"><span class="label-text text-slate-300">Tags</span></label>
@@ -215,9 +237,13 @@ export const DocumentCreatePage = {
                                             </button>
                                         </div>
                                     </div>
+                                    <div class="flex items-center justify-between gap-2 text-xs text-slate-500 shrink-0 -mt-1 mb-1">
+                                        <span>{{ contentChars }} characters</span>
+                                    </div>
                                     <textarea v-model="newDoc.content"
                                         placeholder="# Heading — write Markdown here…"
-                                        class="textarea textarea-bordered flex-1 min-h-[280px] w-full bg-slate-800/80 border-slate-700 text-slate-100 font-mono text-sm leading-relaxed resize-y"></textarea>
+                                        class="textarea textarea-bordered flex-1 min-h-[280px] w-full bg-slate-800/80 border-slate-700 text-slate-100 font-mono text-sm leading-relaxed resize-y"
+                                        @input="clearError"></textarea>
                                 </div>
                             </div>
                         </div>

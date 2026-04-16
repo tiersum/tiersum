@@ -33,7 +33,7 @@ export const ProductIntroPage = {
                         <ul class="list-disc pl-5 space-y-2 marker:text-blue-500/80">
                             <li><strong class="text-slate-200">Search</strong> — Ask in natural language. <strong class="text-slate-200">Progressive query</strong> walks <em>tags → documents → chapters</em> the way a reader would skim an outline before opening a section: each step uses LLM relevance on top of <strong class="text-slate-200">pre-built summaries and tags</strong> where available, then can synthesize an answer with citations when configured.</li>
                             <li><strong class="text-slate-200">Documents</strong> — Ingest Markdown (and more over time). Hot docs get LLM summaries and tags per <strong class="text-slate-200">chapter</strong>; cold docs are indexed and retrieved the same way — <strong class="text-slate-200">by chapter</strong> — so every tier keeps coherent sections, not shredded text.</li>
-                            <li><strong class="text-slate-200">Tags</strong> — Browse a shared catalog of tags grouped into <em>topics</em> (themes). Regroup refreshes those themes from your catalog so navigation stays meaningful as the library grows.</li>
+                            <li><strong class="text-slate-200">Topics &amp; tags</strong> — Browse a shared catalog of tags grouped into <em>topics</em> (themes). Regroup refreshes those themes from your catalog so navigation stays meaningful as the library grows.</li>
                         </ul>
                     </section>
 

@@ -1,27 +1,34 @@
 import { apiClient } from '../api_client.js';
 import { parseMarkdownOrError } from '../markdown.js';
+import { ChapterNavTree, buildChapterNavTree } from '../components/ChapterNavTree.js';
 
 export const DocumentDetailPage = {
+    components: { ChapterNavTree },
     props: {
         id: { type: String, required: true }
     },
     data() {
         return {
             doc: null,
-            summaries: [],
             chapters: [],
             loading: true,
             loadError: null,
             viewMode: 'summary',
-            selectedNav: 'overview'
+            selectedNav: 'overview',
+            /** Poll while hot ingest has not written document.summary yet. */
+            hotPollTimer: null,
+            hotPollBusy: false
         };
     },
     computed: {
-        docSummaryRecord() {
-            return this.summaries.find(s => s.tier === 'document');
-        },
         docSummaryText() {
-            return (this.docSummaryRecord?.content || '').trim();
+            return (this.doc?.summary || '').trim();
+        },
+        /** Hot path: row is `hot` before async LLM finishes; empty summary means analysis not persisted yet. */
+        hotAnalysisPending() {
+            if (!this.doc) return false;
+            if (String(this.doc.status || '').toLowerCase() !== 'hot') return false;
+            return this.docSummaryText.length === 0;
         },
         /** True when chapter nav has more than a single implicit placeholder (or has overview). */
         hasChapterSidebar() {
@@ -31,8 +38,16 @@ export const DocumentDetailPage = {
             if (this.selectedNav === 'overview') return null;
             return this.chapters.find(c => c.path === this.selectedNav) || null;
         },
+        /** Nested nav from chapter path segments (docId/heading/...); sorted by segment. */
+        chapterNavRoots() {
+            const docId = (this.doc && this.doc.id) || this.id || '';
+            return buildChapterNavTree(this.chapters, docId);
+        },
         summaryBodyMarkdown() {
             if (this.selectedNav === 'overview') {
+                if (this.hotAnalysisPending) {
+                    return '_Generating document summary and chapters. Please wait…_';
+                }
                 return this.docSummaryText || '_No document-level summary._';
             }
             const ch = this.activeChapter;
@@ -52,22 +67,53 @@ export const DocumentDetailPage = {
             }
         }
     },
+    unmounted() {
+        this.stopHotPoll();
+    },
     methods: {
+        stopHotPoll() {
+            if (this.hotPollTimer != null) {
+                clearInterval(this.hotPollTimer);
+                this.hotPollTimer = null;
+            }
+        },
+        startHotPollIfNeeded() {
+            this.stopHotPoll();
+            if (!this.hotAnalysisPending) return;
+            this.hotPollTimer = setInterval(() => {
+                this.tickHotPoll();
+            }, 3000);
+        },
+        async tickHotPoll() {
+            if (!this.hotAnalysisPending || this.hotPollBusy || !this.id) return;
+            this.hotPollBusy = true;
+            try {
+                const doc = await apiClient.getDocument(this.id);
+                this.doc = doc;
+                if (!this.hotAnalysisPending) {
+                    this.stopHotPoll();
+                    this.chapters = await apiClient.getDocumentChapters(this.id).catch(() => []);
+                    this.applyRouteChapterSelection();
+                }
+            } catch {
+                /* ignore transient errors while polling */
+            } finally {
+                this.hotPollBusy = false;
+            }
+        },
         async load() {
+            this.stopHotPoll();
             this.loading = true;
             this.loadError = null;
             this.doc = null;
-            this.summaries = [];
             this.chapters = [];
             try {
                 const docId = this.id;
-                const [doc, summaries, chapters] = await Promise.all([
+                const [doc, chapters] = await Promise.all([
                     apiClient.getDocument(docId),
-                    apiClient.getDocumentSummaries(docId).catch(() => []),
                     apiClient.getDocumentChapters(docId).catch(() => [])
                 ]);
                 this.doc = doc;
-                this.summaries = summaries;
                 this.chapters = chapters;
                 this.applyDefaultView();
                 this.applyRouteChapterSelection();
@@ -75,6 +121,7 @@ export const DocumentDetailPage = {
                 this.loadError = e.message || String(e);
             } finally {
                 this.loading = false;
+                this.startHotPollIfNeeded();
             }
         },
         applyDefaultView() {
@@ -169,7 +216,7 @@ export const DocumentDetailPage = {
             this.viewMode = mode;
         },
         goBack() {
-            this.$router.push('/docs');
+            this.$router.push('/library');
         }
     },
     template: `
@@ -179,7 +226,7 @@ export const DocumentDetailPage = {
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
                     </svg>
-                    Back to documents
+                    Back to library
                 </button>
 
                 <div v-if="loading" class="space-y-4">
@@ -199,6 +246,13 @@ export const DocumentDetailPage = {
                                 <span class="badge badge-outline badge-sm">{{ doc.format }}</span>
                                 <span :class="['badge badge-sm', doc.status === 'hot' ? 'badge-warning' : doc.status === 'cold' ? 'badge-info' : 'badge-ghost']">
                                     {{ doc.status }}
+                                </span>
+                                <span
+                                    v-if="hotAnalysisPending"
+                                    class="badge badge-sm border border-sky-500/40 bg-sky-950/50 text-sky-200 gap-1"
+                                >
+                                    <span class="inline-block h-2.5 w-2.5 rounded-full bg-sky-400 animate-pulse shrink-0" aria-hidden="true"></span>
+                                    Generating…
                                 </span>
                                 <span v-if="doc.tags?.length" class="text-slate-500">{{ doc.tags.join(', ') }}</span>
                             </div>
@@ -237,15 +291,24 @@ export const DocumentDetailPage = {
                                                 selectedNav === 'overview' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'text-slate-300 hover:bg-slate-800 border border-transparent']">
                                             Overview
                                         </button>
-                                        <button
-                                            v-for="ch in chapters"
-                                            :key="ch.path"
-                                            type="button"
-                                            @click="selectNav(ch.path)"
-                                            :class="['text-left px-3 py-2 rounded-lg text-sm transition-colors break-words',
-                                                selectedNav === ch.path ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'text-slate-300 hover:bg-slate-800 border border-transparent']">
-                                            {{ ch.title || ch.path }}
-                                        </button>
+                                        <template v-if="chapterNavRoots.length">
+                                            <ChapterNavTree
+                                                :nodes="chapterNavRoots"
+                                                :selected-path="selectedNav"
+                                                @select="selectNav"
+                                            />
+                                        </template>
+                                        <template v-else>
+                                            <button
+                                                v-for="ch in chapters"
+                                                :key="ch.path"
+                                                type="button"
+                                                @click="selectNav(ch.path)"
+                                                :class="['text-left px-3 py-2 rounded-lg text-sm transition-colors break-words',
+                                                    selectedNav === ch.path ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'text-slate-300 hover:bg-slate-800 border border-transparent']">
+                                                {{ ch.title || ch.path }}
+                                            </button>
+                                        </template>
                                     </nav>
                                 </div>
                             </div>

@@ -7,6 +7,18 @@ export function isBrowserAdminRole(role) {
         .toLowerCase() === 'admin';
 }
 
+/** True when the human-track profile role is viewer (read-only BFF; case-insensitive). */
+export function isBrowserViewerRole(role) {
+    return String(role ?? '')
+        .trim()
+        .toLowerCase() === 'viewer';
+}
+
+/** BFF observability surfaces (`/monitoring`, `/traces`) are admin-only. */
+export function canAccessObservabilityBFF(role) {
+    return isBrowserAdminRole(role);
+}
+
 function redirectAuth(endpoint, status, errBody) {
     const path = typeof window !== 'undefined' ? window.location.pathname : '';
     if (status === 403 && errBody && errBody.code === 'SYSTEM_NOT_INITIALIZED') {
@@ -14,7 +26,13 @@ function redirectAuth(endpoint, status, errBody) {
         return;
     }
     if (status === 401 && endpoint.startsWith('/bff/v1')) {
-        const open = ['/bff/v1/system/status', '/bff/v1/system/bootstrap', '/bff/v1/auth/login', '/bff/v1/auth/logout'];
+        const open = [
+            '/bff/v1/system/status',
+            '/bff/v1/system/bootstrap',
+            '/bff/v1/auth/login',
+            '/bff/v1/auth/device_login',
+            '/bff/v1/auth/logout'
+        ];
         if (open.some((p) => endpoint.startsWith(p))) return;
         if (!path.startsWith('/login') && !path.startsWith('/init')) window.location.assign('/login');
     }
@@ -89,10 +107,20 @@ export const apiClient = {
         return this.request('/bff/v1/system/bootstrap', { method: 'POST', body: JSON.stringify({ username }) });
     },
 
-    login(accessToken, fingerprint) {
+    login(accessToken, fingerprint, opts = {}) {
+        const body = { access_token: accessToken, fingerprint };
+        if (opts && opts.remember_me) body.remember_me = true;
+        if (opts && opts.device_name) body.device_name = String(opts.device_name);
         return this.request('/bff/v1/auth/login', {
             method: 'POST',
-            body: JSON.stringify({ access_token: accessToken, fingerprint })
+            body: JSON.stringify(body)
+        });
+    },
+
+    deviceLogin(fingerprint) {
+        return this.request('/bff/v1/auth/device_login', {
+            method: 'POST',
+            body: JSON.stringify({ fingerprint })
         });
     },
 
@@ -121,6 +149,62 @@ export const apiClient = {
 
     revokeAllSessions() {
         return this.request('/bff/v1/me/sessions/revoke_all', { method: 'POST', body: '{}' });
+    },
+
+    passkeyStatus() {
+        return this.request('/bff/v1/me/security/passkeys/status').then((r) => r.status || null);
+    },
+
+    listPasskeys() {
+        return this.request('/bff/v1/me/security/passkeys').then((r) => r.passkeys || []);
+    },
+
+    deletePasskey(id) {
+        return this.request(`/bff/v1/me/security/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    },
+
+    beginPasskeyRegistration(deviceName) {
+        return this.request('/bff/v1/me/security/passkeys/registration/begin', {
+            method: 'POST',
+            body: JSON.stringify({ device_name: deviceName || '' })
+        });
+    },
+
+    finishPasskeyRegistration(payload) {
+        return this.request('/bff/v1/me/security/passkeys/registration/finish', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    },
+
+    beginPasskeyVerification() {
+        return this.request('/bff/v1/me/security/passkeys/verification/begin', { method: 'POST', body: '{}' });
+    },
+
+    finishPasskeyVerification(payload) {
+        return this.request('/bff/v1/me/security/passkeys/verification/finish', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+    },
+
+    listDeviceTokens() {
+        return this.request('/bff/v1/me/security/device_tokens').then((r) => r.device_tokens || []);
+    },
+
+    createDeviceToken(deviceName) {
+        return this.request('/bff/v1/me/security/device_tokens', {
+            method: 'POST',
+            body: JSON.stringify({ device_name: deviceName || '' })
+        });
+    },
+
+    revokeDeviceToken(id) {
+        return this.request(`/bff/v1/me/security/device_tokens/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    },
+
+    revokeAllDeviceTokens() {
+        return this.request('/bff/v1/me/security/device_tokens/revoke_all', { method: 'POST', body: '{}' });
     },
 
     adminListUsers() {
@@ -163,7 +247,6 @@ export const apiClient = {
 
     getDocuments: () => apiClient.request('/bff/v1/documents').then((r) => r.documents || []),
     getDocument: (id) => apiClient.request(`/bff/v1/documents/${id}`),
-    getDocumentSummaries: (id) => apiClient.request(`/bff/v1/documents/${id}/summaries`).then((r) => r.summaries || []),
     getDocumentChapters: (id) => apiClient.request(`/bff/v1/documents/${id}/chapters`).then((r) => r.chapters || []),
     createDocument: (data) => apiClient.request('/bff/v1/documents', { method: 'POST', body: JSON.stringify(data) }),
 
@@ -198,6 +281,16 @@ export const apiClient = {
     getMetricsText: () => apiClient.requestText('/metrics'),
 
     /** Cold hybrid search: `q` comma-separated keywords; `max_results` 1–500 (server clamps). */
+    getColdChapterHits(q, maxResults) {
+        const params = new URLSearchParams();
+        params.set('q', String(q || '').trim());
+        if (maxResults != null && maxResults > 0) {
+            params.set('max_results', String(Math.min(500, maxResults)));
+        }
+        return apiClient.request(`/bff/v1/cold/chapter_hits?${params.toString()}`);
+    },
+
+    /** Legacy alias (tiersum_bak UI) for cold probe. */
     getColdDocSource(q, maxResults) {
         const params = new URLSearchParams();
         params.set('q', String(q || '').trim());

@@ -73,7 +73,7 @@ func (s *MCPServer) registerTools() {
 	const descPrefix = "Same semantics as "
 
 	s.mcp.AddTool(mcp.NewTool("api_v1_documents_post",
-		mcp.WithDescription(descPrefix+"POST /api/v1/documents — ingest document (JSON body)."),
+		mcp.WithDescription(descPrefix+"POST /api/v1/documents — create document / ingest (JSON body; ingest_mode selects hot vs cold)."),
 		mcp.WithString("title", mcp.Required(), mcp.Description("Document title")),
 		mcp.WithString("content", mcp.Required(), mcp.Description("Document body")),
 		mcp.WithString("format", mcp.Required(), mcp.Description("markdown or md"), mcp.Enum("markdown", "md")),
@@ -98,11 +98,6 @@ func (s *MCPServer) registerTools() {
 		mcp.WithDescription(descPrefix+"GET /api/v1/documents/:id/chapters"),
 		mcp.WithString("id", mcp.Required(), mcp.Description("Document id")),
 	), s.handleAPIv1DocumentsChaptersGet)
-
-	s.mcp.AddTool(mcp.NewTool("api_v1_documents_summaries_get",
-		mcp.WithDescription(descPrefix+"GET /api/v1/documents/:id/summaries"),
-		mcp.WithString("id", mcp.Required(), mcp.Description("Document id")),
-	), s.handleAPIv1DocumentsSummariesGet)
 
 	s.mcp.AddTool(mcp.NewTool("api_v1_query_progressive_post",
 		mcp.WithDescription(descPrefix+"POST /api/v1/query/progressive — tracing matches REST: set traceparent / force-sample headers or ?debug_trace=1 on POST /mcp/message; optional tool args traceparent and force_sample when JSON-only clients cannot set HTTP"),
@@ -138,14 +133,8 @@ func (s *MCPServer) registerTools() {
 		mcp.WithNumber("max_results", mcp.Description("Max number of doc ids; default 100, max 500")),
 	), s.handleAPIv1HotDocChaptersGet)
 
-	s.mcp.AddTool(mcp.NewTool("api_v1_hot_doc_source_get",
-		mcp.WithDescription(descPrefix+"GET /api/v1/hot/doc_source — chapter_paths comma-separated"),
-		mcp.WithString("chapter_paths", mcp.Required(), mcp.Description("Comma-separated chapter paths")),
-		mcp.WithNumber("max_results", mcp.Description("Default 100, max 2000")),
-	), s.handleAPIv1HotDocSourceGet)
-
-	s.mcp.AddTool(mcp.NewTool("api_v1_cold_doc_source_get",
-		mcp.WithDescription(descPrefix+"GET /api/v1/cold/doc_source — q comma-separated terms; hybrid search returns cold chapters (path + full text)"),
+	s.mcp.AddTool(mcp.NewTool("api_v1_cold_chapter_hits_get",
+		mcp.WithDescription(descPrefix+"GET /api/v1/cold/chapter_hits — q comma-separated terms; hybrid search returns cold chapters (path + full text)"),
 		mcp.WithString("q", mcp.Required(), mcp.Description("Comma-separated keywords (same as query param `q`)")),
 		mcp.WithNumber("max_results", mcp.Description("Default 100, max 500")),
 	), s.handleAPIv1ColdDocSourceGet)
@@ -331,7 +320,7 @@ func (s *MCPServer) handleAPIv1DocumentsPost(ctx context.Context, request mcp.Ca
 	if emb := parseEmbeddingArg(args["embedding"]); len(emb) > 0 {
 		req.Embedding = emb
 	}
-	status, body := s.api.ExecuteIngestDocument(ctx, req)
+	status, body := s.api.ExecuteCreateDocument(ctx, req)
 	return mcpJSONResult(status, body)
 }
 
@@ -340,7 +329,7 @@ func (s *MCPServer) handleAPIv1DocumentsList(ctx context.Context, request mcp.Ca
 		return res, err
 	}
 	_ = toolArgs(request)
-	status, body := s.api.ExecuteListDocuments(ctx)
+	status, body := s.api.ExecuteListDocuments(ctx, "")
 	return mcpJSONResult(status, body)
 }
 
@@ -364,19 +353,7 @@ func (s *MCPServer) handleAPIv1DocumentsChaptersGet(ctx context.Context, request
 	if id == "" {
 		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "id is required"})
 	}
-	status, body := s.api.ExecuteGetDocumentChapters(ctx, id)
-	return mcpJSONResult(status, body)
-}
-
-func (s *MCPServer) handleAPIv1DocumentsSummariesGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if res, err := s.mcpReadGate(ctx, "GET /api/v1/documents/:id/summaries"); res != nil {
-		return res, err
-	}
-	id := strings.TrimSpace(argString(toolArgs(request), "id"))
-	if id == "" {
-		return mcpJSONResult(http.StatusBadRequest, gin.H{"error": "id is required"})
-	}
-	status, body := s.api.ExecuteGetDocumentSummaries(ctx, id)
+	status, body := s.api.ExecuteListDocumentChaptersByDocumentID(ctx, id)
 	return mcpJSONResult(status, body)
 }
 
@@ -448,7 +425,7 @@ func (s *MCPServer) handleAPIv1TopicsRegroupPost(ctx context.Context, request mc
 		return res, err
 	}
 	_ = toolArgs(request)
-	status, body := s.api.ExecuteTriggerTopicRegroup(ctx)
+	status, body := s.api.ExecuteRegroupTagsIntoTopics(ctx)
 	return mcpJSONResult(status, body)
 }
 
@@ -459,7 +436,7 @@ func (s *MCPServer) handleAPIv1HotDocSummariesGet(ctx context.Context, request m
 	args := toolArgs(request)
 	tags := argStringList(args, "tags")
 	maxRaw := optionalMaxResultsQueryString(args, "max_results")
-	status, body := s.api.ExecuteHotDocSummaries(ctx, tags, maxRaw)
+	status, body := s.api.ExecuteListHotDocumentSummariesByTags(ctx, tags, maxRaw)
 	return mcpJSONResult(status, body)
 }
 
@@ -470,29 +447,18 @@ func (s *MCPServer) handleAPIv1HotDocChaptersGet(ctx context.Context, request mc
 	args := toolArgs(request)
 	docIDs := argStringList(args, "doc_ids")
 	maxRaw := optionalMaxResultsQueryString(args, "max_results")
-	status, body := s.api.ExecuteHotDocChapters(ctx, docIDs, maxRaw)
-	return mcpJSONResult(status, body)
-}
-
-func (s *MCPServer) handleAPIv1HotDocSourceGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if res, err := s.mcpReadGate(ctx, "GET /api/v1/hot/doc_source"); res != nil {
-		return res, err
-	}
-	args := toolArgs(request)
-	paths := argStringList(args, "chapter_paths")
-	maxRaw := optionalMaxResultsQueryString(args, "max_results")
-	status, body := s.api.ExecuteHotDocSource(ctx, paths, maxRaw)
+	status, body := s.api.ExecuteListHotDocumentChaptersByDocumentIDs(ctx, docIDs, maxRaw)
 	return mcpJSONResult(status, body)
 }
 
 func (s *MCPServer) handleAPIv1ColdDocSourceGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if res, err := s.mcpReadGate(ctx, "GET /api/v1/cold/doc_source"); res != nil {
+	if res, err := s.mcpReadGate(ctx, "GET /api/v1/cold/chapter_hits"); res != nil {
 		return res, err
 	}
 	args := toolArgs(request)
 	terms := argStringList(args, "q")
 	maxRaw := optionalMaxResultsQueryString(args, "max_results")
-	status, body := s.api.ExecuteColdDocSource(ctx, terms, maxRaw)
+	status, body := s.api.ExecuteSearchColdChapterHits(ctx, terms, maxRaw)
 	return mcpJSONResult(status, body)
 }
 
@@ -501,7 +467,7 @@ func (s *MCPServer) handleAPIv1QuotaGet(ctx context.Context, request mcp.CallToo
 		return res, err
 	}
 	_ = toolArgs(request)
-	status, body := s.api.ExecuteGetQuota()
+	status, body := s.api.ExecuteGetQuotaSnapshot()
 	return mcpJSONResult(status, body)
 }
 

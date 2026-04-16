@@ -11,7 +11,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
-	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -22,13 +21,15 @@ type QuotaSnapshot interface {
 
 // Handler holds API dependencies
 type Handler struct {
-	DocService   service.IDocumentService
-	QueryService service.IQueryService
-	TopicService service.ITopicService
-	Retrieval    service.IRetrievalService
-	Quota        QuotaSnapshot
-	OtelSpans    storage.IOtelSpanRepository
-	Logger       *zap.Logger
+	DocService      service.IDocumentService
+	QueryService    service.IQueryService
+	TopicService    service.ITopicService
+	TagsService     service.ITagService
+	ChaptersService service.IChapterService
+	ObsService      service.IObservabilityService
+	TraceService    service.ITraceService
+	Quota           QuotaSnapshot
+	Logger          *zap.Logger
 	// ServerVersion is the release/build label (e.g. from main.Version ldflags). Empty uses moduleVersion().
 	ServerVersion string
 }
@@ -38,21 +39,25 @@ func NewHandler(
 	docService service.IDocumentService,
 	queryService service.IQueryService,
 	topicService service.ITopicService,
-	retrieval service.IRetrievalService,
+	tagService service.ITagService,
+	chapterService service.IChapterService,
+	observabilityService service.IObservabilityService,
+	traceService service.ITraceService,
 	quota QuotaSnapshot,
-	otelSpans storage.IOtelSpanRepository,
 	logger *zap.Logger,
 	serverVersion string,
 ) *Handler {
 	return &Handler{
-		DocService:    docService,
-		QueryService:  queryService,
-		TopicService:  topicService,
-		Retrieval:     retrieval,
-		Quota:         quota,
-		OtelSpans:     otelSpans,
-		Logger:        logger,
-		ServerVersion: strings.TrimSpace(serverVersion),
+		DocService:      docService,
+		QueryService:    queryService,
+		TopicService:    topicService,
+		TagsService:     tagService,
+		ChaptersService: chapterService,
+		ObsService:      observabilityService,
+		TraceService:    traceService,
+		Quota:           quota,
+		Logger:          logger,
+		ServerVersion:   strings.TrimSpace(serverVersion),
 	}
 }
 
@@ -72,9 +77,8 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup, traceMiddleware gin.Ha
 	// Simple list reads
 	router.GET("/tags", h.ListTags)
 	router.GET("/topics", h.ListTopics)
-	router.GET("/documents/:id/summaries", h.GetDocumentSummaries)
 	router.GET("/quota", h.GetQuota)
-	router.GET("/monitoring", h.GetMonitoring)
+	router.GET("/monitoring", h.GetMonitoringSnapshot)
 	router.GET("/traces", h.ListTraces)
 	router.GET("/traces/:trace_id", h.GetTrace)
 
@@ -84,16 +88,17 @@ func (h *Handler) RegisterRoutes(router *gin.RouterGroup, traceMiddleware gin.Ha
 	}
 
 	core.POST("/query/progressive", h.ProgressiveQuery)
-	core.POST("/topics/regroup", h.TriggerTopicRegroup)
+	core.POST("/topics/regroup", h.RegroupTagsIntoTopics)
 	hot := core.Group("/hot")
 	{
-		hot.GET("/doc_summaries", h.HotDocSummaries)
-		hot.GET("/doc_chapters", h.HotDocChapters)
-		hot.GET("/doc_source", h.HotDocSource)
+		hot.GET("/doc_summaries", h.ListHotDocumentSummariesByTags)
+		hot.GET("/doc_chapters", h.ListHotDocumentChaptersByDocumentIDs)
 	}
 	cold := core.Group("/cold")
 	{
-		cold.GET("/doc_source", h.ColdDocSource)
+		cold.GET("/chapter_hits", h.SearchColdChapterHits)
+		// Back-compat alias for older UI builds.
+		cold.GET("/doc_source", h.SearchColdDocSource)
 	}
 }
 
@@ -105,13 +110,14 @@ func (h *Handler) CreateDocument(c *gin.Context) {
 		return
 	}
 
-	status, body := h.ExecuteIngestDocument(c.Request.Context(), req)
+	status, body := h.ExecuteCreateDocument(c.Request.Context(), req)
 	c.JSON(status, body)
 }
 
 // ListDocuments lists all documents
 func (h *Handler) ListDocuments(c *gin.Context) {
-	status, body := h.ExecuteListDocuments(c.Request.Context())
+	maxRaw := strings.TrimSpace(c.Query(maxResultsQueryParam))
+	status, body := h.ExecuteListDocuments(c.Request.Context(), maxRaw)
 	c.JSON(status, body)
 }
 
@@ -122,14 +128,14 @@ func (h *Handler) GetDocument(c *gin.Context) {
 	c.JSON(status, body)
 }
 
-// GetDocumentChapters retrieves chapters of a document
+// GetDocumentChapters handles GET /documents/:id/chapters (delegates to ExecuteListDocumentChaptersByDocumentID).
 func (h *Handler) GetDocumentChapters(c *gin.Context) {
 	docID := c.Param("id")
-	status, body := h.ExecuteGetDocumentChapters(c.Request.Context(), docID)
+	status, body := h.ExecuteListDocumentChaptersByDocumentID(c.Request.Context(), docID)
 	c.JSON(status, body)
 }
 
-// ProgressiveQuery performs the new two-level tag-based progressive query
+// ProgressiveQuery handles POST /query/progressive (delegates to ExecuteProgressiveQuery: catalog tags/topics, then hot + cold paths).
 func (h *Handler) ProgressiveQuery(c *gin.Context) {
 	var req types.ProgressiveQueryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -147,28 +153,21 @@ func (h *Handler) ListTopics(c *gin.Context) {
 	c.JSON(status, body)
 }
 
-// TriggerTopicRegroup runs LLM regrouping of catalog tags into topics.
-func (h *Handler) TriggerTopicRegroup(c *gin.Context) {
-	status, body := h.ExecuteTriggerTopicRegroup(c.Request.Context())
-	c.JSON(status, body)
-}
-
-// GetDocumentSummaries retrieves all summaries for a document
-func (h *Handler) GetDocumentSummaries(c *gin.Context) {
-	id := c.Param("id")
-	status, body := h.ExecuteGetDocumentSummaries(c.Request.Context(), id)
+// RegroupTagsIntoTopics runs LLM regrouping of catalog tags into topics.
+func (h *Handler) RegroupTagsIntoTopics(c *gin.Context) {
+	status, body := h.ExecuteRegroupTagsIntoTopics(c.Request.Context())
 	c.JSON(status, body)
 }
 
 // GetQuota returns the current quota status
 func (h *Handler) GetQuota(c *gin.Context) {
-	status, body := h.ExecuteGetQuota()
+	status, body := h.ExecuteGetQuotaSnapshot()
 	c.JSON(status, body)
 }
 
-// GetMonitoring returns a JSON snapshot for the monitoring UI.
-func (h *Handler) GetMonitoring(c *gin.Context) {
-	status, body := h.ExecuteMonitoring(c.Request.Context())
+// GetMonitoringSnapshot returns a JSON snapshot for the monitoring UI.
+func (h *Handler) GetMonitoringSnapshot(c *gin.Context) {
+	status, body := h.ExecuteGetMonitoringSnapshot(c.Request.Context())
 	if m, ok := body.(gin.H); ok {
 		// Top-level /metrics (Prometheus convention); registered in cmd without API key middleware.
 		m["prometheus_metrics_path"] = "/metrics"
@@ -190,13 +189,13 @@ func (h *Handler) ListTraces(c *gin.Context) {
 			offset = n
 		}
 	}
-	status, body := h.ExecuteListTraces(c.Request.Context(), limit, offset)
+	status, body := h.ExecuteListTraceSummaries(c.Request.Context(), limit, offset)
 	c.JSON(status, body)
 }
 
 // GetTrace returns all spans for one trace id.
 func (h *Handler) GetTrace(c *gin.Context) {
 	tid := strings.TrimSpace(c.Param("trace_id"))
-	status, body := h.ExecuteGetTrace(c.Request.Context(), tid)
+	status, body := h.ExecuteGetTraceSpans(c.Request.Context(), tid)
 	c.JSON(status, body)
 }

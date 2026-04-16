@@ -1,48 +1,107 @@
 ---
-description: Layer dependency direction — upper layers use only lower-layer interfaces; no cross-layer concrete or sibling imports
+description: TierSum mandatory architecture — layers, DI, service contracts, DTO placement, core API docs
 alwaysApply: true
 ---
 
-# TierSum — layer dependencies (mandatory)
+# TierSum — architecture & layer dependencies (mandatory)
 
-## Layer stack (top → bottom)
+Single source of truth for **dependency direction**, **where types live**, **service façade rules**, and **when to update `docs/CORE_API_FLOWS.md`**.
+
+---
+
+## 1) Layer stack (top → bottom)
 
 | Layer | Path | May depend on |
 |-------|------|----------------|
 | **API** | `internal/api/` | `internal/service` (**interfaces only**), `pkg/types` |
 | **Job** | `internal/job/` | Same as API: **`internal/service` interfaces only**, `pkg/types` if needed |
-| **Service** | `internal/service/` (`interface.go`), `internal/service/svcimpl/` | `internal/storage` (**interfaces**), `internal/client` (**interfaces**), `pkg/types`, `internal/config` / `pkg/metrics` where appropriate |
+| **Service** | `internal/service/` (facades, contracts, shared service types); **concrete implementations** composed from `internal/di` | `internal/storage` (**interfaces**), `internal/client` (**interfaces**), `pkg/types`, `internal/config` / `pkg/metrics` where appropriate |
 | **Storage** | `internal/storage/` | `internal/client` only if a storage adapter truly needs it; **never** `internal/api`, `internal/job`, `internal/service` |
 | **Client** | `internal/client/` | Standard/third-party libs; **never** `internal/api`, `internal/job`, `internal/service`, `internal/storage` |
 
-**Composition root:** `internal/di/container.go` wires concrete implementations. No other package should manually construct cross-layer graphs.
+**Composition root:** `internal/di/container.go` wires concrete implementations. No other package manually constructs cross-layer graphs.
 
-## Rules
+---
 
-1. **Interfaces only upward** — API and Job code must depend on **`service.I…` types** from `internal/service` (see `interface.go`). They must **not** import `internal/storage`, `internal/storage/db`, `internal/service/svcimpl`, or `internal/client` for business behavior.
-2. **No cross-layer shortcuts** — Do not call repository methods, embedders, or LLM providers from API/Job. Add or extend a **service interface** and implement it in `svcimpl`, then inject via DI.
-3. **Service owns downward contracts** — Service implementations may use `storage.I…` and `client.I…` only; they must not import `internal/api` or `internal/job`.
-4. **Shared DTOs** — `pkg/types` is neutral; API, service, and jobs may use it. It must not import `internal/*`.
+## 2) Rules (imports & shortcuts)
 
-## Examples
+1. **Interfaces only upward** — API and Job depend on **`service.I…`** from `internal/service` (`interface.go`). They must **not** import `internal/storage`, `internal/storage/db`, `internal/client`, or concrete service implementation packages for business behavior.
+2. **No cross-layer shortcuts** — Do not call repositories, embedders, or LLM providers from API/Job. Extend a **service façade** in `interface.go`, implement in the service layer, inject via `internal/di`.
+3. **Service owns downward contracts** — Implementations use `storage.I…` and `client.I…` only; they must not import `internal/api` or `internal/job`.
+4. **`pkg/types`** is neutral — API, service, and jobs may use it; **`pkg/types` must not import `internal/*`**.
+
+---
+
+## 3) Data placement: storage rows vs `pkg/types` vs `internal/service`
+
+- **API / Job never import `internal/storage` types** (including table-row structs). Upward exposure goes through service facades and DTOs / `pkg/types`, not raw storage entities.
+- **Persistence-only shapes** (hashes, internal columns, 1:1 table mapping) used only inside storage and mapped in service implementations before crossing upward → **`internal/storage`** (e.g. `*_entities.go` or beside repositories).
+- **One neutral type shared across API, service signatures, Job/MCP** (requests, responses, domain aggregates) → **`pkg/types`**.
+- **Bounded surface not meant as public API** (e.g. auth principals, admin-only list DTOs) → **`internal/service`** (e.g. `types.go`), not `pkg`, unless you intentionally promote them.
+
+*Pragmatic note:* A type may align with DB columns **and** appear in `pkg/types` when it is the agreed cross-layer contract (e.g. `Document`); sensitive auth rows stay storage-scoped with mapping.
+
+---
+
+## 4) Service contracts — files & naming
+
+| File | Purpose |
+|------|---------|
+| `internal/service/interface.go` | **Facade interfaces** for API/Job only — small, stable, minimum surface. |
+| `internal/service/internal_interface.go` | **Capability interfaces** for implementations only — not imported by API/Job. |
+| `internal/service/types.go` | Facade-adjacent DTOs, principals, sentinel errors shared with API. |
+| `internal/service/helper.go` | Optional: pure helpers (no hidden cross-layer deps). |
+
+- **Facade names:** `I…Service` / `I…Facade` — not internal decomposition (`*ReadService` unless intentionally public contract).
+- **Capability names:** `IDocumentAnalysisGenerator`, `IDocumentAnalysisPersister`, etc.
+- **API/Job must not reference `internal_interface.go` types.** Promote a façade method into `interface.go` if upper layers need it.
+
+---
+
+## 5) Service design & implementation discipline
+
+- Prefer **several small interfaces** over a god interface; split read vs write vs observability when cohesion drops.
+- **Workflow entrypoints** (e.g. job consumers) may be a thin façade method; **reusable logic** lives behind capability interfaces, composed in the implementation.
+- **Implementations must not call sibling concrete services** for domain behavior — depend on **capability interfaces** + storage/client **interfaces**. Pure helpers from `helper.go` are allowed if present.
+- **LLM:** separate **generation** (e.g. analyze) from **filtering** (e.g. relevance) — different internal interfaces where practical.
+- **Names match behavior** (e.g. *Materializer* vs “index” when persisting analysis).
+
+---
+
+## 6) Core API flow documentation
+
+When you change **non–simple-CRUD** API behavior (multi-step logic, thresholds, LLM, hybrid search, tiering semantics), update **`docs/CORE_API_FLOWS.md` in the same change set** (handlers → services → storage; algorithms; English).
+
+**Core (keep doc in sync):** e.g. `POST /api/v1/documents` ingest, `POST /api/v1/query/progressive`, `POST /api/v1/topics/regroup`, `GET /api/v1/hot/*`, `GET /api/v1/cold/chapter_hits`, `GET /api/v1/tags` when filtering/topic semantics change, MCP mirrors, cold index jobs. Document under `/api/v1` unless BFF-only behavior diverges.
+
+**Simple pass-through** (no refresh unless the doc already lists them or behavior becomes non-trivial): plain list/get, chapters by doc id, catalog lists, quota, metrics, health.
+
+New core endpoints or new pipeline stages → **add or extend** the matching section in `docs/CORE_API_FLOWS.md`.
+
+---
+
+## 7) Examples
 
 ```go
 // BAD — API handler importing storage
 import "github.com/tiersum/tiersum/internal/storage"
-type Handler struct { DocRepo storage.IDocumentRepository }
 
-// GOOD — API uses a service façade
+// GOOD — API depends on service façade
 import "github.com/tiersum/tiersum/internal/service"
-type Handler struct { Retrieval service.IRetrievalService }
 ```
 
 ```go
-// BAD — Job importing DB repository
-import "github.com/tiersum/tiersum/internal/storage/db"
+// BAD — Job importing storage/db
 
-// GOOD — Job uses service maintenance contract
+// GOOD — Job depends on service interface
 import "github.com/tiersum/tiersum/internal/service"
-type PromoteJob struct { Maintenance service.IDocumentMaintenanceService }
 ```
 
-When adding endpoints, jobs, or background work, **extend `internal/service/interface.go` (or a focused interface in that package)** before touching lower layers from upper code.
+---
+
+## 8) Checklist (new endpoints, jobs, or contracts)
+
+1. Extend **`internal/service/interface.go`** (or a focused façade in that package) before upper layers touch storage/client.
+2. Confirm API/Job use **facades + `pkg/types`** only.
+3. Confirm implementations use **storage/client interfaces** + **capability interfaces**, not sibling concrete services.
+4. If behavior is **non-trivial** for operators, update **`docs/CORE_API_FLOWS.md`** in the **same** PR/commit.

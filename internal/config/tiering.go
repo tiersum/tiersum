@@ -5,8 +5,8 @@ import (
 	"github.com/spf13/viper"
 )
 
-// HotContentThreshold returns the minimum content length (runes handled as bytes in callers)
-// for a document to be processed as hot when quota allows.
+// HotContentThreshold returns the minimum UTF-8 byte length of document content for the auto hot path
+// when quota allows (callers compare len(string) in bytes).
 func HotContentThreshold() int {
 	t := viper.GetInt("documents.tiering.hot_content_threshold")
 	if t <= 0 {

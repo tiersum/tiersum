@@ -51,7 +51,7 @@ func newMockDocService() *mockDocService {
 	}
 }
 
-func (m *mockDocService) Ingest(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error) {
+func (m *mockDocService) CreateDocument(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -68,41 +68,40 @@ func (m *mockDocService) Ingest(ctx context.Context, req types.CreateDocumentReq
 	}, nil
 }
 
-func (m *mockDocService) Get(ctx context.Context, id string) (*types.Document, error) {
+func (m *mockDocService) GetDocument(ctx context.Context, id string) (*types.Document, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return m.docs[id], nil
 }
 
-func (m *mockDocService) GetRecent(ctx context.Context, limit int) ([]*types.Document, error) {
+func (m *mockDocService) ListDocuments(ctx context.Context, limit int) ([]types.Document, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	if limit <= 0 {
-		return nil, nil
-	}
-	out := make([]*types.Document, 0, len(m.docs))
-	for _, d := range m.docs {
-		out = append(out, d)
-		if len(out) >= limit {
-			break
-		}
-	}
-	return out, nil
-}
-
-func (m *mockDocService) List(ctx context.Context) ([]types.Document, error) {
-	if m.err != nil {
-		return nil, m.err
+		limit = 200
 	}
 	out := make([]types.Document, 0, len(m.docs))
 	for _, d := range m.docs {
 		if d != nil {
 			out = append(out, *d)
+			if len(out) >= limit {
+				break
+			}
 		}
 	}
 	return out, nil
+}
+
+func (m *mockDocService) ListHotDocumentsWithSummariesByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error) {
+	_ = ctx
+	_ = tags
+	_ = limit
+	if m.err != nil {
+		return nil, m.err
+	}
+	return nil, nil
 }
 
 type mockQueryService struct {
@@ -141,68 +140,82 @@ func (m *mockTopicService) ListTopics(ctx context.Context) ([]types.Topic, error
 	return m.topics, nil
 }
 
-type mockRetrieval struct {
+type mockReadServices struct {
 	err error
 }
 
-func (m *mockRetrieval) ListTags(ctx context.Context, topicIDs []string, byTopicLimit int, listAllCap int) ([]types.Tag, error) {
+func (m *mockReadServices) ListTags(ctx context.Context, topicIDs []string, byTopicLimit int, listAllCap int) ([]types.Tag, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	return []types.Tag{}, nil
 }
 
-func (m *mockRetrieval) ListSummariesForDocument(ctx context.Context, documentID string) ([]types.Summary, error) {
+func (m *mockReadServices) ListChaptersByDocumentID(ctx context.Context, documentID string) ([]types.Chapter, error) {
 	return nil, m.err
 }
 
-func (m *mockRetrieval) ListChapterSummariesForDocument(ctx context.Context, documentID string) ([]types.Summary, error) {
-	return nil, m.err
-}
-
-func (m *mockRetrieval) MarkdownChaptersForDocument(ctx context.Context, doc *types.Document) ([]types.DocumentMarkdownChapter, error) {
+func (m *mockReadServices) ExtractChaptersFromMarkdown(ctx context.Context, doc *types.Document) ([]types.Chapter, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
 	if doc == nil || strings.TrimSpace(doc.Content) == "" {
 		return nil, nil
 	}
-	return []types.DocumentMarkdownChapter{{
-		Path:    doc.ID + "/body",
-		Title:   doc.Title,
-		Content: doc.Content,
+	return []types.Chapter{{
+		DocumentID: doc.ID,
+		Path:       doc.ID + "/body",
+		Title:      doc.Title,
+		Summary:    doc.Content,
+		Content:    doc.Content,
 	}}, nil
 }
 
-func (m *mockRetrieval) HotDocumentsWithDocSummaries(ctx context.Context, tags []string, limit int) ([]types.Document, []types.Summary, error) {
-	return nil, nil, m.err
-}
-
-func (m *mockRetrieval) ChapterSummariesByDocumentIDs(ctx context.Context, docIDs []string) (map[string][]types.Summary, error) {
+func (m *mockReadServices) ListChaptersByDocumentIDs(ctx context.Context, docIDs []string) (map[string][]types.Chapter, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
-	return map[string][]types.Summary{}, nil
+	return map[string][]types.Chapter{}, nil
 }
 
-func (m *mockRetrieval) ListSourcesByChapterPaths(ctx context.Context, paths []string) ([]types.Summary, error) {
+func (m *mockReadServices) SearchColdChapterHits(ctx context.Context, query string, limit int) ([]types.ColdSearchHit, error) {
 	return nil, m.err
 }
 
-func (m *mockRetrieval) SearchColdByQuery(ctx context.Context, query string, limit int) ([]types.ColdSearchHit, error) {
+func (m *mockReadServices) SearchHotChapters(ctx context.Context, query string, limit int) ([]types.HotSearchHit, error) {
+	_ = ctx
+	_ = query
+	_ = limit
 	return nil, m.err
 }
 
-func (m *mockRetrieval) ApproxColdIndexEntries() int {
+func (m *mockReadServices) ApproxColdIndexEntries() int {
 	return 0
 }
 
-func (m *mockRetrieval) ColdIndexVectorStats() storage.ColdIndexVectorStats {
+func (m *mockReadServices) ColdIndexVectorStats() storage.ColdIndexVectorStats {
 	return storage.ColdIndexVectorStats{}
 }
 
-func (m *mockRetrieval) ColdIndexInvertedStats() storage.ColdIndexInvertedStats {
+func (m *mockReadServices) ColdIndexInvertedStats() storage.ColdIndexInvertedStats {
 	return storage.ColdIndexInvertedStats{}
+}
+
+type mockTraceService struct {
+	err error
+}
+
+func (m *mockTraceService) ListTraceSummaries(ctx context.Context, limit, offset int) ([]types.OtelTraceSummary, error) {
+	_ = ctx
+	_ = limit
+	_ = offset
+	return nil, m.err
+}
+
+func (m *mockTraceService) ListSpansByTraceID(ctx context.Context, traceID string) ([]types.OtelSpanDTO, error) {
+	_ = ctx
+	_ = traceID
+	return nil, m.err
 }
 
 func setupTestHandler() (*Handler, *gin.Engine) {
@@ -210,14 +223,16 @@ func setupTestHandler() (*Handler, *gin.Engine) {
 	router := gin.New()
 
 	handler := &Handler{
-		DocService:    newMockDocService(),
-		QueryService:  &mockQueryService{},
-		TopicService:  &mockTopicService{},
-		Retrieval:     &mockRetrieval{},
-		Quota:         nil,
-		OtelSpans:     nil,
-		Logger:        zap.NewNop(),
-		ServerVersion: "test",
+		DocService:      newMockDocService(),
+		QueryService:    &mockQueryService{},
+		TopicService:    &mockTopicService{},
+		TagsService:     &mockReadServices{},
+		ChaptersService: &mockReadServices{},
+		ObsService:      &mockReadServices{},
+		TraceService:    &mockTraceService{},
+		Quota:           nil,
+		Logger:          zap.NewNop(),
+		ServerVersion:   "test",
 	}
 
 	api := router.Group("/api/v1")
@@ -268,7 +283,7 @@ func TestCreateDocument_IngestValidationError(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestGetMonitoring(t *testing.T) {
+func TestGetMonitoringSnapshot(t *testing.T) {
 	_, router := setupTestHandler()
 
 	w := httptest.NewRecorder()

@@ -4,17 +4,41 @@ export const LoginPage = {
     data() {
         return {
             accessToken: '',
+            rememberMe: false,
+            deviceName: '',
             loading: false,
             err: ''
         };
     },
+    async mounted() {
+        // If a persistent device token cookie exists, try passwordless re-login first.
+        await this.tryDeviceLogin();
+    },
     methods: {
+        fingerprint() {
+            const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+            return { timezone: tz, client_signal: '' };
+        },
+        async tryDeviceLogin() {
+            this.err = '';
+            this.loading = true;
+            try {
+                await apiClient.deviceLogin(this.fingerprint());
+                this.$router.replace('/');
+            } catch {
+                // Expected when no device cookie / invalid token.
+            } finally {
+                this.loading = false;
+            }
+        },
         async submit() {
             this.err = '';
             this.loading = true;
             try {
-                const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
-                await apiClient.login(this.accessToken.trim(), { timezone: tz, client_signal: '' });
+                await apiClient.login(this.accessToken.trim(), this.fingerprint(), {
+                    remember_me: this.rememberMe,
+                    device_name: this.deviceName
+                });
                 this.$router.replace('/');
             } catch (e) {
                 this.err = e.message || String(e);
@@ -31,9 +55,21 @@ export const LoginPage = {
                 <span class="label-text text-slate-300">Access token</span>
                 <textarea v-model="accessToken" class="textarea textarea-bordered bg-slate-900 border-slate-700 text-slate-100 font-mono text-sm h-28" placeholder="ts_u_…"></textarea>
             </label>
+            <label class="label cursor-pointer justify-start gap-3 mt-3">
+                <input type="checkbox" v-model="rememberMe" class="checkbox checkbox-sm" />
+                <span class="label-text text-slate-300">Keep me signed in on this browser (issues a device token cookie)</span>
+            </label>
+            <label v-if="rememberMe" class="form-control w-full mt-3">
+                <span class="label-text text-slate-300">Device label (optional)</span>
+                <input v-model="deviceName" class="input input-bordered bg-slate-900 border-slate-700 text-slate-100" placeholder="Work laptop" />
+            </label>
             <p v-if="err" class="text-sm text-red-400 mt-2">{{ err }}</p>
             <button class="btn btn-primary w-full mt-4" :disabled="loading || !accessToken.trim()" @click="submit">
                 {{ loading ? 'Verifying…' : 'Verify and bind device' }}
+            </button>
+            <div class="divider text-slate-600">or</div>
+            <button class="btn btn-outline w-full" :disabled="loading" @click="tryDeviceLogin">
+                Try device token sign-in
             </button>
         </div>
     `

@@ -16,7 +16,7 @@ This document describes the **core algorithms** for cold-document **chapter extr
 
 ## 2. Chapter extraction (markdown → cold chapters)
 
-**Primary code:** `internal/storage/coldindex/chapter_split.go`, `chapter_split_stride.go`, splitter tests under `internal/storage/coldindex/*_test.go`.
+**Primary code:** `internal/storage/coldindex/markdown_chapter_splitter_impl.go`, `chapter_split_stride.go`, splitter tests under `internal/storage/coldindex/*_test.go`.
 
 ### 2.1 Parse tree
 
@@ -55,7 +55,7 @@ Used when a single logical body still exceeds **`maxTokens`** after tree logic.
 
 ## 3. Dual indexing (per chapter row)
 
-**Primary code:** `internal/storage/coldindex/index.go`, `inverted_bleve.go`, `vector_hnsw.go`.
+**Primary code:** `internal/storage/coldindex/cold_index_impl.go`, `cold_inverted_index_bleve_impl.go`, `cold_vector_index_hnsw_impl.go`.
 
 ### 3.1 Row model
 
@@ -99,7 +99,7 @@ Each indexed unit is one **cold chapter** (not whole document):
 
 ## 5. Hybrid search and merge
 
-**Primary code:** `index.go` — `Search`, `hybridSearch`, `searchWithBleve`, `searchWithVector`, `mergeHybridResults`, `branchRecallSize`.
+**Primary code:** `cold_index_impl.go` — `Search`, `hybridSearch`, `searchWithBleve`, `searchWithVector`, `mergeHybridResults`, `branchRecallSize`.
 
 ### 5.1 Branch recall (why > topK)
 
@@ -134,7 +134,7 @@ Each indexed unit is one **cold chapter** (not whole document):
 | `cold_index.search.branch_recall_floor` | Minimum branch recall |
 | `cold_index.search.branch_recall_ceiling` | Maximum branch recall |
 | `cold_index.embedding.*` | Cold text embedder (MiniLM / simple / auto) and ONNX paths |
-| *(no viper keys yet)* | HNSW `M` / `EfSearch` use defaults in `internal/storage/coldindex/index.go` |
+| *(no viper keys yet)* | HNSW `M` / `EfSearch` use defaults in `internal/storage/coldindex/cold_index_impl.go` |
 
 See `configs/config.example.yaml`.
 
@@ -153,7 +153,7 @@ See `configs/config.example.yaml`.
 
 ## 8. REST surface
 
-- **`GET /api/v1/cold/doc_source`**: comma-separated **`q`** terms → **`IColdIndex.Search`** → JSON hits with **full chapter** `context`. See [CORE_API_FLOWS.md §5](CORE_API_FLOWS.md).
+- **`GET /api/v1/cold/chapter_hits`**: comma-separated **`q`** terms → **`IColdIndex.Search`** → JSON hits with **full chapter** `context`. See [CORE_API_FLOWS.md §5](CORE_API_FLOWS.md).
 
 ---
 
@@ -161,12 +161,12 @@ See `configs/config.example.yaml`.
 
 | File | Responsibility |
 |------|------------------|
-| `chapter_split.go` | Tree parse, merge, `splitOversizedRaw`, `MarkdownSplitter` |
+| `markdown_chapter_splitter_impl.go` | Tree parse, merge, `splitOversizedRaw`, `MarkdownSplitter` |
 | `chapter_split_stride.go` | Global sliding stride config |
-| `index.go` | `Index`, `AddDocument`, `Search`, hybrid merge, branch recall |
-| `inverted_bleve.go` | Bleve index/delete/search |
-| `vector_hnsw.go` | HNSW add/delete/search |
-| `embed_*.go`, `embed_factory.go` | Cold embedder implementations and `NewTextEmbedderFromViper` |
+| `cold_index_impl.go` | `Index`, `AddDocument`, `Search`, hybrid merge, branch recall |
+| `cold_inverted_index_bleve_impl.go` | Bleve index/delete/search |
+| `cold_vector_index_hnsw_impl.go` | HNSW add/delete/search |
+| `cold_text_embedder_*_impl.go`, `cold_text_embedder_factory.go`, `cold_text_embedding_fallback.go` | Cold embedder implementations, factory, and embedding fallback |
 | `internal/storage/interface.go` | `IColdIndex`, `ColdIndexHit` |
 | `cmd/main.go` | `SetColdChapterMaxTokens`, `SetColdMarkdownSlidingStrideTokens`, `SetColdSearchRecall`, `SetTextEmbedder`, load cold docs |
 
