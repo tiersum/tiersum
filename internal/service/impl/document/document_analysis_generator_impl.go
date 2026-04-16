@@ -74,6 +74,7 @@ Guidelines:
 - Tags should be relevant keywords (lowercase, no spaces use-hyphens).
 - For EVERY chapter object you MUST include all three fields "title", "summary", and "content".
 - "summary" is REQUIRED and must be NON-EMPTY: write 2-4 sentences capturing that chapter only.
+- To avoid token truncation, DO NOT include full chapter content in JSON. Set "content" to an empty string "".
 - If the document has no clear chapters, create a single chapter with the full content and a non-empty summary.
 `, title, truncateString(content, 10000), chapterContext.String())
 
@@ -112,6 +113,7 @@ Rules:
 - Return ONLY the JSON object.
 - Do NOT wrap in markdown.
 - Ensure every chapter has non-empty title, summary, and content.
+- To avoid token truncation, set "content" to an empty string "" and do not include full chapter content.
 
 Input:
 %s
@@ -135,6 +137,18 @@ Input:
 		return nil, fmt.Errorf("analyze document: parse json: %w", perr)
 	}
 	ensureChapterSummaries(res)
+	// We intentionally ask the model to leave chapter.content empty (""), then backfill from local markdown extraction.
+	if len(chapters) > 0 && len(res.Chapters) > 0 {
+		n := len(res.Chapters)
+		if len(chapters) < n {
+			n = len(chapters)
+		}
+		for i := 0; i < n; i++ {
+			if strings.TrimSpace(res.Chapters[i].Content) == "" {
+				res.Chapters[i].Content = strings.TrimSpace(chapters[i].Content)
+			}
+		}
+	}
 	res.Tags = normalizeTags(res.Tags, 10)
 	if len(res.Chapters) == 0 {
 		res.Chapters = []types.ChapterInfo{{
