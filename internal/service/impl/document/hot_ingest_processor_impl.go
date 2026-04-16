@@ -66,8 +66,8 @@ func (p *hotIngestProcessor) ProcessHotIngest(ctx context.Context, work types.Ho
 	prebuilt := work.PrebuiltTags
 	analysis, err := p.analyzer.GenerateAnalysis(ctx, doc.Title, doc.Content)
 	if err != nil {
-		p.logger.Warn("hot ingest: analyze failed, using fallback", zap.String("doc_id", doc.ID), zap.Error(err))
-		analysis = fallbackAnalysis(doc.Title, doc.Content)
+		p.logger.Warn("hot ingest: analyze failed, writing failure chapter", zap.String("doc_id", doc.ID), zap.Error(err))
+		analysis = analysisFailureResult(doc.Title, err)
 		analysis.Tags = append([]string(nil), prebuilt...)
 	}
 
@@ -109,6 +109,28 @@ func (p *hotIngestProcessor) ProcessHotIngest(ctx context.Context, work types.Ho
 	}
 
 	return nil
+}
+
+func analysisFailureResult(title string, err error) *types.DocumentAnalysisResult {
+	msg := "unknown error"
+	if err != nil {
+		msg = err.Error()
+	}
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		msg = "unknown error"
+	}
+	summary := truncateString("LLM analysis failed: "+msg, 200)
+	// Persist the error once as a single virtual chapter so operators can see the failure in UI and via GET /chapters.
+	return &types.DocumentAnalysisResult{
+		Summary: "",
+		Tags:    []string{},
+		Chapters: []types.ChapterInfo{{
+			Title:   "[analysis failed] " + titleOrDefault(title),
+			Summary: summary,
+			Content: "LLM analysis failed.\n\nError:\n" + truncateString(msg, 4000),
+		}},
+	}
 }
 
 func mergeTags(prebuilt, generated []string) []string {

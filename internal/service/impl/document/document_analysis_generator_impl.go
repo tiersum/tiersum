@@ -89,7 +89,7 @@ Guidelines:
 				goto parseOutput
 			}
 		}
-		return fallbackAnalysis(title, content), err
+		return nil, err
 	}
 parseOutput:
 	out = strings.TrimSpace(out)
@@ -131,8 +131,8 @@ Input:
 				return rres, nil
 			}
 		}
-		a.logger.Warn("AnalyzeDocument: parse failed, using fallback", zap.Error(perr))
-		return fallbackAnalysis(title, content), nil
+		a.logger.Warn("AnalyzeDocument: parse failed", zap.Error(perr))
+		return nil, fmt.Errorf("analyze document: parse json: %w", perr)
 	}
 	ensureChapterSummaries(res)
 	res.Tags = normalizeTags(res.Tags, 10)
