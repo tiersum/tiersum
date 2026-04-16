@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"go.uber.org/zap"
 
@@ -63,9 +64,9 @@ Please analyze this document and return a JSON object with the following structu
     {
       "title": "chapter title",
       "summary": "chapter summary (max 200 chars)",
-      "content": "", // MUST be empty string
-      "start_offset": 0, // REQUIRED: 0-based character offset into Full Content (inclusive)
-      "end_offset": 0 // REQUIRED: 0-based character offset into Full Content (exclusive)
+      "content": "", // MUST be empty string (server will slice from Full Content)
+      "start_offset": 0, // REQUIRED: 0-based character offset (Unicode code points) into Full Content (inclusive)
+      "end_offset": 0 // REQUIRED: 0-based character offset (Unicode code points) into Full Content (exclusive)
     }
   ]
 }
@@ -77,7 +78,7 @@ Guidelines:
 - For EVERY chapter object you MUST include "title", "summary", "content", "start_offset", and "end_offset".
 - "summary" is REQUIRED and must be NON-EMPTY: write 2-4 sentences capturing that chapter only.
 - To avoid token truncation, DO NOT include full chapter content in JSON. Always set "content" to "".
-- Offsets MUST point to the chapter body text inside Full Content. Use newline characters as-is; count characters in Full Content exactly.
+- Offsets must be based on the Full Content text above, counted in Unicode characters (not bytes).
 - If the document has no clear chapters, create a single chapter with the full content and a non-empty summary.
 `, title, truncateString(content, 10000), chapterContext.String())
 
@@ -115,8 +116,9 @@ Rewrite it as a valid JSON object ONLY, with this exact schema:
 Rules:
 - Return ONLY the JSON object.
 - Do NOT wrap in markdown.
-- Ensure every chapter has non-empty title and summary, and has valid offsets (end_offset > start_offset).
+- Ensure every chapter has non-empty title and summary.
 - To avoid token truncation, set "content" to "" and do not include full chapter content.
+- Ensure every chapter has valid offsets (end_offset > start_offset).
 
 Input:
 %s
@@ -140,7 +142,7 @@ Input:
 		return nil, fmt.Errorf("analyze document: parse json: %w", perr)
 	}
 	ensureChapterSummaries(res)
-	if err := fillChapterContentByOffsets(res, content); err != nil {
+	if err := fillChapterContentByRuneOffsets(res, content); err != nil {
 		return nil, fmt.Errorf("analyze document: invalid offsets: %w", err)
 	}
 	res.Tags = normalizeTags(res.Tags, 10)
@@ -154,31 +156,64 @@ Input:
 	return res, nil
 }
 
-func fillChapterContentByOffsets(res *types.DocumentAnalysisResult, fullContent string) error {
+func fillChapterContentByRuneOffsets(res *types.DocumentAnalysisResult, fullContent string) error {
 	if res == nil {
 		return fmt.Errorf("nil result")
 	}
 	if len(res.Chapters) == 0 {
 		return nil
 	}
-	if fullContent == "" {
-		return fmt.Errorf("empty document content")
+	if strings.TrimSpace(fullContent) == "" {
+		return fmt.Errorf("empty full content")
 	}
-	n := len(fullContent)
+	nRunes := utf8.RuneCountInString(fullContent)
 	for i := range res.Chapters {
 		ch := &res.Chapters[i]
 		start := ch.StartOffset
 		end := ch.EndOffset
-		if start < 0 || end < 0 || start >= n || end > n || end <= start {
-			return fmt.Errorf("chapter %d invalid range: start=%d end=%d len=%d", i, start, end, n)
+		if start < 0 || end < 0 || end <= start || start >= nRunes || end > nRunes {
+			return fmt.Errorf("chapter %d invalid rune range: start=%d end=%d runes=%d", i+1, start, end, nRunes)
 		}
-		seg := strings.TrimSpace(fullContent[start:end])
+		bs, ok := runeIndexToByteIndex(fullContent, start)
+		if !ok {
+			return fmt.Errorf("chapter %d start offset conversion failed: %d", i+1, start)
+		}
+		be, ok := runeIndexToByteIndex(fullContent, end)
+		if !ok || be < bs {
+			return fmt.Errorf("chapter %d end offset conversion failed: %d", i+1, end)
+		}
+		seg := strings.TrimSpace(fullContent[bs:be])
 		if seg == "" {
-			return fmt.Errorf("chapter %d empty slice after trim (start=%d end=%d)", i, start, end)
+			return fmt.Errorf("chapter %d empty slice after trim (start=%d end=%d)", i+1, start, end)
 		}
 		ch.Content = seg
 	}
 	return nil
+}
+
+func runeIndexToByteIndex(s string, runeIdx int) (int, bool) {
+	if runeIdx < 0 {
+		return 0, false
+	}
+	if runeIdx == 0 {
+		return 0, true
+	}
+	// Fast path: runeIdx == total runes => end of string.
+	if runeIdx == utf8.RuneCountInString(s) {
+		return len(s), true
+	}
+	r := 0
+	for i := range s {
+		if r == runeIdx {
+			return i, true
+		}
+		r++
+	}
+	// If we didn't hit exactly, allow end-of-string.
+	if r == runeIdx {
+		return len(s), true
+	}
+	return 0, false
 }
 
 func titleOrDefault(t string) string {
