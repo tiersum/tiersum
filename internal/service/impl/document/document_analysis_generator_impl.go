@@ -63,7 +63,9 @@ Please analyze this document and return a JSON object with the following structu
     {
       "title": "chapter title",
       "summary": "chapter summary (max 200 chars)",
-      "content": "full chapter content"
+      "content": "", // MUST be empty string
+      "start_offset": 0, // REQUIRED: 0-based character offset into Full Content (inclusive)
+      "end_offset": 0 // REQUIRED: 0-based character offset into Full Content (exclusive)
     }
   ]
 }
@@ -72,9 +74,10 @@ Guidelines:
 - Return ONLY the JSON object, no other text.
 - Do NOT wrap the JSON in markdown code fences.
 - Tags should be relevant keywords (lowercase, no spaces use-hyphens).
-- For EVERY chapter object you MUST include all three fields "title", "summary", and "content".
+- For EVERY chapter object you MUST include "title", "summary", "content", "start_offset", and "end_offset".
 - "summary" is REQUIRED and must be NON-EMPTY: write 2-4 sentences capturing that chapter only.
-- To avoid token truncation, DO NOT include full chapter content in JSON. Set "content" to an empty string "".
+- To avoid token truncation, DO NOT include full chapter content in JSON. Always set "content" to "".
+- Offsets MUST point to the chapter body text inside Full Content. Use newline characters as-is; count characters in Full Content exactly.
 - If the document has no clear chapters, create a single chapter with the full content and a non-empty summary.
 `, title, truncateString(content, 10000), chapterContext.String())
 
@@ -105,15 +108,15 @@ Rewrite it as a valid JSON object ONLY, with this exact schema:
   "summary": "document summary (max 300 chars)",
   "tags": ["tag1", "tag2", ...],
   "chapters": [
-    { "title": "chapter title", "summary": "chapter summary (max 200 chars)", "content": "full chapter content" }
+    { "title": "chapter title", "summary": "chapter summary (max 200 chars)", "content": "", "start_offset": 0, "end_offset": 0 }
   ]
 }
 
 Rules:
 - Return ONLY the JSON object.
 - Do NOT wrap in markdown.
-- Ensure every chapter has non-empty title, summary, and content.
-- To avoid token truncation, set "content" to an empty string "" and do not include full chapter content.
+- Ensure every chapter has non-empty title and summary, and has valid offsets (end_offset > start_offset).
+- To avoid token truncation, set "content" to "" and do not include full chapter content.
 
 Input:
 %s
@@ -137,17 +140,8 @@ Input:
 		return nil, fmt.Errorf("analyze document: parse json: %w", perr)
 	}
 	ensureChapterSummaries(res)
-	// We intentionally ask the model to leave chapter.content empty (""), then backfill from local markdown extraction.
-	if len(chapters) > 0 && len(res.Chapters) > 0 {
-		n := len(res.Chapters)
-		if len(chapters) < n {
-			n = len(chapters)
-		}
-		for i := 0; i < n; i++ {
-			if strings.TrimSpace(res.Chapters[i].Content) == "" {
-				res.Chapters[i].Content = strings.TrimSpace(chapters[i].Content)
-			}
-		}
+	if err := fillChapterContentByOffsets(res, content); err != nil {
+		return nil, fmt.Errorf("analyze document: invalid offsets: %w", err)
 	}
 	res.Tags = normalizeTags(res.Tags, 10)
 	if len(res.Chapters) == 0 {
@@ -158,6 +152,33 @@ Input:
 		}}
 	}
 	return res, nil
+}
+
+func fillChapterContentByOffsets(res *types.DocumentAnalysisResult, fullContent string) error {
+	if res == nil {
+		return fmt.Errorf("nil result")
+	}
+	if len(res.Chapters) == 0 {
+		return nil
+	}
+	if fullContent == "" {
+		return fmt.Errorf("empty document content")
+	}
+	n := len(fullContent)
+	for i := range res.Chapters {
+		ch := &res.Chapters[i]
+		start := ch.StartOffset
+		end := ch.EndOffset
+		if start < 0 || end < 0 || start >= n || end > n || end <= start {
+			return fmt.Errorf("chapter %d invalid range: start=%d end=%d len=%d", i, start, end, n)
+		}
+		seg := strings.TrimSpace(fullContent[start:end])
+		if seg == "" {
+			return fmt.Errorf("chapter %d empty slice after trim (start=%d end=%d)", i, start, end)
+		}
+		ch.Content = seg
+	}
+	return nil
 }
 
 func titleOrDefault(t string) string {
