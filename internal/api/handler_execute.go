@@ -103,6 +103,7 @@ func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, d
 				"path":    c.Path,
 				"title":   c.Title,
 				"summary": c.Content,
+				"content": c.Content,
 			})
 		}
 		return http.StatusOK, gin.H{"document_id": docID, "chapters": out}
@@ -119,6 +120,7 @@ func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, d
 			"path":    ch.Path,
 			"title":   ch.Title,
 			"summary": ch.Summary,
+			"content": ch.Content,
 		})
 	}
 	if len(out) == 0 {
@@ -131,6 +133,7 @@ func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, d
 				"path":    c.Path,
 				"title":   c.Title,
 				"summary": c.Content,
+				"content": c.Content,
 			})
 		}
 	}
