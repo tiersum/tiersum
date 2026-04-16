@@ -59,7 +59,11 @@ func (r *DocumentRepo) Create(ctx context.Context, doc *types.Document) error {
 func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document, error) {
 	if r.cache != nil {
 		if cached, ok := r.cache.Get("doc:" + id); ok {
-			return cached.(*types.Document), nil
+			if cached == nil {
+				// Cache invalidation marker: treat as miss.
+			} else if doc, ok := cached.(*types.Document); ok && doc != nil {
+				return doc, nil
+			}
 		}
 	}
 

@@ -76,7 +76,11 @@ func (r *ChapterRepo) ListByDocument(ctx context.Context, documentID string) ([]
 	cacheKey := "chapters:" + documentID
 	if r.cache != nil {
 		if cached, ok := r.cache.Get(cacheKey); ok {
-			return cached.([]types.Chapter), nil
+			if cached == nil {
+				// Cache invalidation marker: treat as miss.
+			} else if out, ok := cached.([]types.Chapter); ok {
+				return out, nil
+			}
 		}
 	}
 	q := `SELECT id, document_id, path, title, summary, content, created_at, updated_at FROM chapters WHERE document_id = ? ORDER BY created_at`
