@@ -70,6 +70,7 @@ Please analyze this document and return a JSON object with the following structu
 
 Guidelines:
 - Return ONLY the JSON object, no other text.
+- Do NOT wrap the JSON in markdown fences (no backticks / ```).
 - Tags should be relevant keywords (lowercase, no spaces use-hyphens).
 - For EVERY chapter object you MUST include all three fields "title", "summary", and "content".
 - "summary" is REQUIRED and must be NON-EMPTY: write 2-4 sentences capturing that chapter only.
@@ -149,11 +150,9 @@ func parseAnalysisJSON(raw string) (*types.DocumentAnalysisResult, error) {
 	if raw == "" {
 		return nil, fmt.Errorf("empty response")
 	}
-	// Try to extract the first JSON object when the model wrapped it.
-	if i := strings.Index(raw, "{"); i >= 0 {
-		if j := strings.LastIndex(raw, "}"); j > i {
-			raw = raw[i : j+1]
-		}
+	raw = stripMarkdownCodeFence(raw)
+	if obj, ok := extractFirstJSONObject(raw); ok {
+		raw = obj
 	}
 	var res types.DocumentAnalysisResult
 	if err := json.Unmarshal([]byte(raw), &res); err != nil {
@@ -164,6 +163,67 @@ func parseAnalysisJSON(raw string) (*types.DocumentAnalysisResult, error) {
 		res.Tags[i] = strings.TrimSpace(res.Tags[i])
 	}
 	return &res, nil
+}
+
+var (
+	// Matches a single fenced code block. This is intentionally conservative: we only use it as a fast-path to unwrap
+	// ```json\n{...}\n``` responses. If the model produced extra text around the fence, extractFirstJSONObject handles it.
+	codeFenceRe = regexp.MustCompile(`(?s)^\s*```[a-zA-Z0-9_-]*\s*\n(.*?)\n```\s*$`)
+)
+
+func stripMarkdownCodeFence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
+	}
+	m := codeFenceRe.FindStringSubmatch(s)
+	if len(m) == 2 {
+		return strings.TrimSpace(m[1])
+	}
+	return s
+}
+
+// extractFirstJSONObject returns the first balanced JSON object found in s. It is resilient to:
+// - extra prose before/after the JSON
+// - markdown formatting (handled by stripMarkdownCodeFence)
+// - braces within JSON strings
+func extractFirstJSONObject(s string) (string, bool) {
+	start := strings.Index(s, "{")
+	if start < 0 {
+		return "", false
+	}
+	inStr := false
+	escape := false
+	depth := 0
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		if inStr {
+			if escape {
+				escape = false
+				continue
+			}
+			if c == '\\' {
+				escape = true
+				continue
+			}
+			if c == '"' {
+				inStr = false
+			}
+			continue
+		}
+		switch c {
+		case '"':
+			inStr = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return strings.TrimSpace(s[start : i+1]), true
+			}
+		}
+	}
+	return "", false
 }
 
 // markdownOnlyAnalysis builds summary + chapter rows from heading-split markdown (same extractor as LLM prompt context).

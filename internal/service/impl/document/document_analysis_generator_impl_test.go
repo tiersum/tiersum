@@ -23,3 +23,29 @@ func TestGenerateAnalysis_NilProviderEmptyContent(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, res.Chapters, 1)
 }
+
+func TestParseAnalysisJSON_UnwrapsFencedJSON(t *testing.T) {
+	raw := "```json\n{\"summary\":\"S\",\"tags\":[\"a\"],\"chapters\":[{\"title\":\"T\",\"summary\":\"CS\",\"content\":\"C\"}]}\n```"
+	res, err := parseAnalysisJSON(raw)
+	require.NoError(t, err)
+	require.NotNil(t, res)
+	require.Equal(t, "S", res.Summary)
+	require.Len(t, res.Chapters, 1)
+	require.Equal(t, "T", res.Chapters[0].Title)
+}
+
+func TestParseAnalysisJSON_ExtractsJSONObjectFromProse(t *testing.T) {
+	raw := "Here is the JSON you requested:\n\n{\"summary\":\"S\",\"tags\":[],\"chapters\":[{\"title\":\"T\",\"summary\":\"CS\",\"content\":\"C\"}]}\n\nThanks!"
+	res, err := parseAnalysisJSON(raw)
+	require.NoError(t, err)
+	require.Equal(t, "S", res.Summary)
+	require.Len(t, res.Chapters, 1)
+}
+
+func TestParseAnalysisJSON_IgnoresBracesInsideStrings(t *testing.T) {
+	raw := "{\"summary\":\"S\",\"tags\":[],\"chapters\":[{\"title\":\"T\",\"summary\":\"CS\",\"content\":\"code { not a brace } inside string\"}]}\nTrailing text"
+	res, err := parseAnalysisJSON(raw)
+	require.NoError(t, err)
+	require.Len(t, res.Chapters, 1)
+	require.Contains(t, res.Chapters[0].Content, "{ not a brace }")
+}
