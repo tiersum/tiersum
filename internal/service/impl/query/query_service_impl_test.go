@@ -54,6 +54,9 @@ func (f *fakeDocRepo) UpdateHotScore(ctx context.Context, docID string, score fl
 func (f *fakeDocRepo) UpdateTags(ctx context.Context, docID string, tags []string) error     { return nil }
 func (f *fakeDocRepo) UpdateSummary(ctx context.Context, docID string, summary string) error { return nil }
 func (f *fakeDocRepo) ListAll(ctx context.Context, limit int) ([]types.Document, error)      { return nil, nil }
+func (f *fakeDocRepo) CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error) {
+	return types.DocumentStatusCounts{}, nil
+}
 
 var _ storage.IDocumentRepository = (*fakeDocRepo)(nil)
 

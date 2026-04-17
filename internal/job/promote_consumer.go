@@ -21,7 +21,7 @@ func StartPromoteQueueConsumer(ctx context.Context, maintenance service.IDocumen
 			case <-ctx.Done():
 				return
 			case docID := <-PromoteQueue:
-				runCtx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+				runCtx, cancel := context.WithTimeout(ctx, 12*time.Minute)
 				err := maintenance.PromoteColdDocumentByID(runCtx, docID)
 				cancel()
 				if err != nil {

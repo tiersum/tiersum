@@ -321,21 +321,13 @@ func (h *Handler) ExecuteGetMonitoringSnapshot(ctx context.Context) (int, any) {
 		"cold":    0,
 		"warming": 0,
 	}
-	docs, err := h.DocService.ListDocuments(ctx, 0)
-	if err != nil {
-		h.Logger.Warn("monitoring: list documents", zap.Error(err))
+	if counts, err := h.DocService.CountDocumentsByStatus(ctx); err != nil {
+		h.Logger.Warn("monitoring: document status counts", zap.Error(err))
 	} else {
-		for _, d := range docs {
-			docCounts["total"]++
-			switch d.Status {
-			case types.DocStatusHot:
-				docCounts["hot"]++
-			case types.DocStatusCold:
-				docCounts["cold"]++
-			case types.DocStatusWarming:
-				docCounts["warming"]++
-			}
-		}
+		docCounts["total"] = counts.Total
+		docCounts["hot"] = counts.Hot
+		docCounts["cold"] = counts.Cold
+		docCounts["warming"] = counts.Warming
 	}
 
 	var quota any

@@ -6,7 +6,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -17,6 +16,8 @@ type IDocumentService interface {
 	GetDocument(ctx context.Context, id string) (*types.Document, error)
 	// ListDocuments returns recent documents (descending by created_at). limit<=0 uses a service default.
 	ListDocuments(ctx context.Context, limit int) ([]types.Document, error)
+	// CountDocumentsByStatus returns full-table aggregates by document status (hot/cold/warming).
+	CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error)
 
 	// ListHotDocumentsWithSummariesByTags returns hot/warming document metadata including persisted document-level summaries.
 	// Used by GET /hot/doc_summaries.
@@ -147,9 +148,9 @@ type IObservabilityService interface {
 	// ApproxColdIndexEntries returns the cold index size hint (chapter rows), or 0 if unavailable.
 	ApproxColdIndexEntries() int
 	// ColdIndexVectorStats returns HNSW / embedding monitoring fields for the cold index (zero value if unavailable).
-	ColdIndexVectorStats() storage.ColdIndexVectorStats
+	ColdIndexVectorStats() types.ColdIndexVectorStats
 	// ColdIndexInvertedStats returns Bleve / inverted-text monitoring fields for the cold index (zero value if unavailable).
-	ColdIndexInvertedStats() storage.ColdIndexInvertedStats
+	ColdIndexInvertedStats() types.ColdIndexInvertedStats
 }
 
 // ITraceService exposes persisted OpenTelemetry traces for the browser observability UI.

@@ -185,6 +185,28 @@ func (s *authService) Bootstrap(ctx context.Context, adminUsername string) (*ser
 	}, nil
 }
 
+func (s *authService) persistNewBrowserSession(ctx context.Context, userID, fpHash, ipP, uaN, tz string, now time.Time) (sessionCookiePlain string, err error) {
+	sessPlain, sessHash, err := newSessionCookieValue()
+	if err != nil {
+		return "", err
+	}
+	exp := now.Add(s.sessionTTL)
+	sess := &storage.BrowserSession{
+		UserID:           userID,
+		SessionTokenHash: sessHash,
+		FingerprintHash:  fpHash,
+		IPPrefix:         ipP,
+		UserAgentNorm:    uaN,
+		Timezone:         tz,
+		ExpiresAt:        exp,
+		LastSeenAt:       now,
+	}
+	if err := s.sessions.Create(ctx, sess); err != nil {
+		return "", err
+	}
+	return sessPlain, nil
+}
+
 func (s *authService) LoginWithAccessToken(ctx context.Context, accessTokenPlain string, fp service.FingerprintInput, remoteIP, userAgent string) (string, error) {
 	accessTokenPlain = strings.TrimSpace(accessTokenPlain)
 	if accessTokenPlain == "" {
@@ -224,22 +246,8 @@ func (s *authService) LoginWithAccessToken(ctx context.Context, accessTokenPlain
 		return "", err
 	}
 
-	sessPlain, sessHash, err := newSessionCookieValue()
+	sessPlain, err := s.persistNewBrowserSession(ctx, user.ID, fpHash, ipP, uaN, fp.Timezone, now)
 	if err != nil {
-		return "", err
-	}
-	exp := now.Add(s.sessionTTL)
-	sess := &storage.BrowserSession{
-		UserID:           user.ID,
-		SessionTokenHash: sessHash,
-		FingerprintHash:  fpHash,
-		IPPrefix:         ipP,
-		UserAgentNorm:    uaN,
-		Timezone:         fp.Timezone,
-		ExpiresAt:        exp,
-		LastSeenAt:       now,
-	}
-	if err := s.sessions.Create(ctx, sess); err != nil {
 		return "", err
 	}
 	newValid := now.Add(s.slideUserTokenTTL)

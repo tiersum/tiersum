@@ -137,26 +137,7 @@ func analysisFailureResult(title string, err error) *types.DocumentAnalysisResul
 }
 
 func mergeTags(prebuilt, generated []string) []string {
-	// Preserve exact tag strings from the LLM (and prebuilt request tags); dedupe by string identity only.
-	set := make(map[string]struct{}, len(prebuilt)+len(generated))
-	out := make([]string, 0, len(prebuilt)+len(generated))
-	push := func(t string) {
-		if t == "" {
-			return
-		}
-		if _, ok := set[t]; ok {
-			return
-		}
-		set[t] = struct{}{}
-		out = append(out, t)
-	}
-	for _, t := range prebuilt {
-		push(t)
-	}
-	for _, t := range generated {
-		push(t)
-	}
-	return out
+	return mergeOrderedTagLists(prebuilt, generated)
 }
 
 var _ service.IHotIngestProcessor = (*hotIngestProcessor)(nil)

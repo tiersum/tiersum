@@ -172,7 +172,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 		logger,        // logger
 		serverVersion, // serverVersion
 	)
-	mcpServer := api.NewMCPServer(restHandler, authService, logger)
+	mcpServer := api.NewMCPServer(restHandler, authService)
 
 	return &Dependencies{
 		// Storage

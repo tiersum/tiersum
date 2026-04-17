@@ -16,30 +16,32 @@ import (
 	mcpserver "github.com/mark3labs/mcp-go/server"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/viper"
-	"github.com/tiersum/tiersum/internal/telemetry"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
-	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
+	"github.com/tiersum/tiersum/internal/telemetry"
 	"github.com/tiersum/tiersum/pkg/types"
 )
+
+// mcpAPIKeyCtxKey is the context key used to carry the API key from the HTTP message handler down to MCP tool handlers.
+type mcpAPIKeyCtxKey string
+
+const mcpAPIKeyCtxValueKey mcpAPIKeyCtxKey = "mcp_api_key"
 
 // MCPServer handles MCP protocol. Tool names and payloads mirror REST /api/v1 (see RegisterRoutes).
 type MCPServer struct {
 	api         *Handler
 	programAuth service.IProgramAuth
-	logger      *zap.Logger
 	mcp         *mcpserver.MCPServer
 	sse         *mcpserver.SSEServer
 }
 
 // NewMCPServer creates a new MCP server wired to the same Handler as REST.
-func NewMCPServer(restAPI *Handler, programAuth service.IProgramAuth, logger *zap.Logger) *MCPServer {
+func NewMCPServer(restAPI *Handler, programAuth service.IProgramAuth) *MCPServer {
 	s := &MCPServer{
 		api:         restAPI,
 		programAuth: programAuth,
-		logger:      logger,
 	}
 
 	s.mcp = mcpserver.NewMCPServer(
@@ -55,6 +57,19 @@ func NewMCPServer(restAPI *Handler, programAuth service.IProgramAuth, logger *za
 		mcpserver.WithStaticBasePath("/mcp"),
 		mcpserver.WithSSEEndpoint("/sse"),
 		mcpserver.WithMessageEndpoint("/message"),
+		mcpserver.WithSSEContextFunc(func(ctx context.Context, r *http.Request) context.Context {
+			raw := strings.TrimSpace(r.Header.Get("X-API-Key"))
+			if raw == "" {
+				authz := strings.TrimSpace(r.Header.Get("Authorization"))
+				if strings.HasPrefix(strings.ToLower(authz), "bearer ") {
+					raw = strings.TrimSpace(authz[7:])
+				}
+			}
+			if raw != "" {
+				ctx = context.WithValue(ctx, mcpAPIKeyCtxValueKey, raw)
+			}
+			return ctx
+		}),
 	}
 	if baseURL != "" {
 		opts = append(opts,

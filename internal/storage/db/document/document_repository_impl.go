@@ -425,4 +425,33 @@ func (r *DocumentRepo) ListAll(ctx context.Context, limit int) ([]types.Document
 	return documents, rows.Err()
 }
 
+// CountDocumentsByStatus implements storage.IDocumentRepository.CountDocumentsByStatus.
+func (r *DocumentRepo) CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error) {
+	const q = `SELECT status, COUNT(*) FROM documents GROUP BY status`
+	rows, err := r.db.QueryContext(ctx, q)
+	if err != nil {
+		return types.DocumentStatusCounts{}, fmt.Errorf("count documents by status: %w", err)
+	}
+	defer rows.Close()
+
+	var out types.DocumentStatusCounts
+	for rows.Next() {
+		var st string
+		var n int
+		if err := rows.Scan(&st, &n); err != nil {
+			return types.DocumentStatusCounts{}, err
+		}
+		out.Total += n
+		switch types.DocumentStatus(st) {
+		case types.DocStatusHot:
+			out.Hot += n
+		case types.DocStatusCold:
+			out.Cold += n
+		case types.DocStatusWarming:
+			out.Warming += n
+		}
+	}
+	return out, rows.Err()
+}
+
 var _ storage.IDocumentRepository = (*DocumentRepo)(nil)

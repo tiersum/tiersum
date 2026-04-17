@@ -21,7 +21,7 @@ func StartHotIngestQueueConsumer(ctx context.Context, proc service.IHotIngestPro
 			case <-ctx.Done():
 				return
 			case work := <-HotIngestQueue:
-				runCtx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+				runCtx, cancel := context.WithTimeout(ctx, 12*time.Minute)
 				err := proc.ProcessHotIngest(runCtx, work)
 				cancel()
 				if err != nil {

@@ -3,50 +3,32 @@ package api
 import (
 	"context"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mark3labs/mcp-go/mcp"
-	"github.com/spf13/viper"
 
-	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// mcpProgramGate validates TIERSUM_API_KEY (or mcp.api_key) against the same rules as /api/v1.
+// mcpProgramGate validates the API key carried in the MCP context against the same rules as /api/v1.
+// The key is injected by the SSE context func in NewMCPServer (reads X-API-Key or Authorization header).
 // logicalPath is recorded in audit (e.g. "POST /api/v1/documents").
 func (s *MCPServer) mcpProgramGate(ctx context.Context, requiredScope, logicalPath string) (*mcp.CallToolResult, error) {
 	if s.programAuth == nil {
 		return nil, nil
 	}
-	init, err := s.programAuth.IsSystemInitialized(ctx)
-	if err != nil {
-		return mcpJSONResult(http.StatusInternalServerError, gin.H{"error": "auth_state_unavailable"})
-	}
-	if !init {
-		return mcpJSONResult(http.StatusForbidden, gin.H{"code": "SYSTEM_NOT_INITIALIZED"})
-	}
-	raw := strings.TrimSpace(os.Getenv("TIERSUM_API_KEY"))
-	if raw == "" {
-		raw = strings.TrimSpace(viper.GetString("mcp.api_key"))
+	raw := ""
+	if v, ok := ctx.Value(mcpAPIKeyCtxValueKey).(string); ok {
+		raw = strings.TrimSpace(v)
 	}
 	if raw == "" {
 		return mcpJSONResult(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
 	}
-	principal, err := s.programAuth.ValidateAPIKey(ctx, raw)
-	if err != nil {
-		switch err {
-		case service.ErrAuthAPIKeyRevoked:
-			return mcpJSONResult(http.StatusForbidden, gin.H{"error": "key_revoked", "contact_admin": true})
-		default:
-			return mcpJSONResult(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
-		}
+	_, status, body := checkProgramAuth(ctx, s.programAuth, raw, requiredScope, "MCP", logicalPath, "mcp")
+	if status != 0 {
+		return mcpJSONResult(status, body)
 	}
-	if !s.programAuth.APIKeyMeetsScope(principal, requiredScope) {
-		return mcpJSONResult(http.StatusForbidden, gin.H{"error": "insufficient_scope", "required": requiredScope})
-	}
-	_ = s.programAuth.RecordAPIKeyUse(ctx, principal.KeyID, "MCP", logicalPath, "mcp")
 	return nil, nil
 }
 
