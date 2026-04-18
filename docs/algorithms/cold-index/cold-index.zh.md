@@ -1,8 +1,8 @@
 # 冷文档索引：算法与设计
 
-本文说明冷文档 **章节抽取**、**双路索引**（BM25 + 稠密向量）与 **混合检索** 的核心算法，与偏重接口调用链的 [CORE_API_FLOWS.md](CORE_API_FLOWS.md)（英文）互为补充。若有出入，以 **`internal/storage/coldindex/`** 中的 **源码为准**。
+本文说明冷文档 **章节抽取**、**双路索引**（BM25 + 稠密向量）与 **混合检索** 的核心算法，与偏重接口调用链的 [../core-api-flows.md](../core-api-flows.md)（英文）互为补充。若有出入，以 **`internal/storage/coldindex/`** 中的 **源码为准**。
 
-英文版：[COLD_INDEX.md](COLD_INDEX.md)
+英文版：[cold-index.md](cold-index.md)
 
 ---
 
@@ -267,7 +267,7 @@ root (level 0)
 
 ## 8. REST 接口
 
-- **`GET /api/v1/cold/chapter_hits`**：逗号分隔的 **`q`** → **`IColdIndex.Search`** → JSON 命中项，`context` 为 **整章正文**。流程见 [CORE_API_FLOWS.md §5](CORE_API_FLOWS.md)。
+- **`GET /api/v1/cold/chapter_hits`**：逗号分隔的 **`q`** → **`IColdIndex.Search`** → JSON 命中项，`context` 为 **整章正文**。流程见 [../core-api-flows.md §5](../core-api-flows.md)。
 
 ---
 

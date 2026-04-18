@@ -182,7 +182,7 @@ Job Layer (same dependency rule as API): Service Layer only (`internal/service`,
 4. **DI in di/**: All wiring happens in `internal/di/container.go`
 5. **API unified**: REST and MCP handlers in same package (`internal/api/`)
 6. **English Comments Only**: All code comments must be written in English
-7. **Strict layer boundaries**: Upper layers (**`internal/api`**, **`internal/job`**) may depend only on **`internal/service`** façade contracts (`interface.go`, `types.go`) and neutral **`pkg/types`** — not on **`internal/storage`**, **`internal/storage/db`**, **`internal/client`**, implementation packages under `internal/service/impl/`, or capability-only types (e.g. document analysis contracts). Service code uses storage and client **only through** `internal/storage/interface.go` and `internal/client/interface.go`. **`.cursor/rules/layer-dependencies.mdc`** is the single mandatory Cursor rule for layer edges, DTO placement, service contract shape, and when to update **`docs/CORE_API_FLOWS.md`**.
+7. **Strict layer boundaries**: Upper layers (**`internal/api`**, **`internal/job`**) may depend only on **`internal/service`** façade contracts (`interface.go`, `types.go`) and neutral **`pkg/types`** — not on **`internal/storage`**, **`internal/storage/db`**, **`internal/client`**, implementation packages under `internal/service/impl/`, or capability-only types (e.g. document analysis contracts). Service code uses storage and client **only through** `internal/storage/interface.go` and `internal/client/interface.go`. **`.cursor/rules/layer-dependencies.mdc`** is the single mandatory Cursor rule for layer edges, DTO placement, service contract shape, and when to update **`docs/algorithms/core-api-flows.md`**.
 
 ---
 
@@ -466,7 +466,7 @@ PromoteJob (every 5 min) → Full LLM analysis → hot
 
 ### Core API flows (algorithms)
 
-Endpoints that are more than simple CRUD — ingest tiering, progressive query, topic regrouping, hot/cold retrieval, hybrid cold search — are documented in **[docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md)** (call chain from REST handlers into services and storage).
+Endpoints that are more than simple CRUD — ingest tiering, progressive query, topic regrouping, hot/cold retrieval, hybrid cold search — are documented in **[docs/algorithms/core-api-flows.md](docs/algorithms/core-api-flows.md)** (call chain from REST handlers into services and storage).
 
 ### REST API
 
@@ -535,14 +535,14 @@ var _ service.IMyService = (*MySvc)(nil)
 2. **Implement** in a service implementation package (composed from `internal/di`)
 3. **Wire** in `di/container.go`
 4. **Add tests** in `*_test.go`
-5. **Core API docs:** If the change affects a **non–simple-CRUD** API (multi-step logic, LLM, tiering, hybrid search, topic regroup / catalog tags, hot/cold retrieval), update **`docs/CORE_API_FLOWS.md`** in the same PR/commit (see **§6** in `.cursor/rules/layer-dependencies.mdc`).
+5. **Core API docs:** If the change affects a **non–simple-CRUD** API (multi-step logic, LLM, tiering, hybrid search, topic regroup / catalog tags, hot/cold retrieval), update **`docs/algorithms/core-api-flows.md`** in the same PR/commit (see **§6** in `.cursor/rules/layer-dependencies.mdc`).
 6. **AGENTS.md edits:** When changing **`AGENTS.md`**, in the same pass **strengthen Architecture-related sections** (`## Project Structure`, `## Architecture Principles`, and aligned topics such as hot/cold tiering or jobs) so structure, layers, and cross-links stay accurate. Cursor rule: `.cursor/rules/agents-architecture.mdc`.
 
 ---
 
 ## Security Considerations
 
-- **Dual-track auth (design):** see **[docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md)**; **operator / user steps:** **[README.md](README.md#access-control-and-permissions-user-guide)**.
+- **Dual-track auth (design):** see **[docs/design/auth-and-permissions.md](docs/design/auth-and-permissions.md)**; **operator / user steps:** **[README.md](README.md#access-control-and-permissions-user-guide)**.
 - **Dual-track auth (summary):** **`/api/v1/*`** and MCP tool calls require **database API keys** validated via **`service.IProgramAuth`** (implementations wired from `internal/di`); browser/admin flows use **`service.IAuthService`**. Send `X-API-Key` or `Authorization: Bearer` with `tsk_live_*` or `tsk_admin_*` values created in the admin UI (or the bootstrap response). Scopes: `read` (default GET + `POST /query/progressive`), `write` (+ document ingest + tag regroup), `admin` (superset). **`/bff/v1/*`** uses **HttpOnly session cookies** after `POST /bff/v1/auth/login` (`BFFSessionMiddleware`, then **`BFFHumanRBAC`**: human roles `admin` / `user` / `viewer`; **`viewer`** is read-only except `POST /query/progressive`; **`GET /monitoring`** and **`GET /traces*`** require human **`admin`**). Until first bootstrap, **`/api/v1`** returns **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`. **`GET /health`** and **`GET /metrics`** stay public at the root. MCP reads **`TIERSUM_API_KEY`** or `mcp.api_key` for the same validation as REST.
 - JWT authentication for REST is not implemented (no corresponding config keys).
 - CORS configuration for web UI
@@ -597,10 +597,10 @@ Default setup uses SQLite with volume-mounted data directory.
 | `cmd/web/`                         | Vue 3 CDN frontend (embedded); ESM entry `js/main.js`, pages under `js/pages/` |
 | `internal/storage/db/shared/schema.go` | Baseline DDL (`shared.BaseSchema`) applied on startup          |
 | `pkg/types`                        | Public types used across all layers                             |
-| `docs/CORE_API_FLOWS.md`           | Core REST API algorithms and call flows (non-trivial endpoints) |
-| `docs/AUTH_AND_PERMISSIONS.md`     | Dual-track auth design: human vs program, roles, scopes, tables, config |
-| `docs/COLD_INDEX.md`               | Cold index **core algorithms** (English): chapter extraction, Bleve+HNSW, hybrid merge, config |
-| `docs/COLD_INDEX_zh.md`            | 同上，**中文**设计说明 |
+| `docs/algorithms/core-api-flows.md`           | Core REST API algorithms and call flows (non-trivial endpoints) |
+| `docs/design/auth-and-permissions.md`     | Dual-track auth design: human vs program, roles, scopes, tables, config |
+| `docs/algorithms/cold-index/cold-index.md`               | Cold index **core algorithms** (English): chapter extraction, Bleve+HNSW, hybrid merge, config |
+| `docs/algorithms/cold-index/cold-index.zh.md`            | 同上，**中文**设计说明 |
 | `internal/storage/coldindex/cold_text_embedder_*_impl.go` / `cold_text_embedder_factory.go` / `cold_text_embedding_fallback.go` | MiniLM / simple cold embeddings; `coldindex.NewTextEmbedderFromViper`, `coldindex.FallbackColdTextEmbedding` |
 | `internal/storage/coldindex/coldvec/`   | Deterministic hash embedding (cold index fallback)                 |
 | `third_party/minilm/README.md`     | Fetching MiniLM `model.onnx` + `tokenizer.json` (gitignored)       |

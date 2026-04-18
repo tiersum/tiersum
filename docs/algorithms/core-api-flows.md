@@ -2,7 +2,7 @@
 
 This document traces **non-trivial** REST endpoints: anything beyond simple list/get of stored rows. It follows the call chain from `internal/api` into `internal/service/impl` and related storage.
 
-**Full auth design:** roles, scopes, dual-track model, DB tables, and config are in **[docs/AUTH_AND_PERMISSIONS.md](AUTH_AND_PERMISSIONS.md)**. End-user steps are in the root **[README.md](../README.md#access-control-and-permissions-user-guide)**.
+**Full auth design:** roles, scopes, dual-track model, DB tables, and config are in **[../design/auth-and-permissions.md](../design/auth-and-permissions.md)**. End-user steps are in the root **[README.md](../README.md#access-control-and-permissions-user-guide)**.
 
 **Mount points and auth:** The same `Handler.RegisterRoutes` surface is mounted at **`/api/v1`** (program track: **`api.ProgramAuthMiddleware`** → `service.IProgramAuth` / `authimpl.NewProgramAuth`: DB API keys with scopes `read` | `write` | `admin`, `X-API-Key` or `Authorization: Bearer`) and at **`/bff/v1`** for the embedded UI (human track: **`api.BFFSessionMiddleware`** + HttpOnly **`tiersum_session`** cookie after `POST /bff/v1/auth/login` or `POST /bff/v1/auth/device_login`, then **`api.BFFHumanRBAC`**: `viewer` is read-only except **`POST /bff/v1/query/progressive`**; **`GET /bff/v1/monitoring`** and **`GET /bff/v1/traces*`** require human **`admin`**). Optional HttpOnly **`tiersum_device`** cookie stores a persistent **device token** (`ts_d_*`, DB row in `device_tokens`) for “keep me signed in” / quick re-login. Until bootstrap, **`IsSystemInitialized`** is false: **`/api/v1/*`** returns **403** JSON `{ "code": "SYSTEM_NOT_INITIALIZED" }`; protected **`/bff/v1/*`** (everything except small public auth paths) returns the same or **401** when unauthenticated. Paths below use **`/api/v1`**; use **`/bff/v1`** for the same handlers behind the session cookie. **Probes / metrics:** **`GET /health`** and **`GET /metrics`** stay at the **server root** and are not gated by either track.
 
@@ -20,7 +20,7 @@ Subsequent authenticated browser requests use **`IAuthService.ValidateBrowserSes
 
 **BFF request hardening (browser track):**
 
-- **Human RBAC** (`api.BFFHumanRBAC`): after the session cookie is validated, **`users.role`** gates write-style traffic for **`viewer`** and gates observability reads for non-**`admin`** (see **[AUTH_AND_PERMISSIONS.md](AUTH_AND_PERMISSIONS.md)**).
+- **Human RBAC** (`api.BFFHumanRBAC`): after the session cookie is validated, **`users.role`** gates write-style traffic for **`viewer`** and gates observability reads for non-**`admin`** (see **[../design/auth-and-permissions.md](../design/auth-and-permissions.md)**).
 - **CSRF**: all non-GET/HEAD/OPTIONS requests under `/bff/v1` are protected by a same-origin check (`api.BFFSameOriginMiddleware`). The server requires `Origin` or `Referer` to match the current request host (or be allowlisted via `auth.browser.csrf.allowed_origins`). This defends cookie-authenticated endpoints from cross-site form / fetch abuse.
 - **Rate limiting**: `POST /bff/v1/system/bootstrap`, `POST /bff/v1/auth/login`, and `POST /bff/v1/auth/device_login` are IP rate-limited in-process. Login additionally applies an exponential cooldown after repeated failures (`try_later` with `retry_after`).
 - **Secure cookie behind proxies**: session cookie `Secure` attribute is controlled by `auth.browser.cookie_secure_mode` (`auto|always|never`). In `auto`, the server sets `Secure` when the request is TLS, or when `auth.browser.trust_proxy_headers=true` and `X-Forwarded-Proto=https` / `X-Forwarded-Ssl=on` is present (reverse-proxy TLS termination).
@@ -39,7 +39,7 @@ Subsequent authenticated browser requests use **`IAuthService.ValidateBrowserSes
 
 ## 0. `GET /api/v1/documents/:id/chapters` — sections for detail UI
 
-**Handler:** `ExecuteListDocumentChaptersByDocumentID`. **Cold** documents always use **`IChapterService.ExtractChaptersFromMarkdown`**: when a cold index is wired, **`IColdIndex.MarkdownChapters`** delegates to **`coldindex.MarkdownChaptersFromSplit`** (same splitter / **same `EstimateTokens` budget units** as cold ingest — sized for **vector embedder sequence length**, not LLM prompts; see **`docs/COLD_INDEX.md` §2.3**) and section titles use **`pkg/markdown.ChapterDisplayTitle`**; when no cold index is wired, the service returns a single synthetic `{doc_id}/body` chapter from raw markdown with the same title helper. **Hot/warming:** load persisted **`IChapterService.ListChaptersByDocumentID`** rows; if none, fall back to **`ExtractChaptersFromMarkdown`** as above. JSON `summary` is the section body for cold markdown fallback and the stored chapter summary for hot rows.
+**Handler:** `ExecuteListDocumentChaptersByDocumentID`. **Cold** documents always use **`IChapterService.ExtractChaptersFromMarkdown`**: when a cold index is wired, **`IColdIndex.MarkdownChapters`** delegates to **`coldindex.MarkdownChaptersFromSplit`** (same splitter / **same `EstimateTokens` budget units** as cold ingest — sized for **vector embedder sequence length**, not LLM prompts; see **`cold-index/cold-index.md` §2.3**) and section titles use **`pkg/markdown.ChapterDisplayTitle`**; when no cold index is wired, the service returns a single synthetic `{doc_id}/body` chapter from raw markdown with the same title helper. **Hot/warming:** load persisted **`IChapterService.ListChaptersByDocumentID`** rows; if none, fall back to **`ExtractChaptersFromMarkdown`** as above. JSON `summary` is the section body for cold markdown fallback and the stored chapter summary for hot rows.
 
 ---
 
@@ -69,7 +69,7 @@ Resolved mode: `**req.EffectiveIngestMode()**` (`ingest_mode` JSON field: `auto`
 ### 1.3 Cold path (implemented)
 
 - Persist **`documents`** with `**status = cold**` and **empty `tags`** (even if the client sent tags).
-- Then `**IColdIndex.AddDocument(ctx, doc)**` (`**coldindex.Index**` from `cmd/main.go`): chapter split, Bleve + HNSW indexing, optional embedder — same behavior as cold index design (markdown windows / paths as in **`docs/COLD_INDEX.md`**). **Heading tree:** **goldmark** CommonMark AST; only **`ast.Heading`** nodes that are **direct children of the document** define chapters (prefer missed headings over false splits); see **`docs/COLD_INDEX.md` §2.1** and **`docs/CHAPTER_TREE_QUALITY_PLAN.md`**.
+- Then `**IColdIndex.AddDocument(ctx, doc)**` (`**coldindex.Index**` from `cmd/main.go`): chapter split, Bleve + HNSW indexing, optional embedder — same behavior as cold index design (markdown windows / paths as in **`cold-index/cold-index.md`**). **Heading tree:** **goldmark** CommonMark AST; only **`ast.Heading`** nodes that are **direct children of the document** define chapters (prefer missed headings over false splits); see **`cold-index/cold-index.md` §2.1** and **`cold-index/chapter-tree-quality.md`**.
 - **Order:** DB row first, then index; index failure surfaces as **HTTP 500** (row may already exist — operators can reindex or delete manually if needed).
 
 ### 1.4 Response
@@ -144,7 +144,7 @@ Scheduled `**TopicRegroupJob**` (`internal/job/jobs.go`) runs the same regroup p
 
 ## 5. `GET /api/v1/cold/chapter_hits` — Cold hybrid search
 
-**Design (algorithms, indexing, merge, config):** [COLD_INDEX.md](COLD_INDEX.md) · [COLD_INDEX_zh.md](COLD_INDEX_zh.md)（中文）
+**Design (algorithms, indexing, merge, config):** [cold-index/cold-index.md](cold-index/cold-index.md) · [cold-index/cold-index.zh.md](cold-index/cold-index.zh.md)（中文）
 
 **Handler:** `ExecuteSearchColdChapterHits` → `**IChapterService.SearchColdChapterHits**` → `**IColdIndex.Search**` (`internal/storage/coldindex/cold_index_impl.go`).
 
@@ -180,7 +180,7 @@ No LLM; included because behavior differs from a single-table dump when `topic_i
 | Document summary + chapter rows | Service persister (behind jobs/ingest via `internal/service/impl/document.IDocumentAnalysisPersister`), `internal/storage/db/document/document_repository_impl.go` / `chapter_repository_impl.go` (documents.summary + chapters table) |
 | Topic regroup + list      | `internal/service/impl/catalog/topic_service_impl.go`, `internal/job/jobs.go` (`TopicRegroupJob`) |
 | Cold index (Bleve + HNSW)   | `internal/storage/coldindex/cold_index_impl.go`                                           |
-| Cold index algorithms     | [COLD_INDEX.md](COLD_INDEX.md), [COLD_INDEX_zh.md](COLD_INDEX_zh.md)                    |
+| Cold index algorithms     | [cold-index/cold-index.md](cold-index/cold-index.md), [cold-index/cold-index.zh.md](cold-index/cold-index.zh.md)                    |
 | Cold embeddings           | `coldindex.NewTextEmbedderFromViper` + `**coldindex.Index.SetTextEmbedder**` in `cmd/main.go`; `**storage.IColdIndex**` exposes only documents + text `**Search**` / `**ColdIndexHit**` |
 | Promotion side effect     | `job.PromoteQueue` → `IDocumentMaintenanceService.PromoteColdDocumentByID`; scheduled sweep `RunColdPromotionSweep` in `internal/service/impl/document/document_maintenance_service_impl.go` |
 

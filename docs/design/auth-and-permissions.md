@@ -105,6 +105,6 @@ There is **no** `security.api_key` single shared secret for REST.
 
 | Document | Content |
 | -------- | ------- |
-| [CORE_API_FLOWS.md](CORE_API_FLOWS.md) | Mount points, bootstrap, login, admin/me BFF summary, MCP pointer. |
+| [../algorithms/core-api-flows.md](../algorithms/core-api-flows.md) | Mount points, bootstrap, login, admin/me BFF summary, MCP pointer. |
 | [FRONTEND.md](../cmd/web/FRONTEND.md) | Which UI screens call which BFF routes. |
 | [AGENTS.md](../AGENTS.md) | Repo layout, security bullets, layer rules. |

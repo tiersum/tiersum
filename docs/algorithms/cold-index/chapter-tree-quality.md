@@ -4,7 +4,7 @@
 **目标**: 提升 `parseSplitTree` 的标题识别准确率，减少误判与漏判  
 **优先级**: 在保持高召回的同时，显著降低假阳性（false positive）章节边界  
 
-**落地记录（源码）**: `parseSplitTree` 已改为 **goldmark CommonMark AST**（[`internal/storage/coldindex/markdown_chapter_splitter_ast.go`](internal/storage/coldindex/markdown_chapter_splitter_ast.go)），原则：**宁可漏提取，不要误提取** —— 仅采纳 **`ast.Heading` 且父节点为 `Document`** 的标题（blockquote / list / table 等内的 `#` **不**生成章节路径）。**不**保证与历史冷章节路径一致；冷索引可全量重建。行级启发式（编号大纲正则等）已从树构建路径移除；`parseNumberedOutlineHeading` 仍保留供单元测试。设计细节以 [docs/COLD_INDEX.md](docs/COLD_INDEX.md) §2.1 为准。
+**落地记录（源码）**: `parseSplitTree` 已改为 **goldmark CommonMark AST**（[`internal/storage/coldindex/markdown_chapter_splitter_ast.go`](internal/storage/coldindex/markdown_chapter_splitter_ast.go)），原则：**宁可漏提取，不要误提取** —— 仅采纳 **`ast.Heading` 且父节点为 `Document`** 的标题（blockquote / list / table 等内的 `#` **不**生成章节路径）。**不**保证与历史冷章节路径一致；冷索引可全量重建。行级启发式（编号大纲正则等）已从树构建路径移除；`parseNumberedOutlineHeading` 仍保留供单元测试。设计细节以 [cold-index.md](cold-index.md) §2.1 为准。
 
 ---
 
@@ -771,4 +771,4 @@ func parseSplitTree(markdown string) *splitNode {
 
 ---
 
-**复核小结**：文档结构清晰，**P0/P1 方向与痛点匹配**；主要修订建议是——**(1)** 与**当前 `parseNumberedOutlineHeading` 已做收紧**对齐后重定 P0 范围；**(2)** Phase 1 的「连续编号」「动词表」**假阴性/假阳性**需大量 fixture；**(3)** §5.2 与 Setext **预读**叙述统一；**(4)** 配置项**去重**；**(5)** 中长期单列 **AST 标题** 轨道以免启发式走到死胡同。实施时同步更新 [docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md) 与 [docs/markdown_chapters_optimization.md](docs/markdown_chapters_optimization.md) 中与本文件不一致的段落。
+**复核小结**：文档结构清晰，**P0/P1 方向与痛点匹配**；主要修订建议是——**(1)** 与**当前 `parseNumberedOutlineHeading` 已做收紧**对齐后重定 P0 范围；**(2)** Phase 1 的「连续编号」「动词表」**假阴性/假阳性**需大量 fixture；**(3)** §5.2 与 Setext **预读**叙述统一；**(4)** 配置项**去重**；**(5)** 中长期单列 **AST 标题** 轨道以免启发式走到死胡同。实施时同步更新 [../core-api-flows.md](../core-api-flows.md) 与相关文档中与本文件不一致的段落。
