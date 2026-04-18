@@ -11,6 +11,6 @@ Whenever you **edit `AGENTS.md`**, in the **same change** review and, where appl
 1. **`## Project Structure`** — Directory tree and file roles match the repo; new packages sit under the correct layer.
 2. **`## Architecture Principles`** — Five-layer dependency direction, interface+impl rules, DI location, REST/MCP unity — update if the codebase changed.
 3. **Related sections** — If the edit concerns tiering, jobs, search, or ingestion/query pipelines, align **Hot/Cold Document Tiering**, **Job Layer**, **Technology Stack**, or **Important Paths** so they stay consistent with implementation.
-4. **Depth without bloat** — Prefer concise diagrams or bullet flow; defer step-by-step algorithms to **`docs/CORE_API_FLOWS.md`** and link from AGENTS when useful.
+4. **Depth without bloat** — Prefer concise diagrams or bullet flow; defer step-by-step algorithms to **`docs/algorithms/core-api-flows.md`** and link from AGENTS when useful.
 
 If you introduce a **new major component** (service, storage adapter, background job, or API surface), extend the Architecture-relevant sections so readers still see **where it lives** and **how it fits the layer model**.

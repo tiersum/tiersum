@@ -1,8 +1,8 @@
 # Cold document index: algorithms and design
 
-This document describes the **core algorithms** for cold-document **chapter extraction**, **dual indexing** (BM25 + dense vectors), and **hybrid retrieval**. It complements the endpoint-oriented notes in [CORE_API_FLOWS.md](CORE_API_FLOWS.md). When in doubt, **source code is authoritative** (`internal/storage/coldindex/`).
+This document describes the **core algorithms** for cold-document **chapter extraction**, **dual indexing** (BM25 + dense vectors), and **hybrid retrieval**. It complements the endpoint-oriented notes in [../core-api-flows.md](../core-api-flows.md). When in doubt, **source code is authoritative** (`internal/storage/coldindex/`).
 
-**中文版：** [COLD_INDEX_zh.md](COLD_INDEX_zh.md)
+**中文版：** [cold-index.zh.md](cold-index.zh.md)
 
 ---
 
@@ -267,7 +267,7 @@ See `configs/config.example.yaml`.
 
 ## 8. REST surface
 
-- **`GET /api/v1/cold/chapter_hits`**: comma-separated **`q`** terms → **`IColdIndex.Search`** → JSON hits with **full chapter** `context`. See [CORE_API_FLOWS.md §5](CORE_API_FLOWS.md).
+- **`GET /api/v1/cold/chapter_hits`**: comma-separated **`q`** terms → **`IColdIndex.Search`** → JSON hits with **full chapter** `context`. See [../core-api-flows.md §5](../core-api-flows.md).
 
 ---
 

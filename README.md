@@ -2,15 +2,13 @@
 
 > **Hierarchical Summary Knowledge Base** — A RAG-free document retrieval system powered by multi-layer abstraction and hot/cold document tiering.
 
-[Go Version](https://golang.org)
-[MCP Protocol](https://modelcontextprotocol.io)
-[License](LICENSE)
+[Go Version](https://golang.org) · [MCP Protocol](https://modelcontextprotocol.io) · [License](LICENSE)
 
 [English](README.md) | [简体中文](README_zh.md)
 
 ---
 
-## Why TierSum?
+## What is TierSum?
 
 Traditional RAG systems chop documents into arbitrary chunks, losing hierarchical context and semantic structure. **TierSum preserves knowledge architecture** through layered summarization with intelligent tag-based navigation:
 
@@ -27,346 +25,70 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 ┌─────────────────────────────────────┐
 │  Document Summary                   │  ← 30,000ft perspective
 ├─────────────────────────────────────┤
-│  Chapter Summary                    │  ← 10,000ft perspective  
+│  Chapter Summary                    │  ← 10,000ft perspective
 ├─────────────────────────────────────┤
 │  Source Text                        │  ← Original content
 └─────────────────────────────────────┘
 ```
 
-**Terminology:** **Catalog tags** are deduplicated tag names in the `tags` table (document counts; optional `topic_id`). **Topics** are rows in `topics` that group tag names for browsing and for optional `topic_ids` filtering on `GET /tags`. **`POST /api/v1/topics/regroup`** rebuilds topics from the catalog; **today’s implementation is deterministic** (one catch-all topic over all catalog tags — see **`docs/CORE_API_FLOWS.md`** §3). **Progressive query** still uses an LLM (when configured) to score tags, documents, and chapters. Hot documents also store per-document **tags** that feed the same catalog.
-
-**Query flows through intelligent filtering**: **Tags → documents → chapters** (when there are many catalog tags, the service may first narrow tags **via topics**), with LLM relevance scoring at each step. No vector similarity guessing — **precise hierarchical navigation**.
+**Query flows through intelligent filtering**: **Tags → documents → chapters** (via topics when the catalog is large), with LLM relevance scoring at each step. No vector similarity guessing — **precise hierarchical navigation**.
 
 ---
 
-## Core Features
+## Key Features
 
-
-| Feature                         | Description                                                                       |
-| ------------------------------- | --------------------------------------------------------------------------------- |
-| **Hot/Cold Tiering**            | Smart document storage: Hot (full LLM analysis) vs Cold (BM25 + vector search)    |
-| **3-Tier Summarization**        | Document → Chapter → Source, auto-generated via LLM                               |
-| **Topics + catalog tags**       | **`POST /topics/regroup`** rebuilds `topics` from catalog tags (**deterministic** today); optional `topic_ids` on `GET /tags` |
-| **Progressive Query**           | LLM filters **tags → documents → chapters**; may narrow tags **via topics** when the catalog is large |
-| **Auto topic regroup**          | Scheduled or manual **`POST /api/v1/topics/regroup`** runs the same regroup path as the UI button |
-| **BM25 + Vector Hybrid Search** | Keyword + semantic search over cold markdown chapters (full chapter text in hits) |
-| **RAG Alternative**             | Zero chunk fragmentation; full context preservation                               |
-| **Dual API**                    | REST API + MCP Tools for seamless agent integration                               |
-| **Modern Web UI**               | Vue 3 CDN frontend with Tailwind + DaisyUI dark theme                             |
-| **Markdown-Native**             | Optimized for `.md`; extensible skills for PDF/HTML/Docs                          |
-| **Incremental Updates**         | Smart diffing — re-summarize only changed sections (planned)                      |
-
-
----
-
-## Hot/Cold Document Tiering
-
-TierSum uses a two-tier system to balance LLM cost and retrieval performance:
-
-### Hot Documents (Full Analysis)
-
-- ✅ Full LLM analysis with document + chapter summaries
-- ✅ Up to 10 auto-generated tags
-- ✅ LLM-based filtering during queries
-- ✅ Stored in database with document summaries + chapter rows
-- ⚡ Requires quota (100/hour default)
-
-**Criteria (ingest_mode `auto`)**: prebuilt summary+chapters OR (quota available AND content > 5000 chars). Override with `ingest_mode`: `hot` or `cold`.
-
-### Cold Documents (Efficient Storage)
-
-- ✅ Minimal processing, no LLM analysis
-- ✅ BM25 + Vector hybrid search (Bleve + HNSW)
-- ✅ Markdown tree split into chapters; hybrid search returns full matching chapter text
-- ✅ Automatic promotion after 3+ queries
-- ⚡ No quota consumption
-
-**Storage**: Cold index (in-process) with 384-dim embeddings for the vector branch
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                    Hot Documents                            │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  Full LLM Analysis → Tags + doc summary + chapters     │  │
-│  │  Progressive Query (tags→docs→chapters; topics assist) │  │
-│  └───────────────────────────────────────────────────────┘  │
-├─────────────────────────────────────────────────────────────┤
-│                    Cold Documents                           │
-│  ┌───────────────────────────────────────────────────────┐  │
-│  │  BM25 + Vector Hybrid Search                          │  │
-│  │  Chapter-level index + full chapter text in hits      │  │
-│  │  Auto-promote after 3 queries → Hot                   │  │
-│  └───────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
-```
+| Feature | Description |
+|---------|-------------|
+| **Hot/Cold Tiering** | Smart storage: Hot (full LLM analysis) vs Cold (BM25 + vector search) |
+| **3-Tier Summarization** | Document → Chapter → Source, auto-generated via LLM |
+| **Progressive Query** | LLM filters tags → documents → chapters with relevance scoring |
+| **BM25 + Vector Hybrid** | Keyword + semantic search over cold markdown chapters |
+| **Dual API** | REST API + MCP Tools for agent integration |
+| **Modern Web UI** | Vue 3 CDN frontend with Tailwind + DaisyUI |
+| **Markdown-Native** | Optimized for `.md`; extensible to other formats |
 
 ---
 
 ## Quick Start
 
-### Prerequisites
-
-- Go 1.23+ (with CGO enabled for SQLite)
-- Database: SQLite (default) or PostgreSQL (optional)
-- LLM API Key: OpenAI or Anthropic
-
-### Installation
-
 ```bash
-# Clone repository
-git clone https://github.com/tiersum/tiersum.git
-cd tiersum
-
-# Install Go dependencies
-make deps
-
-# Copy and edit configuration
+# 1. Clone and setup
+git clone https://github.com/tiersum/tiersum.git && cd tiersum
 cp configs/config.example.yaml configs/config.yaml
 
-# Set required environment variables
+# 2. Set your LLM API key
 export OPENAI_API_KEY="your-api-key"
-# or
-export ANTHROPIC_API_KEY="your-api-key"
 
-# Build backend (includes embedded frontend)
-make build
-
-# Or use Docker Compose (includes all services)
-cd deployments/docker && docker-compose up -d
-
-# Pre-built image from Alibaba ACR (login + docker pull): see deployments/docker/README.md
+# 3. Build and run
+make build && make run
 ```
 
-### Configuration
+The server starts at `http://localhost:8080/` with:
+- **Web UI** — `http://localhost:8080/`
+- **REST API** — `http://localhost:8080/api/v1`
+- **MCP SSE** — `http://localhost:8080/mcp/sse`
 
-**SQLite (Default - Zero Config):**
+On first launch, visit `/init` to create the admin user. The response shows your **access token** and **API key** once — store them safely.
 
-```yaml
-# configs/config.yaml
-server:
-  port: 8080
-
-llm:
-  provider: openai
-  openai:
-    api_key: ${OPENAI_API_KEY}
-    model: gpt-4o-mini
-
-storage:
-  database:
-    driver: sqlite3
-    dsn: ./data/tiersum.db
-
-quota:
-  per_hour: 100  # Hot documents per hour
-
-documents:
-  tiering:
-    hot_content_threshold: 5000  # Min chars for hot tier
-    cold_promotion_threshold: 3  # Query count for auto-promotion
-```
-
-**PostgreSQL (Optional - for high concurrency):**
-
-```yaml
-storage:
-  database:
-    driver: postgres
-    dsn: postgres://user:password@localhost:5432/tiersum?sslmode=disable
-```
-
-### Cold embeddings (MiniLM + ONNX Runtime)
-
-Semantic vectors for the **cold** index use **all-MiniLM-L6-v2** ONNX files on disk plus the **ONNX Runtime** shared library (nothing is `go:embed`’d for the neural model). Defaults in `configs/config.example.yaml` point at `third_party/...` after:
-
-```bash
-make fetch-onnxruntime   # ONNX .so / .dylib per platform
-make fetch-minilm        # model.onnx + tokenizer.json from Hugging Face
-```
-
-Large artifacts are **gitignored**; run the commands above locally or in CI. The **Dockerfile** runs the same `**make fetch-onnxruntime`** and `**make fetch-minilm**` inside the image (same scripts and default versions as on your machine), then sets `onnx_runtime_path` in the baked `config.yaml` to the matching `third_party/onnxruntime/linux_*` library. If MiniLM fails to load and `cold_index.embedding.provider` is `auto`, TierSum falls back to simple hash embeddings.
-
-See [third_party/onnxruntime/README.md](third_party/onnxruntime/README.md) and [third_party/minilm/README.md](third_party/minilm/README.md).
-
-### Start Server
-
-```bash
-# Run locally (backend + frontend)
-make run
-
-# Or run binary directly
-./build/tiersum --config configs/config.yaml
-
-# Server ready
-# Web UI:   http://localhost:8080/
-# REST API: http://localhost:8080/api/v1   (DB API key after bootstrap; see below)
-# BFF:      http://localhost:8080/bff/v1  (embedded UI; browser session cookie)
-# Health:   http://localhost:8080/health  (liveness JSON; no API key)
-# Metrics:  http://localhost:8080/metrics   (Prometheus scrape; no API key)
-# MCP SSE:  http://localhost:8080/mcp/sse
-```
+For detailed installation (Docker, PostgreSQL, MiniLM embeddings), see [docs/getting-started/installation.md](docs/getting-started/installation.md).
+For configuration options (LLM providers, quotas, tiering), see [docs/getting-started/configuration.md](docs/getting-started/configuration.md).
 
 ---
 
-## Access control and permissions (user guide)
+## Documentation
 
-TierSum uses **two tracks**: the **browser** (embedded UI at `/`, session cookie on `/bff/v1`) and **programs** (REST `/api/v1`, MCP tools) with **database-stored API keys**. Design details: [docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md).
-
-### First launch (bootstrap)
-
-1. Open the web UI (e.g. `http://localhost:8080/`). If the system is not initialized, you are redirected to **`/init`**.
-2. Submit **Initialize** with the desired **admin username**. The response shows, **once**:
-   - **Admin access token** (`ts_u_…`) — human login secret for the browser.
-   - **Initial API key** (`tsk_live_…` or similar) — use for `curl`, scripts, and automation (store safely; it cannot be retrieved again).
-3. After bootstrap, unauthenticated access to protected `/api/v1` and `/bff/v1` is rejected until you log in or send a valid API key.
-
-### Sign in from the browser
-
-1. Go to **`/login`** (or follow the UI after bootstrap).
-2. Paste the **admin access token** (or a token issued for another user by an admin). The UI sends a small **fingerprint** (timezone, optional client signal) with login.
-3. On success, the server sets an **HttpOnly** **`tiersum_session`** cookie. Normal browsing uses **`/bff/v1`** with `credentials: include` (no token in `localStorage`).
-
-**Device limits:** each user has a **maximum number of distinct bound browsers** (`auth.browser.default_max_devices` in config for new users). If the limit is reached, sign out an old device under **Management → Devices & sessions** (`/settings`), or ask an **admin** to remove a session.
-
-### Who can do what in the UI
-
-| Area | Who | What |
-| ---- | --- | ---- |
-| **Search, documents, tags** | Signed-in **user**, **admin**, or read-only **viewer** | Core read features via `/bff/v1`. **Viewer** cannot ingest documents or run topic regroup (`viewer` = read-only BFF; `POST /bff/v1/query/progressive` allowed). |
-| **Management → Observability** (`/observability`) | **`admin` human role only** | Monitoring snapshot, cold probe, stored traces (`GET /bff/v1/monitoring`, `GET /bff/v1/traces*`). |
-| **Management → Devices & sessions** (`/settings`) | Everyone signed in | Rename devices, sign out individual sessions, **Sign out all my devices**. **Admins** additionally see **every user’s** browser sessions on this page. |
-| **Management → Users & API keys** (`/admin`) | **`admin` role only** | Create users, reset user tokens, list/create/revoke **API keys**, view **all devices** (Devices tab on this page), see key usage snapshot. |
-| **Management → Configuration** (`/admin/config`) | **`admin` role only** | Read-only redacted effective config (`GET /bff/v1/admin/config/snapshot`). |
-
-### Calling `/api/v1` from scripts (program track)
-
-After bootstrap, every protected request needs a **key** created in the Admin UI (or the bootstrap payload):
-
-```bash
-export TIERSUM_API_KEY='tsk_live_...'   # example; use your real key
-
-curl -sS -H "X-API-Key: $TIERSUM_API_KEY" http://localhost:8080/api/v1/documents
-# or
-curl -sS -H "Authorization: Bearer $TIERSUM_API_KEY" http://localhost:8080/api/v1/documents
-```
-
-**Scopes (on the key):**
-
-- **`read`** — typical GETs and `POST /api/v1/query/progressive`.
-- **`write`** — includes **document ingest** (`POST /documents`) and **topic regroup** (`POST /topics/regroup`).
-- **`admin`** — superset of `write` for route checks (still a **service** credential; not the same as human **admin** role in the UI).
-
-Wrong or missing key → **401** `invalid_key`; insufficient scope → **403** `insufficient_scope` with `required` scope.
-
-### MCP (agents)
-
-Configure the same **database API key** as for REST:
-
-- Environment **`TIERSUM_API_KEY`**, or
-- Config **`mcp.api_key`** (optional duplicate of the key string)
-
-MCP tools use the **same scope rules** as `/api/v1`. `/mcp/*` is **not** covered by the browser session cookie.
-
-### Operators and troubleshooting
-
-- **Reset a user’s password (access token):** Admin UI → **Users** → **Reset token** (invalidates all that user’s browser sessions).
-- **Revoke automation access:** Admin UI → **API keys** → **Revoke**.
-- **Cannot call API after restore / new DB:** Run migrations and complete **`/init`** again for that database file.
-- **Health / metrics:** `GET /health` and `GET /metrics` stay **public** (no TierSum API key).
-
----
-
-## API Usage
-
-**Core flows** (ingest tiering, progressive query, topic regroup / catalog tags, hot/cold retrieval, hybrid cold search): see [docs/CORE_API_FLOWS.md](docs/CORE_API_FLOWS.md).
-
-**Auth design:** [docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md).
-
-### REST API
-
-After bootstrap, add **`X-API-Key`** or **`Authorization: Bearer`** on `/api/v1` requests (see [Access control and permissions (user guide)](#access-control-and-permissions-user-guide)).
-
-```bash
-# Ingest document (auto-tags via LLM if not provided)
-curl -X POST http://localhost:8080/api/v1/documents \
-  -H "X-API-Key: $TIERSUM_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Kubernetes Architecture",
-    "content": "# Kubernetes Architecture\n\n## Control Plane...",
-    "format": "markdown",
-    "ingest_mode": "hot"   # optional: auto (default) | hot | cold
-  }'
-
-# Progressive query (recommended) - searches both hot and cold docs
-curl -X POST http://localhost:8080/api/v1/query/progressive \
-  -H "X-API-Key: $TIERSUM_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "question": "How does kube-scheduler work?",
-    "max_results": 100
-  }'
-
-# Remaining examples: add -H "X-API-Key: $TIERSUM_API_KEY" to each /api/v1 request.
-
-# Batch retrieval (hot / cold)
-# Hot: documents whose status is hot or warming AND tags match any of the comma-separated names (OR).
-# Returns document id, title, format, status, tags, and persisted document-level summary only (no body).
-curl "http://localhost:8080/api/v1/hot/doc_summaries?tags=kubernetes,docker&max_results=100"
-# Hot: persisted chapter rows (path, title, summary) for the given document ids.
-curl "http://localhost:8080/api/v1/hot/doc_chapters?doc_ids=uuid1,uuid2&max_results=100"
-curl "http://localhost:8080/api/v1/cold/chapter_hits?q=scheduler,pods&max_results=100"
-
-# List topics (themes)
-curl "http://localhost:8080/api/v1/topics"
-
-# List catalog tags, optionally scoped to topics (comma-separated topic_ids; optional max_results)
-curl "http://localhost:8080/api/v1/tags?topic_ids=topic-uuid-1,topic-uuid-2&max_results=100"
-
-# Trigger topic regroup manually (deterministic rebuild from catalog tags; see CORE_API_FLOWS.md §3)
-curl -X POST http://localhost:8080/api/v1/topics/regroup
-
-# Get document
-curl "http://localhost:8080/api/v1/documents/{id}"
-
-# Check quota
-curl "http://localhost:8080/api/v1/quota"
-```
-
-### MCP Tools (for Agents)
-
-MCP tool names and JSON bodies align with the REST API under `/api/v1` (see `internal/api/mcp.go`). Supply a valid **database API key** via **`TIERSUM_API_KEY`** or **`mcp.api_key`** in config (same scopes as REST; see [user guide](#access-control-and-permissions-user-guide)).
-
-
-| Tool                             | REST equivalent                                        |
-| -------------------------------- | ------------------------------------------------------ |
-| `api_v1_documents_post`          | `POST /documents`                                      |
-| `api_v1_documents_list`          | `GET /documents`                                       |
-| `api_v1_documents_get`           | `GET /documents/:id` (`id`)                            |
-| `api_v1_documents_chapters_get`  | `GET /documents/:id/chapters` (`id`)                   |
-| `api_v1_query_progressive_post`  | `POST /query/progressive` (`question`, `max_results`)  |
-| `api_v1_tags_get`                | `GET /tags` (`topic_ids`, `max_results` optional)      |
-| `api_v1_topics_get`              | `GET /topics`                                          |
-| `api_v1_topics_regroup_post`     | `POST /topics/regroup`                                 |
-| `api_v1_hot_doc_summaries_get`   | `GET /hot/doc_summaries` (`tags`, `max_results`)       |
-| `api_v1_hot_doc_chapters_get`    | `GET /hot/doc_chapters` (`doc_ids`, `max_results`)     |
-| `api_v1_cold_chapter_hits_get`   | `GET /cold/chapter_hits` (`q`, `max_results`) |
-| `api_v1_quota_get`               | `GET /quota`                                           |
-| `api_v1_metrics_get`             | `GET /metrics`                                         |
-
-
-**Claude Desktop Integration**:
-
-```json
-{
-  "mcpServers": {
-    "tiersum": {
-      "command": "npx",
-      "args": ["-y", "@anthropics/mcp-proxy", "http://localhost:8080/mcp/sse"]
-    }
-  }
-}
-```
+| Topic | Document |
+|-------|----------|
+| **Installation** | [docs/getting-started/installation.md](docs/getting-started/installation.md) |
+| **Configuration** | [docs/getting-started/configuration.md](docs/getting-started/configuration.md) |
+| **Project Structure** | [docs/getting-started/project-structure.md](docs/getting-started/project-structure.md) |
+| **Development** | [docs/getting-started/development.md](docs/getting-started/development.md) |
+| **Architecture** | [docs/design/architecture.md](docs/design/architecture.md) |
+| **Auth & Permissions** | [docs/design/auth-and-permissions.md](docs/design/auth-and-permissions.md) |
+| **Core API Flows** | [docs/algorithms/core-api-flows.md](docs/algorithms/core-api-flows.md) |
+| **Cold Document Index** | [docs/algorithms/cold-index/cold-index.md](docs/algorithms/cold-index/cold-index.md) |
+| **Web UI** | [docs/ui/web-ui.md](docs/ui/web-ui.md) |
+| **Roadmap** | [docs/planning/roadmap.md](docs/planning/roadmap.md) |
 
 ---
 
@@ -375,208 +97,36 @@ MCP tool names and JSON bodies align with the REST API under `/api/v1` (see `int
 TierSum uses a **5-Layer Architecture** with Interface+Impl Pattern:
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  Client Layer                                                │
-│  (REST API / MCP / Web UI)                                  │
-└─────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│  API Layer        (REST handlers + MCP server)              │
-└─────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│  Service Layer    (Business logic + LLM integration)        │
-└─────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│  Storage Layer    (DB repositories + Cache + cold index)     │
-└─────────────────────────────────────────────────────────────┘
-                              │
-┌─────────────────────────────────────────────────────────────┐
-│  Client Layer     (LLM providers)                           │
-└─────────────────────────────────────────────────────────────┘
+Client → API → Service → Storage → Client (LLM)
 ```
 
-📚 **See [AGENTS.md](AGENTS.md) for architecture, layout, and conventions.**  
-🔐 **Auth and permissions (design):** [docs/AUTH_AND_PERMISSIONS.md](docs/AUTH_AND_PERMISSIONS.md)
+**Key principles:** Interface+Impl pattern, strict layer boundaries, dependency injection in `internal/di/container.go`.
+
+📚 **Full architecture:** [docs/design/architecture.md](docs/design/architecture.md)  
+📚 **Code conventions:** [AGENTS.md](AGENTS.md)
 
 ---
 
-## Web UI
-
-TierSum includes a modern Vue 3 CDN-based frontend with the following features. **Which screen calls which REST endpoint** is documented in **[cmd/web/FRONTEND.md](cmd/web/FRONTEND.md)** (“Web UI ↔ REST API”). **Sign-in, admin, and devices:** [Access control and permissions (user guide)](#access-control-and-permissions-user-guide).
-
-### About (`/about`)
-
-- Bilingual product overview (English, then Chinese): use cases, hot/cold in plain language, who TierSum is for
-- No API calls; available without signing in once the system has been bootstrapped
-
-### Query Page (`/`)
-
-- Central search box with Progressive Query support
-- Split-panel results: AI Answer (left) + Reference results (right)
-- Displays both hot and cold document results (from `POST /api/v1/query/progressive`)
-- Shows relevance scores and tier/status indicators
-
-### Documents (`/docs`, `/docs/new`, `/docs/:id`)
-
-- **List** (`/docs`): filter by title/tags; opens detail on row click
-- **Create** (`/docs/new`): full-page Markdown editor + live preview
-- **Detail** (`/docs/:id`): loads the document and chapter list via GETs; cold docs emphasize source view
-
-### Topics & tags (`/tags`)
-
-- **Topics** (left): themes from `GET /api/v1/topics`
-- **Catalog tags** (right): `GET /api/v1/tags?topic_ids=<selected id>&max_results=…` (each row is a deduplicated name with document count and optional `topic_id`)
-- Regroup button triggers `POST /api/v1/topics/regroup`
-
-### Observability (`/observability`)
-
-Reachable from the top bar **Management → Observability** after sign-in (same URL as before; `/monitoring` still redirects here).
-
-- **Monitoring** tab (`?tab=monitoring`): health, runtime, document counts, cold index stats, Prometheus text preview (same data as `GET /bff/v1/monitoring` and `/metrics`).
-- **Cold probe** tab (`?tab=cold`): calls `GET /bff/v1/cold/chapter_hits` with keywords and `max_results` to inspect hybrid cold hits (`path`, `score`, `source`, full chapter text) without running progressive query.
-- **Traces** tab (`?tab=traces`): stored OpenTelemetry traces for progressive-query debugging.
-
-### Tech Stack
-
-- **Framework**: Vue 3 (via CDN)
-- **Router**: Vue Router 4 (via CDN)
-- **Styling**: Tailwind CSS (via CDN)
-- **Components**: DaisyUI (via CDN)
-- **Markdown**: Marked.js (via CDN)
-- **Theme**: Slate dark theme
-- **Deployment**: Embedded in Go binary via `//go:embed`
-
----
-
-## Cold document chapters (retrieval)
-
-Cold markdown is split into **chapters** (heading tree + bottom-up token merge under `cold_index.markdown.chapter_max_tokens`). If a leaf is still too large, **sliding windows** apply (`cold_index.markdown.sliding_stride_tokens`, default 100 tokens between window starts; overlap ≈ budget − stride). Chapter paths are **parent heading path + numeric suffix** (e.g. `docId/Section/1`); with no headings, a synthetic `**__root__`** segment is used (e.g. `docId/__root__/1`).
-
-Chunks are indexed in **Bleve (BM25)** and **HNSW** (optional text embeddings). `GET /api/v1/cold/chapter_hits` runs a hybrid search; each hit’s `context` is the **full chapter body** for that path (not a small arbitrary snippet).
-
-### Compared to traditional RAG
-
-
-| Aspect                    | Typical RAG                                                         | TierSum (cold path)                                                                                                                   |
-| ------------------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| **Retrieval unit**        | Fixed-size chunks (chars/tokens), weakly tied to document structure | **Markdown-aware chapters** from the heading tree; oversized leaves use **controlled sliding windows** with stable, addressable paths |
-| **Structure**             | Headings, lists, and code often split mid-block                     | Prefer cuts at **heading semantics**; sliding only when a single leaf still exceeds the token budget                                  |
-| **Overlap**               | Fixed overlap between adjacent chunks (mainly anti-boundary)        | Overlap derived from **window size − stride** (both configurable); continuity without random re-chunking                              |
-| **Indexing & fusion**     | Often vector-first (BM25 optional)                                  | **BM25 + vector hybrid**, merged with dedupe by chapter path                                                                          |
-| **What the client sees**  | Short chunks stitched in the prompt                                 | **Full chapter text** per hit for the matched path                                                                                    |
-| **Cost / explainability** | Chunk + embed pipeline; similarity-only signals                     | No full LLM on ingest for cold; paths + optional `source` hint (**bm25** / **vector** / **hybrid**) aid debugging                     |
-
-
-**Where classic RAG may still fit better**: unstructured prose without headings, workflows that rely on very fine-grained arbitrary spans, or teams already standardized on a single dense-chunk pipeline.
-
-**Where TierSum’s cold model fits better**: Markdown-heavy technical docs, preserving **hierarchy and chapter boundaries**, lower cold-side LLM cost, and alignment with the **hot** path (layered summaries + tag navigation) as one coherent system.
-
-**Algorithm deep-dive:** [docs/COLD_INDEX.md](docs/COLD_INDEX.md) (English) · [docs/COLD_INDEX_zh.md](docs/COLD_INDEX_zh.md) (中文)
-
----
-
-## Project Structure
-
-```
-tiersum/
-├── cmd/
-│   ├── main.go                 # API server entrypoint
-│   └── web/                    # Vue 3 CDN frontend (embedded in binary)
-│       ├── index.html          # Shell + importmap; ESM entry `js/main.js`
-│       ├── js/                 # Vue app modules (pages, api_client, …)
-│       └── FRONTEND.md         # Stack, routes, UI ↔ REST mapping
-├── configs/                    # Configuration files
-│   ├── config.example.yaml
-│   └── config.yaml
-deployments/
-│   └── docker/                 # Docker and docker-compose files
-├── internal/
-│   ├── api/                    # Layer 1: API (REST + MCP handlers)
-│   ├── service/                # Layer 2: Contracts + facade DTOs
-│   │   ├── interface.go
-│   │   ├── types.go
-│   │   └── impl/               # Implementations (wired only from internal/di/container.go)
-│   │       ├── auth/
-│   │       ├── document/       # + analysis_contracts.go (composition-only capability interfaces)
-│   │       ├── query/
-│   │       ├── catalog/
-│   │       ├── observability/
-│   │       └── adminconfig/
-│   ├── storage/                # Layer 3: Data persistence
-│   │   ├── interface.go
-│   │   ├── db/
-│   │   │   ├── unit_of_work_impl.go # NewUnitOfWork (composition root)
-│   │   │   ├── shared/         # SQLDB helpers + Baseline DDL (`BaseSchema`)
-│   │   │   ├── document/       # Document, chapter, tag, topic repos
-│   │   │   ├── auth/           # system_state, users, sessions, API keys, audit
-│   │   │   └── observability/  # OpenTelemetry span rows
-│   │   ├── cache/
-│   │   │   └── cache_impl.go   # In-memory cache
-│   │   └── coldindex/          # Cold doc chapter index (Bleve + HNSW + embedders)
-│   │       └── cold_index_impl.go # storage.IColdIndex
-│   ├── client/                 # Layer 4: External dependencies
-│   │   ├── interface.go
-│   │   └── llm/
-│   │       ├── llm_provider_factory.go
-│   │       └── *_provider_impl.go # OpenAI / Anthropic / Ollama
-│   ├── job/                    # Background tasks
-│   │   ├── scheduler.go
-│   │   ├── jobs.go             # Topic regroup, etc.
-│   │   ├── queues.go           # Global queue channels
-│   │   ├── maintenance_delegate_job.go # Promote + hot score delegates
-│   │   ├── promote_consumer.go
-│   │   ├── queue_consumer.go   # Shared queue consumer skeleton
-│   │   └── hot_ingest_consumer.go
-│   └── di/                     # Dependency injection
-│       └── container.go
-├── pkg/
-│   └── types/                  # Public API types
-├── go.mod
-├── Makefile
-├── README.md
-└── LICENSE
-```
-
----
-
-## Development
+## Quick API Example
 
 ```bash
-# Run tests
-make test
+# Set your API key (shown once at bootstrap)
+export TIERSUM_API_KEY='tsk_live_...'
 
-# Run linter
-make lint
+# Ingest a document
+curl -X POST http://localhost:8080/api/v1/documents \
+  -H "X-API-Key: $TIERSUM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Kubernetes","content":"# Kubernetes...","format":"markdown"}'
 
-# Format code
-make fmt
-
-# Run with hot reload (requires air)
-make dev
-
-# Build for multiple platforms
-make build-all
+# Progressive query (searches both hot and cold docs)
+curl -X POST http://localhost:8080/api/v1/query/progressive \
+  -H "X-API-Key: $TIERSUM_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"question":"How does kube-scheduler work?","max_results":10}'
 ```
 
----
-
-## Roadmap
-
-- Hot/Cold document tiering with auto-promotion
-- BM25 + Vector hybrid search over cold chapters (full chapter text)
-- Three-level summarization (document summary + chapter summaries + source text), without legacy DB “tier” columns
-- Topics + catalog tags (deterministic regroup today; richer LLM-driven regroup optional future work)
-- Progressive query with LLM filtering at each step
-- LLM auto-tagging for documents
-- REST API + MCP Server
-- SQLite/PostgreSQL + in-memory cache storage
-- Vue 3 CDN frontend with Tailwind + DaisyUI
-- OpenClaw skill pack (convert + update)
-- Real-time collaborative editing
-- Multi-modal support (images, diagrams)
-- Enterprise SSO + audit logs
+For the full API reference and MCP tools, see [docs/algorithms/core-api-flows.md](docs/algorithms/core-api-flows.md).
 
 ---
 
@@ -584,10 +134,9 @@ make build-all
 
 We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-**Good first issues**:
-
+**Good first issues:**
 - Additional document format parsers (LaTeX, AsciiDoc)
-- Local LLM adapter (Ollama, vLLM)
+- Local LLM adapter improvements
 - Enhanced Web UI features
 
 ---
@@ -603,4 +152,3 @@ We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 - Inspired by [Anthropic's Contextual Retrieval](https://www.anthropic.com/news/contextual-retrieval)
 - MCP Protocol by [Anthropic](https://modelcontextprotocol.io)
 - Built with [Gin](https://gin-gonic.com), [Goldmark](https://github.com/yuin/goldmark), [Bleve](https://blevesearch.com), [HNSW](https://github.com/coder/hnsw)
-

@@ -5,7 +5,7 @@ alwaysApply: true
 
 # TierSum — architecture & layer dependencies (mandatory)
 
-Single source of truth for **dependency direction**, **where types live**, **service façade rules**, and **when to update `docs/CORE_API_FLOWS.md`**.
+Single source of truth for **dependency direction**, **where types live**, **service façade rules**, and **when to update `docs/algorithms/core-api-flows.md`**.
 
 ---
 
@@ -70,13 +70,13 @@ Single source of truth for **dependency direction**, **where types live**, **ser
 
 ## 6) Core API flow documentation
 
-When you change **non–simple-CRUD** API behavior (multi-step logic, thresholds, LLM, hybrid search, tiering semantics), update **`docs/CORE_API_FLOWS.md` in the same change set** (handlers → services → storage; algorithms; English).
+When you change **non–simple-CRUD** API behavior (multi-step logic, thresholds, LLM, hybrid search, tiering semantics), update **`docs/algorithms/core-api-flows.md` in the same change set** (handlers → services → storage; algorithms; English).
 
 **Core (keep doc in sync):** e.g. `POST /api/v1/documents` ingest, `POST /api/v1/query/progressive`, `POST /api/v1/topics/regroup`, `GET /api/v1/hot/*`, `GET /api/v1/cold/chapter_hits`, `GET /api/v1/tags` when filtering/topic semantics change, MCP mirrors, cold index jobs. Document under `/api/v1` unless BFF-only behavior diverges.
 
 **Simple pass-through** (no refresh unless the doc already lists them or behavior becomes non-trivial): plain list/get, chapters by doc id, catalog lists, quota, metrics, health.
 
-New core endpoints or new pipeline stages → **add or extend** the matching section in `docs/CORE_API_FLOWS.md`.
+New core endpoints or new pipeline stages → **add or extend** the matching section in `docs/algorithms/core-api-flows.md`.
 
 ---
 
@@ -104,4 +104,4 @@ import "github.com/tiersum/tiersum/internal/service"
 1. Extend **`internal/service/interface.go`** (or a focused façade in that package) before upper layers touch storage/client.
 2. Confirm API/Job use **facades + `pkg/types`** only.
 3. Confirm implementations use **storage/client interfaces** + **capability interfaces**, not sibling concrete services.
-4. If behavior is **non-trivial** for operators, update **`docs/CORE_API_FLOWS.md`** in the **same** PR/commit.
+4. If behavior is **non-trivial** for operators, update **`docs/algorithms/core-api-flows.md`** in the **same** PR/commit.

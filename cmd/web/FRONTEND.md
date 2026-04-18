@@ -73,7 +73,7 @@ Vue Router uses **HTML5 history** mode (`createWebHistory`): `/`, `/library`, `/
 
 ## Web UI ↔ BFF REST
 
-The embedded UI calls **`/bff/v1/*`** (same handlers as programmatic **`/api/v1/*`**, same origin). **Human track:** `fetch` uses **`credentials: 'include'`**; `api.BFFSessionMiddleware` requires an HttpOnly **`tiersum_session`** cookie issued by **`POST /bff/v1/auth/login`** (or **`POST /bff/v1/auth/device_login`**) after bootstrap. Optional HttpOnly **`tiersum_device`** stores a persistent device token for quick re-login. **Program track:** integrations use **`/api/v1`** with DB-backed API keys (`X-API-Key` or `Authorization: Bearer`). Full permission model: **[docs/AUTH_AND_PERMISSIONS.md](../../docs/AUTH_AND_PERMISSIONS.md)**; end-user steps: **[README.md](../../README.md#access-control-and-permissions-user-guide)**.
+The embedded UI calls **`/bff/v1/*`** (same handlers as programmatic **`/api/v1/*`**, same origin). **Human track:** `fetch` uses **`credentials: 'include'`**; `api.BFFSessionMiddleware` requires an HttpOnly **`tiersum_session`** cookie issued by **`POST /bff/v1/auth/login`** (or **`POST /bff/v1/auth/device_login`**) after bootstrap. Optional HttpOnly **`tiersum_device`** stores a persistent device token for quick re-login. **Program track:** integrations use **`/api/v1`** with DB-backed API keys (`X-API-Key` or `Authorization: Bearer`). Full permission model: **[../../docs/design/auth-and-permissions.md](../../docs/design/auth-and-permissions.md)**; end-user steps: see [Auth and Permissions](../../docs/design/auth-and-permissions.md) design doc.
 
 Below: **route / feature** → **HTTP** (request shape and main JSON keys). Endpoints not listed are **not** used by the current UI (`js/`) today (e.g. hot/cold retrieval family).
 
