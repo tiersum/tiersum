@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -32,14 +33,10 @@ func (r *APIKeyRepo) Create(ctx context.Context, k *storage.APIKey) error {
 	} else {
 		createdBy = nil
 	}
-	q := `INSERT INTO api_keys (id, name, scope, key_hash, revoked_at, expires_at, created_by_user_id, last_used_at, last_used_ip, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	vals := shared.PlaceholdersCSVWithPGCasts(r.driver, []string{"uuid", "", "", "", "", "", "", "", "", ""})
+	q := fmt.Sprintf(`INSERT INTO api_keys (id, name, scope, key_hash, revoked_at, expires_at, created_by_user_id, last_used_at, last_used_ip, created_at)
+		VALUES (%s)`, vals)
 	args := []interface{}{k.ID, k.Name, k.Scope, k.KeyHash, k.RevokedAt, k.ExpiresAt, createdBy, k.LastUsedAt, k.LastUsedIP, k.CreatedAt}
-	if r.driver == "postgres" {
-		q = `INSERT INTO api_keys (id, name, scope, key_hash, revoked_at, expires_at, created_by_user_id, last_used_at, last_used_ip, created_at)
-			VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8, $9, $10)`
-		args = []interface{}{k.ID, k.Name, k.Scope, k.KeyHash, k.RevokedAt, k.ExpiresAt, createdBy, k.LastUsedAt, k.LastUsedIP, k.CreatedAt}
-	}
 	_, err := r.db.ExecContext(ctx, q, args...)
 	return err
 }
@@ -75,44 +72,42 @@ func (r *APIKeyRepo) scanKey(scanner shared.RowScanner) (*storage.APIKey, error)
 	return k, nil
 }
 
-func (r *APIKeyRepo) GetByID(ctx context.Context, id string) (*storage.APIKey, error) {
-	q := `SELECT id, name, scope, key_hash, revoked_at, expires_at, created_by_user_id, last_used_at, last_used_ip, created_at FROM api_keys WHERE id = ?`
-	args := []interface{}{id}
-	if r.driver == "postgres" {
-		q = `SELECT id::text, name, scope, key_hash, revoked_at, expires_at, created_by_user_id::text, last_used_at, last_used_ip, created_at FROM api_keys WHERE id = $1::uuid`
+func (r *APIKeyRepo) selectKeyCols() string {
+	if shared.DriverIsPostgres(r.driver) {
+		return `id::text, name, scope, key_hash, revoked_at, expires_at, created_by_user_id::text, last_used_at, last_used_ip, created_at`
 	}
-	row := r.db.QueryRowContext(ctx, q, args...)
+	return `id, name, scope, key_hash, revoked_at, expires_at, created_by_user_id, last_used_at, last_used_ip, created_at`
+}
+
+func (r *APIKeyRepo) GetByID(ctx context.Context, id string) (*storage.APIKey, error) {
+	cols := r.selectKeyCols()
+	ph := shared.Placeholder(r.driver, 1, "uuid")
+	q := fmt.Sprintf(`SELECT %s FROM api_keys WHERE id = %s`, cols, ph)
+	row := r.db.QueryRowContext(ctx, q, id)
 	return r.scanKey(row)
 }
 
 func (r *APIKeyRepo) GetByKeyHash(ctx context.Context, keyHashHex string) (*storage.APIKey, error) {
-	q := `SELECT id, name, scope, key_hash, revoked_at, expires_at, created_by_user_id, last_used_at, last_used_ip, created_at FROM api_keys WHERE key_hash = ?`
-	args := []interface{}{keyHashHex}
-	if r.driver == "postgres" {
-		q = `SELECT id::text, name, scope, key_hash, revoked_at, expires_at, created_by_user_id::text, last_used_at, last_used_ip, created_at FROM api_keys WHERE key_hash = $1`
-	}
-	row := r.db.QueryRowContext(ctx, q, args...)
+	cols := r.selectKeyCols()
+	ph := shared.Placeholder(r.driver, 1, "")
+	q := fmt.Sprintf(`SELECT %s FROM api_keys WHERE key_hash = %s`, cols, ph)
+	row := r.db.QueryRowContext(ctx, q, keyHashHex)
 	return r.scanKey(row)
 }
 
 func (r *APIKeyRepo) GetActiveByKeyHash(ctx context.Context, keyHashHex string) (*storage.APIKey, error) {
 	now := time.Now().UTC()
-	q := `SELECT id, name, scope, key_hash, revoked_at, expires_at, created_by_user_id, last_used_at, last_used_ip, created_at FROM api_keys
-		WHERE key_hash = ? AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > ?)`
-	args := []interface{}{keyHashHex, now}
-	if r.driver == "postgres" {
-		q = `SELECT id::text, name, scope, key_hash, revoked_at, expires_at, created_by_user_id::text, last_used_at, last_used_ip, created_at FROM api_keys
-			WHERE key_hash = $1 AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > $2)`
-	}
-	row := r.db.QueryRowContext(ctx, q, args...)
+	cols := r.selectKeyCols()
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "")
+	q := fmt.Sprintf(`SELECT %s FROM api_keys
+		WHERE key_hash = %s AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > %s)`, cols, ph1, ph2)
+	row := r.db.QueryRowContext(ctx, q, keyHashHex, now)
 	return r.scanKey(row)
 }
 
 func (r *APIKeyRepo) List(ctx context.Context) ([]storage.APIKey, error) {
-	q := `SELECT id, name, scope, key_hash, revoked_at, expires_at, created_by_user_id, last_used_at, last_used_ip, created_at FROM api_keys ORDER BY created_at DESC`
-	if r.driver == "postgres" {
-		q = `SELECT id::text, name, scope, key_hash, revoked_at, expires_at, created_by_user_id::text, last_used_at, last_used_ip, created_at FROM api_keys ORDER BY created_at DESC`
-	}
+	q := fmt.Sprintf(`SELECT %s FROM api_keys ORDER BY created_at DESC`, r.selectKeyCols())
 	rows, err := r.db.QueryContext(ctx, q)
 	if err != nil {
 		return nil, err
@@ -131,21 +126,18 @@ func (r *APIKeyRepo) List(ctx context.Context) ([]storage.APIKey, error) {
 
 func (r *APIKeyRepo) Revoke(ctx context.Context, id string) error {
 	now := time.Now().UTC()
-	q := `UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`
-	args := []interface{}{now, id}
-	if r.driver == "postgres" {
-		q = `UPDATE api_keys SET revoked_at = $1 WHERE id = $2::uuid AND revoked_at IS NULL`
-	}
-	_, err := r.db.ExecContext(ctx, q, args...)
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "uuid")
+	q := fmt.Sprintf(`UPDATE api_keys SET revoked_at = %s WHERE id = %s AND revoked_at IS NULL`, ph1, ph2)
+	_, err := r.db.ExecContext(ctx, q, now, id)
 	return err
 }
 
 func (r *APIKeyRepo) TouchLastUsed(ctx context.Context, id, clientIP string, at time.Time) error {
-	q := `UPDATE api_keys SET last_used_at = ?, last_used_ip = ? WHERE id = ?`
-	args := []interface{}{at, clientIP, id}
-	if r.driver == "postgres" {
-		q = `UPDATE api_keys SET last_used_at = $1, last_used_ip = $2 WHERE id = $3::uuid`
-	}
-	_, err := r.db.ExecContext(ctx, q, args...)
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "")
+	ph3 := shared.Placeholder(r.driver, 3, "uuid")
+	q := fmt.Sprintf(`UPDATE api_keys SET last_used_at = %s, last_used_ip = %s WHERE id = %s`, ph1, ph2, ph3)
+	_, err := r.db.ExecContext(ctx, q, at, clientIP, id)
 	return err
 }

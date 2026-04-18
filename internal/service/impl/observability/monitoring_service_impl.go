@@ -3,6 +3,7 @@ package observability
 import (
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
+	"github.com/tiersum/tiersum/pkg/types"
 )
 
 // NewObservabilityService exposes read-only monitoring stats for dashboards.
@@ -22,16 +23,16 @@ func (s *observabilityService) ApproxColdIndexEntries() int {
 	return s.cold.ApproxEntries()
 }
 
-func (s *observabilityService) ColdIndexVectorStats() storage.ColdIndexVectorStats {
+func (s *observabilityService) ColdIndexVectorStats() types.ColdIndexVectorStats {
 	if s == nil || s.cold == nil {
-		return storage.ColdIndexVectorStats{}
+		return types.ColdIndexVectorStats{}
 	}
 	return s.cold.VectorStats()
 }
 
-func (s *observabilityService) ColdIndexInvertedStats() storage.ColdIndexInvertedStats {
+func (s *observabilityService) ColdIndexInvertedStats() types.ColdIndexInvertedStats {
 	if s == nil || s.cold == nil {
-		return storage.ColdIndexInvertedStats{}
+		return types.ColdIndexInvertedStats{}
 	}
 	return s.cold.InvertedIndexStats()
 }

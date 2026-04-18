@@ -102,7 +102,8 @@ func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, d
 			out = append(out, gin.H{
 				"path":    c.Path,
 				"title":   c.Title,
-				"summary": c.Content,
+				"summary": "",
+				"content": c.Content,
 			})
 		}
 		return http.StatusOK, gin.H{"document_id": docID, "chapters": out}
@@ -119,6 +120,7 @@ func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, d
 			"path":    ch.Path,
 			"title":   ch.Title,
 			"summary": ch.Summary,
+			"content": ch.Content,
 		})
 	}
 	if len(out) == 0 {
@@ -130,7 +132,8 @@ func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, d
 			out = append(out, gin.H{
 				"path":    c.Path,
 				"title":   c.Title,
-				"summary": c.Content,
+				"summary": "",
+				"content": c.Content,
 			})
 		}
 	}
@@ -318,21 +321,13 @@ func (h *Handler) ExecuteGetMonitoringSnapshot(ctx context.Context) (int, any) {
 		"cold":    0,
 		"warming": 0,
 	}
-	docs, err := h.DocService.ListDocuments(ctx, 0)
-	if err != nil {
-		h.Logger.Warn("monitoring: list documents", zap.Error(err))
+	if counts, err := h.DocService.CountDocumentsByStatus(ctx); err != nil {
+		h.Logger.Warn("monitoring: document status counts", zap.Error(err))
 	} else {
-		for _, d := range docs {
-			docCounts["total"]++
-			switch d.Status {
-			case types.DocStatusHot:
-				docCounts["hot"]++
-			case types.DocStatusCold:
-				docCounts["cold"]++
-			case types.DocStatusWarming:
-				docCounts["warming"]++
-			}
-		}
+		docCounts["total"] = counts.Total
+		docCounts["hot"] = counts.Hot
+		docCounts["cold"] = counts.Cold
+		docCounts["warming"] = counts.Warming
 	}
 
 	var quota any

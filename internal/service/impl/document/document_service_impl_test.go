@@ -48,6 +48,9 @@ func (r *listHotMetaRepo) UpdateHotScore(ctx context.Context, docID string, scor
 func (r *listHotMetaRepo) UpdateTags(ctx context.Context, docID string, tags []string) error { return nil }
 func (r *listHotMetaRepo) UpdateSummary(ctx context.Context, docID string, summary string) error { return nil }
 func (r *listHotMetaRepo) ListAll(ctx context.Context, limit int) ([]types.Document, error) { return nil, nil }
+func (r *listHotMetaRepo) CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error) {
+	return types.DocumentStatusCounts{}, nil
+}
 
 var _ storage.IDocumentRepository = (*listHotMetaRepo)(nil)
 

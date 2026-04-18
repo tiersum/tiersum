@@ -3,11 +3,16 @@ package coldindex
 import (
 	"context"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/tiersum/tiersum/pkg/types"
+	"github.com/yuin/goldmark"
+	"github.com/yuin/goldmark/ast"
+	"github.com/yuin/goldmark/text"
 )
 
 // ColdChapter is one path-addressable markdown chapter (body slice) after splitting a cold document for indexing.
@@ -16,7 +21,8 @@ type ColdChapter struct {
 	Text string
 }
 
-// IColdChapterSplitter splits cold document markdown into token-budgeted chapters for the cold index.
+// IColdChapterSplitter splits cold document markdown into chapters sized for cold vector indexing
+// (embedder sequence-length budget via EstimateTokens), not for LLM prompts.
 type IColdChapterSplitter interface {
 	Split(docID, docTitle, markdown string, maxTokens int) []ColdChapter
 }
@@ -29,13 +35,16 @@ type IColdTextEmbedder interface {
 }
 
 var (
-	headingLine           = regexp.MustCompile(`^(#{1,6})\s+(.+)$`)
 	numberedHeadingMulti  = regexp.MustCompile(`^(\d+(?:\.\d+)+)\s+(\S.*)$`)
 	numberedHeadingSingle = regexp.MustCompile(`^(\d+)\.\s+(\S.*)$`)
+	chineseNumberedHeading = regexp.MustCompile(`^([一二三四五六七八九十百]+)、(.+)$`)
+	chineseParenHeading    = regexp.MustCompile(`^（([一二三四五六七八九十百]+)）(.+)$`)
 )
 
 // parseNumberedOutlineHeading treats lines like "1. 概述", "2.1 小节" as headings for cold split.
 // It rejects "1. **bold** list item" (ordered list under a section) so those stay in body text.
+// Single-line "N." headings are also rejected when the title text starts with ASCII or fullwidth digits
+// (nested ordered markers / mixed-numeral lists), to reduce false chapter boundaries for vector indexing.
 func parseNumberedOutlineHeading(trimmed string) (title string, level int, ok bool) {
 	if trimmed == "" {
 		return "", 0, false
@@ -64,17 +73,95 @@ func parseNumberedOutlineHeading(trimmed string) (title string, level int, ok bo
 		if rest == "" || restIsListLike(rest) {
 			return "", 0, false
 		}
+		// Reject "1. 2. step" / year-like "1. 2024 …" where the remainder reads as a nested ordered marker or leading digit span.
+		r0, w := utf8.DecodeRuneInString(rest)
+		if w > 0 && r0 >= '0' && r0 <= '9' {
+			return "", 0, false
+		}
+		// Reject remainder starting with fullwidth digits (e.g. "1. ２…") as list-like, not outline titles.
+		if w > 0 && r0 >= '\uFF10' && r0 <= '\uFF19' {
+			return "", 0, false
+		}
 		return trimmed, 2, true
 	}
 	return "", 0, false
 }
 
-// EstimateTokens approximates token count (no external tokenizer).
+// isCJKHeavyRune treats Han / Hiragana / Katakana / Hangul and common fullwidth CJK punctuation as
+// ~1 budget unit per rune (closer to MiniLM BPE token counts than the Latin 4-runes heuristic).
+func isCJKHeavyRune(r rune) bool {
+	if unicode.Is(unicode.Han, r) {
+		return true
+	}
+	switch {
+	case r >= '\u3040' && r <= '\u309F':
+		return true // Hiragana
+	case r >= '\u30A0' && r <= '\u30FF':
+		return true // Katakana
+	case r >= '\uAC00' && r <= '\uD7AF':
+		return true // Hangul syllables
+	case r >= '\u3000' && r <= '\u303F':
+		return true // CJK symbols and punctuation
+	case r >= '\uFF00' && r <= '\uFFEF':
+		return true // Halfwidth and fullwidth forms
+	}
+	return false
+}
+
+// EstimateTokens approximates embedder subword budget for cold chapter merge/split (no ONNX call).
+// CJK-heavy runes use ~1 unit each so merged text stays near typical ~512 subword sequence caps;
+// other scripts keep ~4 runes per unit. Goal: full chapters where possible while filling the vector budget.
 func EstimateTokens(s string) int {
 	if s == "" {
 		return 0
 	}
-	return (utf8.RuneCountInString(s) + 3) / 4
+	var cjk, other int
+	for _, r := range s {
+		if isCJKHeavyRune(r) {
+			cjk++
+		} else {
+			other++
+		}
+	}
+	return cjk + (other+3)/4
+}
+
+// splitFirstLine returns the first line of rest (without trailing \n) and the remainder after the newline.
+func splitFirstLine(rest string) (line, after string) {
+	i := strings.IndexByte(rest, '\n')
+	if i < 0 {
+		return rest, ""
+	}
+	return rest[:i], rest[i+1:]
+}
+
+// parseSetextUnderline recognizes a CommonMark-style Setext underline (=== or ---) on its own line.
+func parseSetextUnderline(trimmed string) (level int, ok bool) {
+	s := strings.TrimSpace(trimmed)
+	if len(s) < 3 {
+		return 0, false
+	}
+	onlyRun := func(b byte) bool {
+		saw := false
+		for k := 0; k < len(s); k++ {
+			c := s[k]
+			if c == ' ' || c == '\t' {
+				continue
+			}
+			if c != b {
+				return false
+			}
+			saw = true
+		}
+		return saw
+	}
+	if onlyRun('=') {
+		return 1, true
+	}
+	if onlyRun('-') {
+		return 2, true
+	}
+	return 0, false
 }
 
 type splitNode struct {
@@ -140,70 +227,22 @@ func sanitizePathPart(s string) string {
 	return s
 }
 
-func parseSplitTree(markdown string) *splitNode {
-	root := &splitNode{level: 0, title: ""}
-	var stack []*splitNode
-	stack = append(stack, root)
+// utf8Pos tracks a byte offset in a string together with the rune index from the string start.
+type utf8Pos struct {
+	b int
+	r int
+}
 
-	lines := strings.Split(markdown, "\n")
-	inFence := false
-	var bodyBuf strings.Builder
-
-	flushBodyToCurrent := func() {
-		if bodyBuf.Len() == 0 {
-			return
+// advanceUtf8Pos advances p by up to deltaRunes runes in s (forward UTF-8 decode).
+func advanceUtf8Pos(s string, p *utf8Pos, deltaRunes int) {
+	for i := 0; i < deltaRunes && p.b < len(s); i++ {
+		_, sz := utf8.DecodeRuneInString(s[p.b:])
+		if sz == 0 {
+			break
 		}
-		cur := stack[len(stack)-1]
-		cur.localBody.WriteString(bodyBuf.String())
-		bodyBuf.Reset()
+		p.b += sz
+		p.r++
 	}
-
-	for _, line := range lines {
-		trim := strings.TrimSpace(line)
-		if strings.HasPrefix(trim, "```") {
-			inFence = !inFence
-			bodyBuf.WriteString(line)
-			bodyBuf.WriteByte('\n')
-			continue
-		}
-
-		if !inFence {
-			if m := headingLine.FindStringSubmatch(trim); m != nil {
-				flushBodyToCurrent()
-				level := len(m[1])
-				title := strings.TrimSpace(m[2])
-				for len(stack) > 1 && stack[len(stack)-1].level >= level {
-					stack = stack[:len(stack)-1]
-				}
-				parent := stack[len(stack)-1]
-				pathTitles := make([]string, 0, len(parent.pathTitles)+1)
-				pathTitles = append(pathTitles, parent.pathTitles...)
-				pathTitles = append(pathTitles, title)
-				child := &splitNode{level: level, title: title, pathTitles: pathTitles}
-				parent.children = append(parent.children, child)
-				stack = append(stack, child)
-				continue
-			}
-			if title, level, ok := parseNumberedOutlineHeading(trim); ok {
-				flushBodyToCurrent()
-				for len(stack) > 1 && stack[len(stack)-1].level >= level {
-					stack = stack[:len(stack)-1]
-				}
-				parent := stack[len(stack)-1]
-				pathTitles := make([]string, 0, len(parent.pathTitles)+1)
-				pathTitles = append(pathTitles, parent.pathTitles...)
-				pathTitles = append(pathTitles, title)
-				child := &splitNode{level: level, title: title, pathTitles: pathTitles}
-				parent.children = append(parent.children, child)
-				stack = append(stack, child)
-				continue
-			}
-		}
-		bodyBuf.WriteString(line)
-		bodyBuf.WriteByte('\n')
-	}
-	flushBodyToCurrent()
-	return root
 }
 
 // buildMergedChapterBody joins subtree bodies for one merged cold chapter while re-inserting ATX
@@ -249,7 +288,7 @@ func postOrderMergeSplit(n *splitNode, maxTokens, strideTokens int) []rawSplitCh
 		return nil
 	}
 
-	var nested [][]rawSplitChapter
+	nested := make([][]rawSplitChapter, 0, len(n.children))
 	for _, c := range n.children {
 		nested = append(nested, postOrderMergeSplit(c, maxTokens, strideTokens))
 	}
@@ -314,22 +353,35 @@ func splitOversizedRaw(pathTitles []string, text string, maxTokens, strideTokens
 
 	winRunes := maxTokens * runesPerToken
 	stepRunes := stride * runesPerToken
-	runes := []rune(text)
+	totalRunes := utf8.RuneCountInString(text)
 
 	var chunks []string
-	for start := 0; start < len(runes); {
-		end := start + winRunes
-		if end > len(runes) {
-			end = len(runes)
+	if totalRunes <= winRunes {
+		chunks = []string{text}
+	} else {
+		nWin := 1 + (totalRunes-winRunes+stepRunes-1)/stepRunes
+		if nWin < 1 {
+			nWin = 1
 		}
-		if end <= start {
-			break
+		chunks = make([]string, 0, nWin)
+		var cur utf8Pos
+		for cur.r < totalRunes {
+			endR := cur.r + winRunes
+			if endR > totalRunes {
+				endR = totalRunes
+			}
+			nRunes := endR - cur.r
+			startB := cur.b
+			var endPos utf8Pos
+			endPos.b = cur.b
+			endPos.r = cur.r
+			advanceUtf8Pos(text, &endPos, nRunes)
+			chunks = append(chunks, text[startB:endPos.b])
+			if endR >= totalRunes {
+				break
+			}
+			advanceUtf8Pos(text, &cur, stepRunes)
 		}
-		chunks = append(chunks, string(runes[start:end]))
-		if end >= len(runes) {
-			break
-		}
-		start += stepRunes
 	}
 
 	base := pathTitles
@@ -380,3 +432,390 @@ func DefaultColdChapterSplitter() IColdChapterSplitter {
 }
 
 var _ IColdChapterSplitter = MarkdownSplitter{}
+
+// ============ V2: Goldmark-based heading extraction with numbered outline supplement ============
+
+var coldChapterParser = goldmark.New()
+
+type headingSpan struct {
+	level int
+	title string
+	start int
+	end   int
+}
+
+// goldmarkHeadingAdopt applies "prefer missed headings over false extractions": only *ast.Heading nodes
+// that are direct children of the document (not inside blockquotes, lists, tables, etc.).
+func goldmarkHeadingAdopt(h *ast.Heading) bool {
+	p := h.Parent()
+	if p == nil || p.Kind() != ast.KindDocument {
+		return false
+	}
+	if h.Level < 1 || h.Level > 6 {
+		return false
+	}
+	return true
+}
+
+// collectGoldmarkSpans walks the goldmark AST and returns two sets of byte spans:
+//   - headings: ast.Heading nodes that are direct children of Document
+//   - forbidden: code blocks, fenced code blocks, and tables (Chinese scan skips these)
+func collectGoldmarkSpans(source []byte) (headings, forbidden []headingSpan) {
+	reader := text.NewReader(source)
+	doc := coldChapterParser.Parser().Parse(reader)
+	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
+		if !entering {
+			return ast.WalkContinue, nil
+		}
+		switch n.Kind() {
+		case ast.KindHeading:
+			h := n.(*ast.Heading)
+			if !goldmarkHeadingAdopt(h) {
+				return ast.WalkContinue, nil
+			}
+			lines := h.Lines()
+			if lines.Len() == 0 {
+				return ast.WalkContinue, nil
+			}
+			title := strings.TrimSpace(string(h.Text(source)))
+			if title == "" {
+				return ast.WalkContinue, nil
+			}
+			start := lines.At(0).Start
+			end := lines.At(lines.Len() - 1).Stop
+			if start < 0 || end > len(source) || start > end {
+				return ast.WalkContinue, nil
+			}
+			headings = append(headings, headingSpan{
+				level: h.Level,
+				title: title,
+				start: start,
+				end:   end,
+			})
+		case ast.KindCodeBlock, ast.KindFencedCodeBlock:
+			lines := n.Lines()
+			if lines.Len() == 0 {
+				return ast.WalkContinue, nil
+			}
+			start := lines.At(0).Start
+			end := lines.At(lines.Len() - 1).Stop
+			if start < 0 || end > len(source) || start > end {
+				return ast.WalkContinue, nil
+			}
+			forbidden = append(forbidden, headingSpan{
+				start: start,
+				end:   end,
+			})
+		}
+		return ast.WalkContinue, nil
+	})
+	// Defensive: filter out any heading that falls inside a forbidden span.
+	// Goldmark normally does not emit ast.Heading inside code blocks, but this
+	// guarantees the invariant for downstream tree construction.
+	var filtered []headingSpan
+	for _, h := range headings {
+		insideForbidden := false
+		for _, f := range forbidden {
+			if h.start < f.end && h.end > f.start {
+				insideForbidden = true
+				break
+			}
+		}
+		if !insideForbidden {
+			filtered = append(filtered, h)
+		}
+	}
+	return filtered, forbidden
+}
+
+// collectOutlineHeadingSpans scans for numbered outline headings that goldmark does not treat as
+// ast.Heading (e.g. "1. Introduction" is parsed as a list item). Only lines matching
+// parseNumberedOutlineHeading and not already covered by goldmark spans are collected.
+func collectOutlineHeadingSpans(source string) []headingSpan {
+	lines := strings.Split(source, "\n")
+	var spans []headingSpan
+	var offset int
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if title, level, ok := parseNumberedOutlineHeading(trimmed); ok {
+			// Skip if this line falls inside an existing goldmark heading span.
+			// We approximate by checking if the line offset overlaps any span.
+			lineStart := offset
+			lineEnd := offset + len(line)
+			if i < len(lines)-1 {
+				lineEnd++ // include \n
+			}
+
+			// Context-aware rejection: skip short ordered list triples.
+			if partOfShortOrderedListTriple(lines, i) {
+				offset = lineEnd
+				continue
+			}
+
+			spans = append(spans, headingSpan{
+				level: level,
+				title: title,
+				start: lineStart,
+				end:   lineEnd,
+			})
+		}
+		offset += len(line) + 1 // +1 for \n
+	}
+	return spans
+}
+
+// partOfShortOrderedListTriple rejects a line when it is part of 3 consecutive short ordered-list
+// lines ("1. aa", "2. bb", "3. cc"), a common false-positive pattern for numbered outlines.
+func partOfShortOrderedListTriple(lines []string, idx int) bool {
+	if idx < 0 || idx >= len(lines) {
+		return false
+	}
+	// Look for a window of 3 consecutive lines around idx that are all short ordered items.
+	for start := idx - 2; start <= idx; start++ {
+		if start < 0 || start+2 >= len(lines) {
+			continue
+		}
+		if shortOrderedListTriple(lines, start) {
+			return true
+		}
+	}
+	return false
+}
+
+// shortOrderedListTriple returns true if lines[start:start+3] are all short ordered list items.
+func shortOrderedListTriple(lines []string, start int) bool {
+	if start < 0 || start+2 >= len(lines) {
+		return false
+	}
+	var nums []int
+	for i := 0; i < 3; i++ {
+		trim := strings.TrimSpace(lines[start+i])
+		n, rest, ok := extractSingleOrderedPrefix(trim)
+		if !ok {
+			return false
+		}
+		if len(rest) > 20 {
+			return false
+		}
+		nums = append(nums, n)
+	}
+	if len(nums) != 3 {
+		return false
+	}
+	return nums[1] == nums[0]+1 && nums[2] == nums[1]+1
+}
+
+// extractSingleOrderedPrefix extracts "N. " from the start of a line.
+func extractSingleOrderedPrefix(trim string) (n int, rest string, ok bool) {
+	if m := numberedHeadingSingle.FindStringSubmatch(trim); m != nil {
+		num, _ := strconv.Atoi(m[1])
+		return num, strings.TrimSpace(m[2]), true
+	}
+	return 0, "", false
+}
+
+// mergeAndSortSpans merges goldmark and outline spans, removing overlaps, and sorts by start position.
+func mergeAndSortSpans(goldmarkSpans, outlineSpans []headingSpan) []headingSpan {
+	// Build a set of byte ranges already covered by goldmark.
+	type interval struct{ start, end int }
+	var covered []interval
+	for _, s := range goldmarkSpans {
+		covered = append(covered, interval{s.start, s.end})
+	}
+
+	var merged []headingSpan
+	merged = append(merged, goldmarkSpans...)
+
+	for _, o := range outlineSpans {
+		// Skip outline spans that overlap any goldmark span.
+		overlaps := false
+		for _, c := range covered {
+			if o.start < c.end && o.end > c.start {
+				overlaps = true
+				break
+			}
+		}
+		if !overlaps {
+			merged = append(merged, o)
+		}
+	}
+
+	sort.Slice(merged, func(i, j int) bool {
+		return merged[i].start < merged[j].start
+	})
+	return merged
+}
+
+// parseChineseHeading recognizes Chinese-numbered headings like "一、系统架构" or "（一）模块设计".
+// It returns the full line as title and a level (2 for 一、, 3 for （一）).
+func parseChineseHeading(trimmed string) (title string, level int, ok bool) {
+	if trimmed == "" {
+		return "", 0, false
+	}
+	if m := chineseNumberedHeading.FindStringSubmatch(trimmed); m != nil {
+		return trimmed, 2, true
+	}
+	if m := chineseParenHeading.FindStringSubmatch(trimmed); m != nil {
+		return trimmed, 3, true
+	}
+	return "", 0, false
+}
+
+// collectChineseHeadingSpans scans text for Chinese-numbered headings that goldmark does not treat
+// as ast.Heading (they are plain text in CommonMark). Only lines matching parseChineseHeading,
+// not already covered by goldmark heading spans, and not inside forbidden spans (code blocks,
+// tables, etc.) are collected.
+func collectChineseHeadingSpans(source string, goldmarkSpans, forbidden []headingSpan) []headingSpan {
+	lines := strings.Split(source, "\n")
+	var spans []headingSpan
+	var offset int
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Skip table rows (GFM table lines start with |).
+		if strings.HasPrefix(trimmed, "|") {
+			offset += len(line) + 1
+			continue
+		}
+		if title, level, ok := parseChineseHeading(trimmed); ok {
+			lineStart := offset
+			lineEnd := offset + len(line)
+			if i < len(lines)-1 {
+				lineEnd++ // include \n
+			}
+
+			// Skip if this line falls inside an existing goldmark heading span.
+			overlaps := false
+			for _, g := range goldmarkSpans {
+				if lineStart < g.end && lineEnd > g.start {
+					overlaps = true
+					break
+				}
+			}
+			// Skip if inside a forbidden span (code block, table, etc.).
+			if !overlaps {
+				for _, f := range forbidden {
+					if lineStart < f.end && lineEnd > f.start {
+						overlaps = true
+						break
+					}
+				}
+			}
+			if overlaps {
+				offset += len(line) + 1
+				continue
+			}
+
+			spans = append(spans, headingSpan{
+				level: level,
+				title: title,
+				start: lineStart,
+				end:   lineEnd,
+			})
+		}
+		offset += len(line) + 1 // +1 for \n
+	}
+	return spans
+}
+
+// parseSplitTree builds a heading tree for cold chapter splitting using goldmark CommonMark AST.
+// Only headings that are direct children of the document are adopted (no blockquote/list/table headings).
+// Setext and ATX headings are both represented as ast.Heading.
+// Chinese-numbered headings (e.g. "一、系统架构") are detected as a supplement, but lines inside
+// code blocks, fenced code blocks, or tables are skipped.
+func parseSplitTree(markdown string) *splitNode {
+	source := normalizeEOL(markdown)
+	source = stripYAMLFrontmatter(source)
+	sourceBytes := []byte(source)
+	spans, forbidden := collectGoldmarkSpans(sourceBytes)
+	chineseSpans := collectChineseHeadingSpans(source, spans, forbidden)
+	allSpans := mergeAndSortSpans(spans, chineseSpans)
+
+	root := &splitNode{level: 0, title: ""}
+	stack := []*splitNode{root}
+	prevEnd := 0
+
+	flushBody := func(a, b int) {
+		if a >= b || a < 0 || b > len(sourceBytes) {
+			return
+		}
+		cur := stack[len(stack)-1]
+		cur.localBody.Write(sourceBytes[a:b])
+	}
+
+	for _, h := range allSpans {
+		if h.start > prevEnd {
+			flushBody(prevEnd, h.start)
+		}
+		for len(stack) > 1 && stack[len(stack)-1].level >= h.level {
+			stack = stack[:len(stack)-1]
+		}
+		parent := stack[len(stack)-1]
+		pathTitles := make([]string, 0, len(parent.pathTitles)+1)
+		pathTitles = append(pathTitles, parent.pathTitles...)
+		pathTitles = append(pathTitles, h.title)
+		child := &splitNode{level: h.level, title: h.title, pathTitles: pathTitles}
+		parent.children = append(parent.children, child)
+		stack = append(stack, child)
+		prevEnd = h.end
+	}
+	if prevEnd < len(sourceBytes) {
+		flushBody(prevEnd, len(sourceBytes))
+	}
+	return root
+}
+
+func normalizeEOL(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	return s
+}
+
+// stripYAMLFrontmatter removes YAML frontmatter blocks (delimited by --- on their own lines)
+// to prevent goldmark from treating the closing --- as a Setext underline.
+// It only strips blocks where the inner lines look like frontmatter (contain ':').
+func stripYAMLFrontmatter(s string) string {
+	lines := strings.Split(s, "\n")
+	var result []string
+	var pending []string
+	inFrontmatter := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
+			if !inFrontmatter {
+				// Potential start
+				inFrontmatter = true
+				pending = []string{line}
+				continue
+			}
+			// Potential end - check if content looks like frontmatter
+			looksLikeFrontmatter := false
+			for _, p := range pending[1:] {
+				if strings.Contains(p, ":") {
+					looksLikeFrontmatter = true
+					break
+				}
+			}
+			if looksLikeFrontmatter {
+				// Skip the frontmatter block
+				inFrontmatter = false
+				pending = nil
+				continue
+			}
+			// Not frontmatter, flush pending
+			result = append(result, pending...)
+			inFrontmatter = false
+			pending = nil
+		}
+		if inFrontmatter {
+			pending = append(pending, line)
+		} else {
+			result = append(result, line)
+		}
+	}
+	if inFrontmatter {
+		result = append(result, pending...)
+	}
+	return strings.Join(result, "\n")
+}

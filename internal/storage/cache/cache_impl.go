@@ -50,6 +50,11 @@ func (c *Cache) Get(key string) (interface{}, bool) {
 	if time.Now().After(item.expiration) {
 		return nil, false
 	}
+	// Callers use Set(key, nil) as a cache invalidation marker.
+	// Treat a nil value as a miss to avoid type assertion panics.
+	if item.value == nil {
+		return nil, false
+	}
 	return item.value, true
 }
 

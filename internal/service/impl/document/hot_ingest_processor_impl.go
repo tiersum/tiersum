@@ -13,11 +13,14 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
+// failureChapterSummaryMax caps only the synthetic virtual failure chapter summary (not LLM output).
+const failureChapterSummaryMax = 100
+
 // NewHotIngestProcessor constructs the IHotIngestProcessor implementation.
 func NewHotIngestProcessor(
 	docRepo storage.IDocumentRepository,
-	analyzer service.IDocumentAnalysisGenerator,
-	persister service.IDocumentAnalysisPersister,
+	analyzer IDocumentAnalysisGenerator,
+	persister IDocumentAnalysisPersister,
 	tagRepo storage.ITagRepository,
 	logger *zap.Logger,
 ) service.IHotIngestProcessor {
@@ -35,8 +38,8 @@ func NewHotIngestProcessor(
 
 type hotIngestProcessor struct {
 	docRepo   storage.IDocumentRepository
-	analyzer  service.IDocumentAnalysisGenerator
-	persister service.IDocumentAnalysisPersister
+	analyzer  IDocumentAnalysisGenerator
+	persister IDocumentAnalysisPersister
 	tagRepo   storage.ITagRepository
 	logger    *zap.Logger
 }
@@ -66,8 +69,8 @@ func (p *hotIngestProcessor) ProcessHotIngest(ctx context.Context, work types.Ho
 	prebuilt := work.PrebuiltTags
 	analysis, err := p.analyzer.GenerateAnalysis(ctx, doc.Title, doc.Content)
 	if err != nil {
-		p.logger.Warn("hot ingest: analyze failed, using fallback", zap.String("doc_id", doc.ID), zap.Error(err))
-		analysis = fallbackAnalysis(doc.Title, doc.Content)
+		p.logger.Warn("hot ingest: analyze failed, writing failure chapter", zap.String("doc_id", doc.ID), zap.Error(err))
+		analysis = analysisFailureResult(doc.Title, err)
 		analysis.Tags = append([]string(nil), prebuilt...)
 	}
 
@@ -111,31 +114,30 @@ func (p *hotIngestProcessor) ProcessHotIngest(ctx context.Context, work types.Ho
 	return nil
 }
 
+func analysisFailureResult(title string, err error) *types.DocumentAnalysisResult {
+	msg := "unknown error"
+	if err != nil {
+		msg = err.Error()
+	}
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		msg = "unknown error"
+	}
+	summary := truncateString("Document analysis failed: "+msg, failureChapterSummaryMax)
+	// Persist the error once as a single virtual chapter so operators can see the failure in UI and via GET /chapters.
+	return &types.DocumentAnalysisResult{
+		Summary: "",
+		Tags:    []string{},
+		Chapters: []types.ChapterInfo{{
+			Title:   "[analysis failed] " + titleOrDefault(title),
+			Summary: summary,
+			Content: "Document analysis failed.\n\nError:\n" + truncateString(msg, 4000),
+		}},
+	}
+}
+
 func mergeTags(prebuilt, generated []string) []string {
-	if len(prebuilt) == 0 {
-		return dedupeTagNames(generated)
-	}
-	set := make(map[string]struct{}, len(prebuilt)+len(generated))
-	out := make([]string, 0, len(prebuilt)+len(generated))
-	push := func(t string) {
-		t = strings.TrimSpace(t)
-		if t == "" {
-			return
-		}
-		key := strings.ToLower(t)
-		if _, ok := set[key]; ok {
-			return
-		}
-		set[key] = struct{}{}
-		out = append(out, t)
-	}
-	for _, t := range prebuilt {
-		push(t)
-	}
-	for _, t := range generated {
-		push(t)
-	}
-	return out
+	return mergeOrderedTagLists(prebuilt, generated)
 }
 
 var _ service.IHotIngestProcessor = (*hotIngestProcessor)(nil)

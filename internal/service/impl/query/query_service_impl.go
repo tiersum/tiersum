@@ -232,27 +232,27 @@ func buildProgressiveAnswerPrompt(question string, items []types.QueryItem) stri
 // NewQueryService constructs the query service implementation.
 func NewQueryService(
 	docRepo storage.IDocumentRepository,
-	chapterSvc service.IChapterService,
+	chapterSearch service.IChapterHybridSearch,
 	llm client.ILLMProvider,
 	logger *zap.Logger,
 ) service.IQueryService {
 	return &queryService{
-		docRepo:    docRepo,
-		chapterSvc: chapterSvc,
-		llm:        llm,
-		logger:     logger,
+		docRepo:       docRepo,
+		chapterSearch: chapterSearch,
+		llm:           llm,
+		logger:        logger,
 	}
 }
 
 type queryService struct {
-	docRepo    storage.IDocumentRepository
-	chapterSvc service.IChapterService
-	llm        client.ILLMProvider
-	logger     *zap.Logger
+	docRepo       storage.IDocumentRepository
+	chapterSearch service.IChapterHybridSearch
+	llm           client.ILLMProvider
+	logger        *zap.Logger
 }
 
 // ProgressiveQuery implements service.IQueryService.
-// Runs IChapterService.SearchHotChapters and SearchColdChapterHits in parallel, merges hits, then optional LLM answer.
+// Runs IChapterHybridSearch.SearchHotChapters and SearchColdChapterHits in parallel, merges hits, then optional LLM answer.
 func (s *queryService) ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error) {
 	if req.MaxResults == 0 {
 		req.MaxResults = 100
@@ -420,7 +420,7 @@ func (s *queryService) queryHotPath(ctx context.Context, question string, half i
 	var hits []types.HotSearchHit
 	err := WithOptionalSpan(ctx, "hot_chapter_search", func(c context.Context, sp trace.Span) error {
 		var e error
-		hits, e = s.chapterSvc.SearchHotChapters(c, question, half)
+		hits, e = s.chapterSearch.SearchHotChapters(c, question, half)
 		if sp != nil && e == nil {
 			sp.SetAttributes(
 				attribute.String("tier.request.question", TruncateTraceStr(question, TraceMaxReqBytes)),
@@ -543,7 +543,7 @@ func (s *queryService) queryColdPath(ctx context.Context, question string, half 
 			)
 		}
 		var e error
-		searchResults, e = s.chapterSvc.SearchColdChapterHits(c, question, half)
+		searchResults, e = s.chapterSearch.SearchColdChapterHits(c, question, half)
 		if e != nil && errors.Is(e, service.ErrColdIndexUnavailable) {
 			if sp != nil {
 				sp.SetAttributes(

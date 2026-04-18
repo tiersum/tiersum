@@ -18,20 +18,131 @@ This document describes the **core algorithms** for cold-document **chapter extr
 
 **Primary code:** `internal/storage/coldindex/markdown_chapter_splitter_impl.go`, `chapter_split_stride.go`, splitter tests under `internal/storage/coldindex/*_test.go`.
 
-### 2.1 Parse tree
+### 2.1 Parse tree (goldmark AST + Chinese supplement)
 
-- Input is Markdown body lines. **Fenced code blocks** (`` ``` ``) toggle a flag so `#` inside fences is **not** treated as a heading.
-- Non-fence lines matching `^(#{1,6})\s+(.+)$` start a **heading node** with level, title, and `pathTitles` = parent path + this title.
-- Inter-heading and pre-heading text accumulate into each node’s **`localBody`**.
+The parser uses a **two-phase heading extraction** strategy to maximize recall while minimizing false positives.
+
+#### Phase 1: Goldmark CommonMark AST (primary)
+
+- **Parser:** `github.com/yuin/goldmark` (`coldChapterParser`). The document is parsed once; chapter boundaries come only from **`ast.Heading`** nodes that **`goldmarkHeadingAdopt`** accepts.
+- **Adoption rule ("宁可漏提取，不要误提取"):** a heading is used **only** if it is a **direct child of the document** (`Heading.Parent().Kind() == Document`). Headings inside **blockquotes, lists, tables**, etc. are **ignored** for the tree (their text stays in the parent body region).
+- **Code blocks and tables are pre-excluded:** during AST walk, `collectGoldmarkSpans` builds a set of **forbidden byte ranges** for every `CodeBlock`, `FencedCodeBlock`, and table-like region. Any `ast.Heading` whose byte span overlaps a forbidden range is **dropped** before tree construction, so headings that accidentally appear inside code or tables can never become chapter boundaries.
+- **ATX and Setext:** both appear as `ast.Heading` with `Level` 1–6; body slices use byte ranges from `Heading.Lines()` so delimiter / underline lines are not duplicated into `localBody`.
+- **Numbered “outline” lines** such as `1. Introduction` or `2.1 Methods` are **not** CommonMark headings; they remain **body text** (often under a single `#` chapter). The helper `parseNumberedOutlineHeading` in `markdown_chapter_splitter_impl.go` is retained for **unit tests** only, not for the cold tree.
+
+#### Phase 2: Chinese-numbered heading supplement
+
+Goldmark/CommonMark does not recognize Chinese-numbered lines (`一、系统架构`, `（一）模块设计`) as headings. A second scan collects these as **supplement spans**:
+
+- **Pattern 1:** `^([一二三四五六七八九十百]+)、(.+)$` → **level 2** (e.g. `一、系统架构`)
+- **Pattern 2:** `^（([一二三四五六七八九十百]+)）(.+)$` → **level 3** (e.g. `（一）模块设计`)
+- Spans that overlap any goldmark heading span are **skipped** to avoid duplication.
+- The combined spans (goldmark + Chinese) are **sorted by byte offset** before tree construction.
+
+#### Algorithm flow
+
+```
+Input: markdown string
+  │
+  ├─ normalizeEOL (\r\n → \n)
+  ├─ stripYAMLFrontmatter (remove --- metadata blocks)
+  │
+  ├─ Phase 1: goldmark.Parse → collect ast.Heading (Document children only)
+  │     └─ drop any heading overlapping a forbidden span (code block, fenced code block)
+  │
+  ├─ Phase 2: scan text → collect Chinese-numbered lines
+  │     └─ skip if overlapping goldmark heading span OR forbidden span
+  │     └─ skip if line starts with "|" (table row guard)
+  │
+  ├─ mergeAndSortSpans(goldmarkSpans, chineseSpans)
+  │
+  └─ Build tree:
+        for each span in order:
+            flushBody(prevEnd, span.start) → current node.localBody
+            pop stack while top.level >= span.level
+            push new node
+        flushBody(prevEnd, EOF)
+```
+
+#### Example: Mixed headings
+
+```markdown
+# Product Guide
+
+一、系统架构
+
+架构概述……
+
+（一）总体设计
+
+设计说明……
+
+## API Reference
+
+API details……
+```
+
+**Tree produced:**
+
+```
+root (level 0)
+├── "Product Guide" (level 1)
+│   └── "一、系统架构" (level 2)
+│       └── "（一）总体设计" (level 3)
+└── "API Reference" (level 2)
+```
+
+**Paths (after merge, if budget allows):**
+- `docId/Product Guide`
+- `docId/Product Guide/一、系统架构`
+- `docId/Product Guide/一、系统架构/（一）总体设计`
+- `docId/Product Guide/API Reference`
+
+Inter-heading and pre-heading text accumulate into each node's **`localBody`** from the source between adopted heading spans.
 
 ### 2.2 Bottom-up merge (`postOrderMergeSplit`)
 
-- Children are merged **post-order**. For each node, children’s chapter texts can be concatenated (with local prefix) if the combined **`EstimateTokens`** is ≤ **`maxTokens`** (from `Index.coldChapterMaxTokens`, default `types.DefaultColdChapterMaxTokens`).
-- If merged text still exceeds the budget (or the node is a **leaf** with oversized body), the text is passed to **`splitOversizedRaw`**.
+The tree is traversed **post-order** (children first, then parent). For each node:
+
+1. Recursively merge children; each child may return one or more `rawSplitChapter` slices.
+2. Combine the node's `localBody` (text between its heading and the first child heading) with all child chapters.
+3. If `EstimateTokens(combined)` ≤ `maxTokens` and the node is a real heading (`level > 0`), **emit one merged chapter** containing the full subtree text. The merged text re-inserts heading lines (`# Title`) so they are not lost.
+4. If the combined text exceeds the budget:
+   - If the node has `localBody` text, emit it as separate chapter(s) (may be oversized → `splitOversizedRaw`).
+   - Emit each child's chapters separately.
+5. For the **root node** (level 0, no title), if no children produced chapters but `localBody` is non-empty, treat the entire document as one oversized leaf.
+
+**Example:**
+
+```markdown
+# Chapter A
+
+Intro text……
+
+## Section B
+
+B content……
+
+## Section C
+
+C content……
+```
+
+With `maxTokens` large enough, the entire tree merges into:
+- **Path:** `docId/Chapter A`
+- **Text:** `# Chapter A\n\nIntro text……\n\n## Section B\n\nB content……\n\n## Section C\n\nC content……`
+
+With a small budget, it splits into:
+- `docId/Chapter A` (intro only)
+- `docId/Chapter A/Section B` (B content)
+- `docId/Chapter A/Section C` (C content)
+
+If any single piece still exceeds `maxTokens`, it is passed to **`splitOversizedRaw`**.
 
 ### 2.3 Token estimate
 
-- **`EstimateTokens(s)`** ≈ `(utf8.RuneCountInString(s) + 3) / 4` — a cheap heuristic aligned with **4 runes per token** used for rune-window sizing below.
+- **Purpose:** size cold chapters for **dense vector indexing** (embedder max **sequence** length, e.g. ~512 subwords for MiniLM), **not** for LLM prompt budgeting. Goal is to **fill the embedder budget** while keeping chapters as **structurally whole** as the markdown splitter allows.
+- **`EstimateTokens(s)`** uses **mixed units** so cold chapters stay closer to **~512 subword tokens** for MiniLM-sized embedders: **Han / Hiragana / Katakana / Hangul / common CJK punctuation and fullwidth forms** count **~1 unit per rune**; all other runes keep the legacy **`(runeCount + 3) / 4`** style **~4 runes per unit**. The same units gate **`postOrderMergeSplit`** merge decisions and align **`splitOversizedRaw`** window width (`maxTokens * 4` runes) with that heuristic.
 
 ### 2.4 Sliding windows (`splitOversizedRaw`)
 
@@ -50,6 +161,7 @@ Used when a single logical body still exceeds **`maxTokens`** after tree logic.
 - **`IColdChapterSplitter`**: `Split(docID, docTitle, markdown, maxTokens) []ColdChapter`.
 - Default: **`MarkdownSplitter`** (may set **`SlidingStrideTokens`** for tests; otherwise global stride applies).
 - **`SplitMarkdown`** is the package-level entry used when no per-splitter override is needed; it uses **`effectiveSlidingStrideTokens`**.
+- **`MarkdownChaptersFromSplit`** (`markdown_chapters.go`) builds **`types.Chapter`** for REST/detail flows using the same splitter + token budget as ingest; human-facing section titles use **`pkg/markdown.ChapterDisplayTitle`**. **`IColdIndex.MarkdownChapters`** delegates to it.
 
 ---
 
@@ -144,10 +256,12 @@ See `configs/config.example.yaml`.
 
 | Asset | Purpose |
 |-------|---------|
-| `internal/storage/coldindex/testdata/chapter_split_boundaries/*.input.md` + `*.golden.json` | Golden **boundary** cases (no parent / parent / nested + sliding); run `TestChapterSplitBoundaryGolden`; regenerate with `UPDATE_CHAPTER_SPLIT_GOLDEN=1` |
-| `internal/storage/coldindex/chapter_split_sliding_test.go` | Sliding overlap and stride override |
-| `internal/storage/coldindex/index_chapter_test.go` | Index add / merge key / stub splitter |
-| `TestSplitMarkdown_KafkaZkEtcdFixtures_IO` | Optional bulk IO under `testdata/split_io_out/` (skipped if <10 `.md` in `testdata/`) |
+| `internal/storage/coldindex/testdata/chapters/*.md` (22 files) | Markdown fixtures covering: API docs, technical guides, tutorials, Setext/ATX mix, Chinese content, Chinese-numbered headings, numbered outlines, code blocks (fenced/indented), blockquotes, YAML frontmatter, emoji, HTML tags, links/images, long titles, comments, empty lines |
+| `internal/storage/coldindex/testdata/goldens/*.golden.json` | Golden **boundary** cases (no parent / parent / nested + sliding); run `TestChapterSplitBoundaryGolden`; regenerate with `UPDATE_CHAPTER_SPLIT_GOLDEN=1` |
+| `chapter_split_integration_test.go` | All integration tests: fixture loading, boundary golden, sliding window, Chinese headings |
+| `chapter_split_markdown_test.go` | Markdown-specific unit tests (Setext, code fences, lists, blockquotes) |
+| `chapter_split_unit_test.go` | Helper function tests (token estimate, path sanitize, setext underline, etc.) |
+| `index_chapter_test.go` | Index add / merge key / stub splitter |
 
 ---
 

@@ -5,7 +5,7 @@ package shared
 // BaseSchema returns the latest base schema DDL for the given driver.
 // This project starts from a clean database; migrations are introduced only after this baseline.
 func BaseSchema(driver string) string {
-	if driver == "postgres" || driver == "postgresql" {
+	if DriverIsPostgres(driver) {
 		return postgresBaseSchema
 	}
 	return sqliteBaseSchema

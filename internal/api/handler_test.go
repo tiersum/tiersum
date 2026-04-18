@@ -16,7 +16,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
-	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -94,6 +93,29 @@ func (m *mockDocService) ListDocuments(ctx context.Context, limit int) ([]types.
 	return out, nil
 }
 
+func (m *mockDocService) CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error) {
+	_ = ctx
+	if m.err != nil {
+		return types.DocumentStatusCounts{}, m.err
+	}
+	var c types.DocumentStatusCounts
+	for _, d := range m.docs {
+		if d == nil {
+			continue
+		}
+		c.Total++
+		switch d.Status {
+		case types.DocStatusHot:
+			c.Hot++
+		case types.DocStatusCold:
+			c.Cold++
+		case types.DocStatusWarming:
+			c.Warming++
+		}
+	}
+	return c, nil
+}
+
 func (m *mockDocService) ListHotDocumentsWithSummariesByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error) {
 	_ = ctx
 	_ = tags
@@ -127,6 +149,10 @@ type mockTopicService struct {
 
 func (m *mockTopicService) RegroupTags(ctx context.Context) error {
 	return m.err
+}
+
+func (m *mockTopicService) RegroupTagsIfNeeded(ctx context.Context) error {
+	return m.RegroupTags(ctx)
 }
 
 func (m *mockTopicService) ShouldRefresh(ctx context.Context) (bool, error) {
@@ -193,12 +219,12 @@ func (m *mockReadServices) ApproxColdIndexEntries() int {
 	return 0
 }
 
-func (m *mockReadServices) ColdIndexVectorStats() storage.ColdIndexVectorStats {
-	return storage.ColdIndexVectorStats{}
+func (m *mockReadServices) ColdIndexVectorStats() types.ColdIndexVectorStats {
+	return types.ColdIndexVectorStats{}
 }
 
-func (m *mockReadServices) ColdIndexInvertedStats() storage.ColdIndexInvertedStats {
-	return storage.ColdIndexInvertedStats{}
+func (m *mockReadServices) ColdIndexInvertedStats() types.ColdIndexInvertedStats {
+	return types.ColdIndexInvertedStats{}
 }
 
 type mockTraceService struct {

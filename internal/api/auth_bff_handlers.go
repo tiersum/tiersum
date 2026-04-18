@@ -49,6 +49,7 @@ func NewAuthBFFHandler(auth service.IAuthService, configView service.IAdminConfi
 }
 
 // RegisterPublicRoutes mounts unauthenticated paths on the given group (must be /bff/v1).
+// Keep route paths aligned with BFFV1PublicPaths in bff_session_middleware.go (session skip list).
 func (h *AuthBFFHandler) RegisterPublicRoutes(rg *gin.RouterGroup) {
 	rg.GET("/system/status", h.GetSystemStatus)
 	rg.POST("/system/bootstrap", h.PostBootstrap)
@@ -164,17 +165,24 @@ type loginBody struct {
 	DeviceName  string                   `json:"device_name"`
 }
 
-func (h *AuthBFFHandler) PostLogin(c *gin.Context) {
-	ctx := c.Request.Context()
+func (h *AuthBFFHandler) checkBFFLoginRateLimits(c *gin.Context) bool {
 	if h.loginLimiter != nil && !h.loginLimiter.Allow(c.ClientIP()) {
 		c.JSON(http.StatusTooManyRequests, gin.H{"error": "rate_limited"})
-		return
+		return false
 	}
 	if h.loginBackoff != nil {
 		if ok, until := h.loginBackoff.Allowed(c.ClientIP()); !ok {
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "try_later", "retry_after": until.UTC().Format(time.RFC3339)})
-			return
+			return false
 		}
+	}
+	return true
+}
+
+func (h *AuthBFFHandler) PostLogin(c *gin.Context) {
+	ctx := c.Request.Context()
+	if !h.checkBFFLoginRateLimits(c) {
+		return
 	}
 	var body loginBody
 	if err := c.ShouldBindJSON(&body); err != nil {
@@ -199,15 +207,7 @@ func (h *AuthBFFHandler) PostLogin(c *gin.Context) {
 	if h.loginBackoff != nil {
 		h.loginBackoff.Reset(c.ClientIP())
 	}
-	// HttpOnly session cookie; Secure only when TLS (caller may terminate TLS upstream).
-	secure := requestShouldSetSecureCookie(c)
-	ttl := viper.GetDuration("auth.browser.session_ttl")
-	if ttl <= 0 {
-		ttl = 168 * time.Hour
-	}
-	maxAge := int(ttl.Seconds())
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(sessionCookieName, sess, maxAge, "/", "", secure, true)
+	setBFFSessionCookie(c, sess)
 
 	if body.RememberMe {
 		p, perr := h.Auth.ValidateBrowserSession(ctx, sess, c.ClientIP(), c.Request.UserAgent())
@@ -217,12 +217,7 @@ func (h *AuthBFFHandler) PostLogin(c *gin.Context) {
 				dname = "browser"
 			}
 			if dt, derr := h.Auth.CreateDeviceTokenForSession(ctx, p, dname, c.ClientIP(), c.Request.UserAgent()); derr == nil && strings.TrimSpace(dt) != "" {
-				dTTL := viper.GetDuration("auth.browser.device_token_ttl")
-				if dTTL <= 0 {
-					dTTL = 30 * 24 * time.Hour
-				}
-				c.SetSameSite(http.SameSiteLaxMode)
-				c.SetCookie(deviceCookieName, dt, int(dTTL.Seconds()), "/", "", secure, true)
+				setBFFDeviceCookie(c, dt)
 			}
 		}
 	}
@@ -236,15 +231,8 @@ type deviceLoginBody struct {
 
 func (h *AuthBFFHandler) PostDeviceLogin(c *gin.Context) {
 	ctx := c.Request.Context()
-	if h.loginLimiter != nil && !h.loginLimiter.Allow(c.ClientIP()) {
-		c.JSON(http.StatusTooManyRequests, gin.H{"error": "rate_limited"})
+	if !h.checkBFFLoginRateLimits(c) {
 		return
-	}
-	if h.loginBackoff != nil {
-		if ok, until := h.loginBackoff.Allowed(c.ClientIP()); !ok {
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "try_later", "retry_after": until.UTC().Format(time.RFC3339)})
-			return
-		}
 	}
 
 	token := ""
@@ -275,14 +263,7 @@ func (h *AuthBFFHandler) PostDeviceLogin(c *gin.Context) {
 	if h.loginBackoff != nil {
 		h.loginBackoff.Reset(c.ClientIP())
 	}
-	secure := requestShouldSetSecureCookie(c)
-	ttl := viper.GetDuration("auth.browser.session_ttl")
-	if ttl <= 0 {
-		ttl = 168 * time.Hour
-	}
-	maxAge := int(ttl.Seconds())
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(sessionCookieName, sess, maxAge, "/", "", secure, true)
+	setBFFSessionCookie(c, sess)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -292,10 +273,7 @@ func (h *AuthBFFHandler) PostLogout(c *gin.Context) {
 	if err == nil && strings.TrimSpace(cookie) != "" {
 		_ = h.Auth.LogoutSession(ctx, cookie)
 	}
-	secure := requestShouldSetSecureCookie(c)
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(sessionCookieName, "", -1, "/", "", secure, true)
-	c.SetCookie(deviceCookieName, "", -1, "/", "", secure, true)
+	clearBFFSessionAndDeviceCookies(c)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -548,10 +526,7 @@ func (h *AuthBFFHandler) MeRevokeAllSessions(c *gin.Context) {
 		h.writeAuthErr(c, err)
 		return
 	}
-	secure := requestShouldSetSecureCookie(c)
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(sessionCookieName, "", -1, "/", "", secure, true)
-	c.SetCookie(deviceCookieName, "", -1, "/", "", secure, true)
+	clearBFFSessionAndDeviceCookies(c)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -657,13 +632,7 @@ func (h *AuthBFFHandler) MeCreateDeviceToken(c *gin.Context) {
 		h.writeAuthErr(c, err)
 		return
 	}
-	secure := requestShouldSetSecureCookie(c)
-	dTTL := viper.GetDuration("auth.browser.device_token_ttl")
-	if dTTL <= 0 {
-		dTTL = 30 * 24 * time.Hour
-	}
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(deviceCookieName, plain, int(dTTL.Seconds()), "/", "", secure, true)
+	setBFFDeviceCookie(c, plain)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -672,9 +641,7 @@ func (h *AuthBFFHandler) MeRevokeDeviceToken(c *gin.Context) {
 		h.writeAuthErr(c, err)
 		return
 	}
-	secure := requestShouldSetSecureCookie(c)
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(deviceCookieName, "", -1, "/", "", secure, true)
+	clearBFFDeviceCookie(c)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -683,9 +650,7 @@ func (h *AuthBFFHandler) MeRevokeAllDeviceTokens(c *gin.Context) {
 		h.writeAuthErr(c, err)
 		return
 	}
-	secure := requestShouldSetSecureCookie(c)
-	c.SetSameSite(http.SameSiteLaxMode)
-	c.SetCookie(deviceCookieName, "", -1, "/", "", secure, true)
+	clearBFFDeviceCookie(c)
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 

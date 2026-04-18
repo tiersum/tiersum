@@ -183,22 +183,34 @@ func resolveHotIngest(req types.CreateDocumentRequest, quota interface{ CheckAnd
 	}
 }
 
-func dedupeTagNames(in []string) []string {
-	seen := make(map[string]struct{}, len(in))
-	out := make([]string, 0, len(in))
-	for _, raw := range in {
+// mergeOrderedTagLists merges tag lists in order (first list, then second), deduplicating case-insensitively;
+// the first spelling encountered for a logical tag is kept (sync ingest and async hot ingest stay aligned).
+func mergeOrderedTagLists(first, second []string) []string {
+	seen := make(map[string]struct{}, len(first)+len(second))
+	out := make([]string, 0, len(first)+len(second))
+	push := func(raw string) {
 		t := strings.TrimSpace(raw)
 		if t == "" {
-			continue
+			return
 		}
 		key := strings.ToLower(t)
 		if _, ok := seen[key]; ok {
-			continue
+			return
 		}
 		seen[key] = struct{}{}
 		out = append(out, t)
 	}
+	for _, raw := range first {
+		push(raw)
+	}
+	for _, raw := range second {
+		push(raw)
+	}
 	return out
+}
+
+func dedupeTagNames(in []string) []string {
+	return mergeOrderedTagLists(in, nil)
 }
 
 func materializePrebuiltChapters(docID string, infos []types.ChapterInfo) []types.Chapter {
@@ -259,6 +271,13 @@ func (s *documentService) GetDocument(ctx context.Context, id string) (*types.Do
 		return nil, errors.New("document repository not configured")
 	}
 	return s.docs.GetByID(ctx, id)
+}
+
+func (s *documentService) CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error) {
+	if s.docs == nil {
+		return types.DocumentStatusCounts{}, errors.New("document repository not configured")
+	}
+	return s.docs.CountDocumentsByStatus(ctx)
 }
 
 func (s *documentService) ListDocuments(ctx context.Context, limit int) ([]types.Document, error) {

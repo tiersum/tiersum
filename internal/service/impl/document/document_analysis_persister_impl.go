@@ -7,13 +7,12 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// NewDocumentAnalysisPersister constructs the service.IDocumentAnalysisPersister implementation.
-func NewDocumentAnalysisPersister(chapterRepo storage.IChapterRepository, docRepo storage.IDocumentRepository, logger *zap.Logger) service.IDocumentAnalysisPersister {
+// NewDocumentAnalysisPersister constructs an IDocumentAnalysisPersister implementation.
+func NewDocumentAnalysisPersister(chapterRepo storage.IChapterRepository, docRepo storage.IDocumentRepository, logger *zap.Logger) IDocumentAnalysisPersister {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -43,19 +42,21 @@ func (m *chapterMaterializer) PersistAnalysis(ctx context.Context, doc *types.Do
 	chRows := make([]types.Chapter, 0, len(analysis.Chapters))
 	for i := range analysis.Chapters {
 		ch := &analysis.Chapters[i]
-		title := strings.TrimSpace(ch.Title)
-		if title == "" {
-			title = fmt.Sprintf("Section %d", i+1)
-		}
-		path := fmt.Sprintf("%s/%s", doc.ID, sanitizePath(title))
-		if strings.TrimSpace(path) == doc.ID+"/" {
+		var path string
+		if ch.Title == "" {
 			path = fmt.Sprintf("%s/chapter/%d", doc.ID, i+1)
+		} else {
+			seg := sanitizePath(ch.Title)
+			path = fmt.Sprintf("%s/%s", doc.ID, seg)
+			if seg == "" || strings.TrimSpace(path) == doc.ID+"/" {
+				path = fmt.Sprintf("%s/chapter/%d", doc.ID, i+1)
+			}
 		}
 		chRows = append(chRows, types.Chapter{
 			DocumentID: doc.ID,
 			Path:       path,
-			Title:      title,
-			Summary:    strings.TrimSpace(ch.Summary),
+			Title:      ch.Title,
+			Summary:    ch.Summary,
 			Content:    ch.Content,
 		})
 	}
@@ -85,5 +86,5 @@ func sanitizePath(s string) string {
 	return s
 }
 
-var _ service.IDocumentAnalysisPersister = (*chapterMaterializer)(nil)
+var _ IDocumentAnalysisPersister = (*chapterMaterializer)(nil)
 

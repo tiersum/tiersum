@@ -264,22 +264,8 @@ func (s *authService) DeviceLogin(ctx context.Context, deviceTokenPlain string, 
 		return "", err
 	}
 
-	sessPlain, sessHash, err := newSessionCookieValue()
+	sessPlain, err := s.persistNewBrowserSession(ctx, user.ID, fpHash, ipP, uaN, fp.Timezone, now)
 	if err != nil {
-		return "", err
-	}
-	exp := now.Add(s.sessionTTL)
-	sess := &storage.BrowserSession{
-		UserID:           user.ID,
-		SessionTokenHash: sessHash,
-		FingerprintHash:  fpHash,
-		IPPrefix:         ipP,
-		UserAgentNorm:    uaN,
-		Timezone:         fp.Timezone,
-		ExpiresAt:        exp,
-		LastSeenAt:       now,
-	}
-	if err := s.sessions.Create(ctx, sess); err != nil {
 		return "", err
 	}
 	if err := s.deviceTokens.TouchUse(ctx, dt.ID, now); err != nil {

@@ -17,15 +17,13 @@ import (
 type TopicRepo struct {
 	db     shared.SQLDB
 	driver string
-	cache  storage.ICache
 }
 
 // NewTopicRepo creates a new topic repository
-func NewTopicRepo(db shared.SQLDB, driver string, cache storage.ICache) *TopicRepo {
+func NewTopicRepo(db shared.SQLDB, driver string) *TopicRepo {
 	return &TopicRepo{
 		db:     db,
 		driver: driver,
-		cache:  cache,
 	}
 }
 
@@ -38,17 +36,10 @@ func (r *TopicRepo) Create(ctx context.Context, topic *types.Topic) error {
 	topic.CreatedAt = now
 	topic.UpdatedAt = now
 
-	tagNamesArg := interface{}(topic.TagNames)
-	if r.driver == "sqlite" {
-		tagNamesArg = shared.FormatStringArray(topic.TagNames)
-	}
+	vals := shared.PlaceholdersCSV(r.driver, 6)
+	query := fmt.Sprintf(`INSERT INTO topics (id, name, description, tag_names, created_at, updated_at) VALUES (%s)`, vals)
 
-	query := `INSERT INTO topics (id, name, description, tag_names, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`
-	if r.driver == "postgres" {
-		query = `INSERT INTO topics (id, name, description, tag_names, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6)`
-	}
-
-	_, err := r.db.ExecContext(ctx, query, topic.ID, topic.Name, topic.Description, tagNamesArg, topic.CreatedAt, topic.UpdatedAt)
+	_, err := r.db.ExecContext(ctx, query, topic.ID, topic.Name, topic.Description, shared.FormatStringArray(topic.TagNames), topic.CreatedAt, topic.UpdatedAt)
 	if err != nil {
 		return fmt.Errorf("create topic: %w", err)
 	}
@@ -57,10 +48,8 @@ func (r *TopicRepo) Create(ctx context.Context, topic *types.Topic) error {
 
 // GetByID implements ITopicRepository.GetByID
 func (r *TopicRepo) GetByID(ctx context.Context, id string) (*types.Topic, error) {
-	query := `SELECT id, name, description, tag_names, created_at, updated_at FROM topics WHERE id = ?`
-	if r.driver == "postgres" {
-		query = `SELECT id, name, description, tag_names, created_at, updated_at FROM topics WHERE id = $1`
-	}
+	ph := shared.Placeholder(r.driver, 1, "")
+	query := fmt.Sprintf(`SELECT id, name, description, tag_names, created_at, updated_at FROM topics WHERE id = %s`, ph)
 
 	var c types.Topic
 	var tagsStr string

@@ -35,10 +35,8 @@ func (r *ChapterRepo) ReplaceByDocument(ctx context.Context, documentID string, 
 	if documentID == "" {
 		return fmt.Errorf("replace chapters: document id is required")
 	}
-	del := `DELETE FROM chapters WHERE document_id = ?`
-	if r.driver == "postgres" {
-		del = `DELETE FROM chapters WHERE document_id = $1`
-	}
+	phDel := shared.Placeholder(r.driver, 1, "")
+	del := fmt.Sprintf(`DELETE FROM chapters WHERE document_id = %s`, phDel)
 	if _, err := r.db.ExecContext(ctx, del, documentID); err != nil {
 		return fmt.Errorf("delete chapters by document: %w", err)
 	}
@@ -58,10 +56,8 @@ func (r *ChapterRepo) ReplaceByDocument(ctx context.Context, documentID string, 
 		if ch.DocumentID == "" {
 			ch.DocumentID = documentID
 		}
-		ins := `INSERT INTO chapters (id, document_id, path, title, summary, content, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-		if r.driver == "postgres" {
-			ins = `INSERT INTO chapters (id, document_id, path, title, summary, content, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
-		}
+		vals := shared.PlaceholdersCSV(r.driver, 8)
+		ins := fmt.Sprintf(`INSERT INTO chapters (id, document_id, path, title, summary, content, created_at, updated_at) VALUES (%s)`, vals)
 		if _, err := r.db.ExecContext(ctx, ins, ch.ID, ch.DocumentID, ch.Path, ch.Title, ch.Summary, ch.Content, ch.CreatedAt, ch.UpdatedAt); err != nil {
 			return fmt.Errorf("insert chapter: %w", err)
 		}
@@ -76,13 +72,15 @@ func (r *ChapterRepo) ListByDocument(ctx context.Context, documentID string) ([]
 	cacheKey := "chapters:" + documentID
 	if r.cache != nil {
 		if cached, ok := r.cache.Get(cacheKey); ok {
-			return cached.([]types.Chapter), nil
+			if cached == nil {
+				// Cache invalidation marker: treat as miss.
+			} else if out, ok := cached.([]types.Chapter); ok {
+				return out, nil
+			}
 		}
 	}
-	q := `SELECT id, document_id, path, title, summary, content, created_at, updated_at FROM chapters WHERE document_id = ? ORDER BY created_at`
-	if r.driver == "postgres" {
-		q = `SELECT id, document_id, path, title, summary, content, created_at, updated_at FROM chapters WHERE document_id = $1 ORDER BY created_at`
-	}
+	ph := shared.Placeholder(r.driver, 1, "")
+	q := fmt.Sprintf(`SELECT id, document_id, path, title, summary, content, created_at, updated_at FROM chapters WHERE document_id = %s ORDER BY created_at`, ph)
 	rows, err := r.db.QueryContext(ctx, q, documentID)
 	if err != nil {
 		return nil, err

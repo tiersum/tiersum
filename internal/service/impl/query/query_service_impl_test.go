@@ -23,9 +23,13 @@ type fakeDocRepo struct {
 	incrCh    chan string
 }
 
-func (f *fakeDocRepo) Create(ctx context.Context, doc *types.Document) error                 { return nil }
-func (f *fakeDocRepo) GetByID(ctx context.Context, id string) (*types.Document, error)      { return nil, nil }
-func (f *fakeDocRepo) GetRecent(ctx context.Context, limit int) ([]*types.Document, error)  { return nil, nil }
+func (f *fakeDocRepo) Create(ctx context.Context, doc *types.Document) error { return nil }
+func (f *fakeDocRepo) GetByID(ctx context.Context, id string) (*types.Document, error) {
+	return nil, nil
+}
+func (f *fakeDocRepo) GetRecent(ctx context.Context, limit int) ([]*types.Document, error) {
+	return nil, nil
+}
 func (f *fakeDocRepo) ListByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error) {
 	return nil, nil
 }
@@ -50,10 +54,19 @@ func (f *fakeDocRepo) IncrementQueryCount(ctx context.Context, docID string) err
 func (f *fakeDocRepo) UpdateStatus(ctx context.Context, docID string, status types.DocumentStatus) error {
 	return nil
 }
-func (f *fakeDocRepo) UpdateHotScore(ctx context.Context, docID string, score float64) error { return nil }
-func (f *fakeDocRepo) UpdateTags(ctx context.Context, docID string, tags []string) error     { return nil }
-func (f *fakeDocRepo) UpdateSummary(ctx context.Context, docID string, summary string) error { return nil }
-func (f *fakeDocRepo) ListAll(ctx context.Context, limit int) ([]types.Document, error)      { return nil, nil }
+func (f *fakeDocRepo) UpdateHotScore(ctx context.Context, docID string, score float64) error {
+	return nil
+}
+func (f *fakeDocRepo) UpdateTags(ctx context.Context, docID string, tags []string) error { return nil }
+func (f *fakeDocRepo) UpdateSummary(ctx context.Context, docID string, summary string) error {
+	return nil
+}
+func (f *fakeDocRepo) ListAll(ctx context.Context, limit int) ([]types.Document, error) {
+	return nil, nil
+}
+func (f *fakeDocRepo) CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error) {
+	return types.DocumentStatusCounts{}, nil
+}
 
 var _ storage.IDocumentRepository = (*fakeDocRepo)(nil)
 
@@ -80,7 +93,10 @@ func (f *fakeChapterSvc) SearchHotChapters(ctx context.Context, query string, li
 	return f.hotHits, f.hotErr
 }
 
-var _ service.IChapterService = (*fakeChapterSvc)(nil)
+var (
+	_ service.IChapterHybridSearch = (*fakeChapterSvc)(nil)
+	_ service.IChapterService      = (*fakeChapterSvc)(nil)
+)
 
 type fakeLLM struct {
 	out string
@@ -210,4 +226,3 @@ func TestProgressiveQuery_AnswerGenerationFailureIsSoft(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "", resp.Answer)
 }
-

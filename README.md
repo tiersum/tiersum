@@ -496,11 +496,10 @@ deployments/
 │   ├── api/                    # Layer 1: API (REST + MCP handlers)
 │   ├── service/                # Layer 2: Contracts + facade DTOs
 │   │   ├── interface.go
-│   │   ├── internal_interface.go
 │   │   ├── types.go
 │   │   └── impl/               # Implementations (wired only from internal/di/container.go)
 │   │       ├── auth/
-│   │       ├── document/
+│   │       ├── document/       # + analysis_contracts.go (composition-only capability interfaces)
 │   │       ├── query/
 │   │       ├── catalog/
 │   │       ├── observability/
@@ -524,9 +523,12 @@ deployments/
 │   │       └── *_provider_impl.go # OpenAI / Anthropic / Ollama
 │   ├── job/                    # Background tasks
 │   │   ├── scheduler.go
-│   │   ├── jobs.go             # Topic regroup, promote, hot score
-│   │   ├── promote_job.go      # Cold→Hot promotion
-│   │   └── hotscore_job.go     # Hot score calc
+│   │   ├── jobs.go             # Topic regroup, etc.
+│   │   ├── queues.go           # Global queue channels
+│   │   ├── maintenance_delegate_job.go # Promote + hot score delegates
+│   │   ├── promote_consumer.go
+│   │   ├── queue_consumer.go   # Shared queue consumer skeleton
+│   │   └── hot_ingest_consumer.go
 │   └── di/                     # Dependency injection
 │       └── container.go
 ├── pkg/

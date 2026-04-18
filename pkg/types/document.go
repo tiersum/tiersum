@@ -183,6 +183,14 @@ func ExtractKeywords(content string, maxKeywords int) []string {
 	return result
 }
 
+// DocumentStatusCounts aggregates document rows by hot/cold/warming status (full-table SQL aggregate).
+type DocumentStatusCounts struct {
+	Total   int `json:"total"`
+	Hot     int `json:"hot"`
+	Cold    int `json:"cold"`
+	Warming int `json:"warming"`
+}
+
 // CreateDocumentResponse represents the response from creating a document
 type CreateDocumentResponse struct {
 	ID           string         `json:"id"`

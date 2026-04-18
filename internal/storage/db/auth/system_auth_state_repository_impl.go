@@ -22,10 +22,7 @@ func NewSystemAuthStateRepo(db shared.SQLDB, driver string) *SystemAuthStateRepo
 }
 
 func (r *SystemAuthStateRepo) Get(ctx context.Context) (*storage.SystemAuthState, error) {
-	q := `SELECT initialized_at FROM system_state WHERE id = 1`
-	if r.driver == "postgres" {
-		q = `SELECT initialized_at FROM system_state WHERE id = 1`
-	}
+	const q = `SELECT initialized_at FROM system_state WHERE id = 1`
 	var t sql.NullTime
 	err := r.db.QueryRowContext(ctx, q).Scan(&t)
 	if err != nil {
@@ -48,7 +45,7 @@ func (r *SystemAuthStateRepo) Get(ctx context.Context) (*storage.SystemAuthState
 // ensureSingletonRow inserts the default system_state row if absent (id=1).
 func (r *SystemAuthStateRepo) ensureSingletonRow(ctx context.Context) error {
 	var q string
-	if r.driver == "postgres" {
+	if shared.DriverIsPostgres(r.driver) {
 		q = `INSERT INTO system_state (id, initialized_at) VALUES (1, NULL) ON CONFLICT (id) DO NOTHING`
 	} else {
 		q = `INSERT OR IGNORE INTO system_state (id, initialized_at) VALUES (1, NULL)`
@@ -62,12 +59,9 @@ func (r *SystemAuthStateRepo) MarkInitialized(ctx context.Context) error {
 		return err
 	}
 	now := time.Now().UTC()
-	q := `UPDATE system_state SET initialized_at = ? WHERE id = 1 AND initialized_at IS NULL`
-	args := []interface{}{now}
-	if r.driver == "postgres" {
-		q = `UPDATE system_state SET initialized_at = $1 WHERE id = 1 AND initialized_at IS NULL`
-	}
-	res, err := r.db.ExecContext(ctx, q, args...)
+	ph := shared.Placeholder(r.driver, 1, "")
+	q := fmt.Sprintf(`UPDATE system_state SET initialized_at = %s WHERE id = 1 AND initialized_at IS NULL`, ph)
+	res, err := r.db.ExecContext(ctx, q, now)
 	if err != nil {
 		return err
 	}

@@ -10,7 +10,7 @@ import (
 
 // BFFRequireAdminPasskey aborts admin JSON calls unless the browser session recently completed a passkey assertion.
 // Admins without any registered passkeys are allowed through so the first passkey can be enrolled from /settings.
-func BFFRequireAdminPasskey(auth service.IAuthService) gin.HandlerFunc {
+func BFFRequireAdminPasskey(auth service.IPasskeyPolicyReader) gin.HandlerFunc {
 	if auth == nil {
 		return func(c *gin.Context) {
 			c.Next()

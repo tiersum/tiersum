@@ -52,6 +52,11 @@ export const DocumentDetailPage = {
             }
             const ch = this.activeChapter;
             return (ch?.summary || '').trim() || '_No content for this section._';
+        },
+        chapterContentMarkdown() {
+            if (this.selectedNav === 'overview') return '';
+            const ch = this.activeChapter;
+            return (ch?.content || '').trim();
         }
     },
     watch: {
@@ -321,6 +326,15 @@ export const DocumentDetailPage = {
                                     </h2>
                                     <div class="border-t border-slate-800 pt-4">
                                         <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(summaryBodyMarkdown)"></div>
+                                        <div v-if="selectedNav !== 'overview'" class="mt-6">
+                                            <div class="flex items-center justify-between mb-2">
+                                                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide">Content</h3>
+                                                <span v-if="!chapterContentMarkdown" class="text-xs text-slate-500">No section content</span>
+                                            </div>
+                                            <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                                                <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(chapterContentMarkdown || '_No section content._')"></div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

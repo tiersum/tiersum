@@ -17,15 +17,13 @@ import (
 type TagRepo struct {
 	db     shared.SQLDB
 	driver string
-	cache  storage.ICache
 }
 
 // NewTagRepo creates a new catalog tag repository
-func NewTagRepo(db shared.SQLDB, driver string, cache storage.ICache) *TagRepo {
+func NewTagRepo(db shared.SQLDB, driver string) *TagRepo {
 	return &TagRepo{
 		db:     db,
 		driver: driver,
-		cache:  cache,
 	}
 }
 
@@ -38,12 +36,10 @@ func (r *TagRepo) Create(ctx context.Context, tag *types.Tag) error {
 	tag.CreatedAt = now
 	tag.UpdatedAt = now
 
-	query := `INSERT INTO tags (id, name, topic_id, document_count, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?) 
-			  ON CONFLICT(name) DO UPDATE SET updated_at = ?`
-	if r.driver == "postgres" {
-		query = `INSERT INTO tags (id, name, topic_id, document_count, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6) 
-				 ON CONFLICT(name) DO UPDATE SET updated_at = $7`
-	}
+	v6 := shared.PlaceholdersCSV(r.driver, 6)
+	ph7 := shared.Placeholder(r.driver, 7, "")
+	query := fmt.Sprintf(`INSERT INTO tags (id, name, topic_id, document_count, created_at, updated_at) VALUES (%s) 
+			  ON CONFLICT(name) DO UPDATE SET updated_at = %s`, v6, ph7)
 
 	_, err := r.db.ExecContext(ctx, query, tag.ID, tag.Name, tag.TopicID, tag.DocumentCount, tag.CreatedAt, tag.UpdatedAt, tag.UpdatedAt)
 	if err != nil {
@@ -54,10 +50,8 @@ func (r *TagRepo) Create(ctx context.Context, tag *types.Tag) error {
 
 // GetByName implements ITagRepository.GetByName
 func (r *TagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error) {
-	query := `SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE name = ?`
-	if r.driver == "postgres" {
-		query = `SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE name = $1`
-	}
+	ph := shared.Placeholder(r.driver, 1, "")
+	query := fmt.Sprintf(`SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE name = %s`, ph)
 
 	var t types.Tag
 	var topicID sql.NullString
@@ -104,10 +98,8 @@ func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
 
 // ListByTopic implements ITagRepository.ListByTopic
 func (r *TagRepo) ListByTopic(ctx context.Context, topicID string) ([]types.Tag, error) {
-	query := `SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE topic_id = ? ORDER BY name`
-	if r.driver == "postgres" {
-		query = `SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE topic_id = $1 ORDER BY name`
-	}
+	ph := shared.Placeholder(r.driver, 1, "")
+	query := fmt.Sprintf(`SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE topic_id = %s ORDER BY name`, ph)
 
 	rows, err := r.db.QueryContext(ctx, query, topicID)
 	if err != nil {
@@ -139,16 +131,10 @@ func (r *TagRepo) ListByTopicIDs(ctx context.Context, topicIDs []string, limit i
 		limit = 100
 	}
 	placeholders, args := shared.BuildInPlaceholders(r.driver, topicIDs)
-	var query string
-	if r.driver == "postgres" {
-		query = fmt.Sprintf(`SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags 
-			WHERE topic_id IN (%s) ORDER BY topic_id, name LIMIT $%d`, placeholders, len(topicIDs)+1)
-		args = append(args, limit)
-	} else {
-		query = fmt.Sprintf(`SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags 
-			WHERE topic_id IN (%s) ORDER BY topic_id, name LIMIT ?`, placeholders)
-		args = append(args, limit)
-	}
+	limitPh := shared.Placeholder(r.driver, len(topicIDs)+1, "")
+	query := fmt.Sprintf(`SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags 
+			WHERE topic_id IN (%s) ORDER BY topic_id, name LIMIT %s`, placeholders, limitPh)
+	args = append(args, limit)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -173,10 +159,9 @@ func (r *TagRepo) ListByTopicIDs(ctx context.Context, topicIDs []string, limit i
 
 // IncrementDocumentCount implements ITagRepository.IncrementDocumentCount
 func (r *TagRepo) IncrementDocumentCount(ctx context.Context, tagName string) error {
-	query := `UPDATE tags SET document_count = document_count + 1, updated_at = ? WHERE name = ?`
-	if r.driver == "postgres" {
-		query = `UPDATE tags SET document_count = document_count + 1, updated_at = $1 WHERE name = $2`
-	}
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "")
+	query := fmt.Sprintf(`UPDATE tags SET document_count = document_count + 1, updated_at = %s WHERE name = %s`, ph1, ph2)
 
 	_, err := r.db.ExecContext(ctx, query, time.Now(), tagName)
 	if err != nil {

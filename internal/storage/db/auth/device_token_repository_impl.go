@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,13 +29,10 @@ func (r *DeviceTokenRepo) Create(ctx context.Context, t *storage.DeviceToken) er
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = now
 	}
-	q := `INSERT INTO device_tokens (id, user_id, token_hash, device_name, ip_prefix, user_agent_norm, last_used_at, expires_at, revoked_at, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	vals := shared.PlaceholdersCSVWithPGCasts(r.driver, []string{"uuid", "uuid", "", "", "", "", "", "", "", ""})
+	q := fmt.Sprintf(`INSERT INTO device_tokens (id, user_id, token_hash, device_name, ip_prefix, user_agent_norm, last_used_at, expires_at, revoked_at, created_at)
+		VALUES (%s)`, vals)
 	args := []any{t.ID, t.UserID, t.TokenHash, t.DeviceName, t.IPPrefix, t.UserAgentNorm, t.LastUsedAt, t.ExpiresAt, t.RevokedAt, t.CreatedAt}
-	if r.driver == "postgres" {
-		q = `INSERT INTO device_tokens (id, user_id, token_hash, device_name, ip_prefix, user_agent_norm, last_used_at, expires_at, revoked_at, created_at)
-			VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10)`
-	}
 	_, err := r.db.ExecContext(ctx, q, args...)
 	return err
 }
@@ -47,27 +45,25 @@ func (r *DeviceTokenRepo) scan(scanner shared.RowScanner) (*storage.DeviceToken,
 	return &t, nil
 }
 
-func (r *DeviceTokenRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*storage.DeviceToken, error) {
-	q := `SELECT id, user_id, token_hash, device_name, ip_prefix, user_agent_norm, last_used_at, expires_at, revoked_at, created_at
-		FROM device_tokens WHERE token_hash = ?`
-	args := []any{tokenHash}
-	if r.driver == "postgres" {
-		q = `SELECT id::text, user_id::text, token_hash, device_name, ip_prefix, user_agent_norm, last_used_at, expires_at, revoked_at, created_at
-			FROM device_tokens WHERE token_hash = $1`
+func (r *DeviceTokenRepo) selectCols() string {
+	if shared.DriverIsPostgres(r.driver) {
+		return `id::text, user_id::text, token_hash, device_name, ip_prefix, user_agent_norm, last_used_at, expires_at, revoked_at, created_at`
 	}
-	row := r.db.QueryRowContext(ctx, q, args...)
-	return r.scan(row)
+	return `id, user_id, token_hash, device_name, ip_prefix, user_agent_norm, last_used_at, expires_at, revoked_at, created_at`
+}
+
+func (r *DeviceTokenRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*storage.DeviceToken, error) {
+	cols := r.selectCols()
+	ph := shared.Placeholder(r.driver, 1, "")
+	q := fmt.Sprintf(`SELECT %s FROM device_tokens WHERE token_hash = %s`, cols, ph)
+	return r.scan(r.db.QueryRowContext(ctx, q, tokenHash))
 }
 
 func (r *DeviceTokenRepo) ListByUser(ctx context.Context, userID string) ([]storage.DeviceToken, error) {
-	q := `SELECT id, user_id, token_hash, device_name, ip_prefix, user_agent_norm, last_used_at, expires_at, revoked_at, created_at
-		FROM device_tokens WHERE user_id = ? ORDER BY created_at DESC`
-	args := []any{userID}
-	if r.driver == "postgres" {
-		q = `SELECT id::text, user_id::text, token_hash, device_name, ip_prefix, user_agent_norm, last_used_at, expires_at, revoked_at, created_at
-			FROM device_tokens WHERE user_id = $1::uuid ORDER BY created_at DESC`
-	}
-	rows, err := r.db.QueryContext(ctx, q, args...)
+	cols := r.selectCols()
+	ph := shared.Placeholder(r.driver, 1, "uuid")
+	q := fmt.Sprintf(`SELECT %s FROM device_tokens WHERE user_id = %s ORDER BY created_at DESC`, cols, ph)
+	rows, err := r.db.QueryContext(ctx, q, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -84,34 +80,27 @@ func (r *DeviceTokenRepo) ListByUser(ctx context.Context, userID string) ([]stor
 }
 
 func (r *DeviceTokenRepo) TouchUse(ctx context.Context, id string, at time.Time) error {
-	q := `UPDATE device_tokens SET last_used_at = ? WHERE id = ?`
-	args := []any{at, id}
-	if r.driver == "postgres" {
-		q = `UPDATE device_tokens SET last_used_at = $1 WHERE id = $2::uuid`
-	}
-	_, err := r.db.ExecContext(ctx, q, args...)
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "uuid")
+	q := fmt.Sprintf(`UPDATE device_tokens SET last_used_at = %s WHERE id = %s`, ph1, ph2)
+	_, err := r.db.ExecContext(ctx, q, at, id)
 	return err
 }
 
 func (r *DeviceTokenRepo) Revoke(ctx context.Context, id string, at time.Time) error {
-	q := `UPDATE device_tokens SET revoked_at = ? WHERE id = ?`
-	args := []any{at, id}
-	if r.driver == "postgres" {
-		q = `UPDATE device_tokens SET revoked_at = $1 WHERE id = $2::uuid`
-	}
-	_, err := r.db.ExecContext(ctx, q, args...)
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "uuid")
+	q := fmt.Sprintf(`UPDATE device_tokens SET revoked_at = %s WHERE id = %s`, ph1, ph2)
+	_, err := r.db.ExecContext(ctx, q, at, id)
 	return err
 }
 
 func (r *DeviceTokenRepo) RevokeAllForUser(ctx context.Context, userID string, at time.Time) error {
-	q := `UPDATE device_tokens SET revoked_at = ? WHERE user_id = ?`
-	args := []any{at, userID}
-	if r.driver == "postgres" {
-		q = `UPDATE device_tokens SET revoked_at = $1 WHERE user_id = $2::uuid`
-	}
-	_, err := r.db.ExecContext(ctx, q, args...)
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "uuid")
+	q := fmt.Sprintf(`UPDATE device_tokens SET revoked_at = %s WHERE user_id = %s`, ph1, ph2)
+	_, err := r.db.ExecContext(ctx, q, at, userID)
 	return err
 }
 
 var _ storage.IDeviceTokenRepository = (*DeviceTokenRepo)(nil)
-

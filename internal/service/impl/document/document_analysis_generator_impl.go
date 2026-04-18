@@ -6,16 +6,20 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
-	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// NewDocumentAnalysisGenerator constructs the service.IDocumentAnalysisGenerator implementation.
-func NewDocumentAnalysisGenerator(provider client.ILLMProvider, logger *zap.Logger) service.IDocumentAnalysisGenerator {
+// llmInputMaxRunes limits the content runes sent to the LLM.
+// Output is separately capped by the maxTokens argument to Generate.
+const llmInputMaxRunes = 50000
+
+// NewDocumentAnalysisGenerator constructs an IDocumentAnalysisGenerator implementation.
+func NewDocumentAnalysisGenerator(provider client.ILLMProvider, logger *zap.Logger) IDocumentAnalysisGenerator {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -27,23 +31,29 @@ type documentAnalyzer struct {
 	logger   *zap.Logger
 }
 
-// GenerateAnalysis asks the LLM to produce a JSON analysis (summary, tags, chapters).
-// It is best-effort: on parse errors, it returns a conservative fallback.
-// When no LLM provider is configured, it returns a markdown-derived structure (no LLM cost) so async hot ingest can still persist chapters.
+// GenerateAnalysis runs a single LLM call, parses JSON into summary/tags/chapters.
+// Chapter bodies are returned directly by the LLM in the "content" field.
+// If the content exceeds the LLM input limit, it returns an error so callers can
+// fall back to cold-index handling.
 func (a *documentAnalyzer) GenerateAnalysis(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error) {
 	if a.provider == nil {
-		res := markdownOnlyAnalysis(title, content)
-		ensureChapterSummaries(res)
-		return res, nil
+		return nil, fmt.Errorf("llm provider not configured")
 	}
 	title = strings.TrimSpace(title)
 	content = strings.TrimSpace(content)
 
-	chapters := extractMarkdownChapters(content)
-	var chapterContext strings.Builder
-	for i, ch := range chapters {
-		fmt.Fprintf(&chapterContext, "\nChapter %d: %s\n", i+1, ch.Title)
-		fmt.Fprintf(&chapterContext, "Content preview: %s\n", truncateString(ch.Content, 500))
+	runeCount := utf8.RuneCountInString(content)
+	if runeCount > llmInputMaxRunes {
+		return nil, fmt.Errorf("content length %d exceeds LLM input limit %d", runeCount, llmInputMaxRunes)
+	}
+
+	// Dynamic output budget: roughly 1 token per 2 runes plus headroom, bounded between 2k and 8k.
+	maxTokens := runeCount/2 + 1000
+	if maxTokens < 2000 {
+		maxTokens = 2000
+	}
+	if maxTokens > 8000 {
+		maxTokens = 8000
 	}
 
 	prompt := fmt.Sprintf(`Analyze the following document and provide a JSON response.
@@ -53,95 +63,42 @@ Title: %s
 Full Content:
 %s
 
-Chapters identified:%s
-
 Please analyze this document and return a JSON object with the following structure:
 {
   "summary": "document summary (max 300 chars)",
-  "tags": ["tag1", "tag2", ...], // Up to 10 tags
+  "tags": ["tag1", "tag2", ...],
   "chapters": [
     {
       "title": "chapter title",
-      "summary": "chapter summary (max 200 chars)",
-      "content": "full chapter content"
+      "summary": "chapter summary (max 150 chars, may be empty)",
+      "content": "chapter original content (verbatim or trimmed)"
     }
   ]
 }
 
 Guidelines:
 - Return ONLY the JSON object, no other text.
+- Do NOT wrap the JSON in markdown code fences.
 - Tags should be relevant keywords (lowercase, no spaces use-hyphens).
-- For EVERY chapter object you MUST include all three fields "title", "summary", and "content".
-- "summary" is REQUIRED and must be NON-EMPTY: write 2-4 sentences capturing that chapter only.
-- If the document has no clear chapters, create a single chapter with the full content and a non-empty summary.
-`, title, truncateString(content, 10000), chapterContext.String())
+- Include at most 12 objects in "chapters".
+- For EVERY chapter object you MUST include "title", "summary", and "content".
+- "summary" may be empty when no short summary is appropriate; otherwise keep it within 150 characters.
+- "content" should contain the chapter's original text. You may lightly trim trailing whitespace but preserve meaning.
+- If the document has no clear chapters, create a single chapter spanning the full content (summary may be empty).
+`, title, content)
 
-	out, err := a.provider.Generate(ctx, prompt, 4000)
+	out, err := a.provider.Generate(ctx, prompt, maxTokens)
 	if err != nil {
 		a.logger.Warn("AnalyzeDocument: llm generate failed", zap.Error(err))
-		return fallbackAnalysis(title, content), err
+		return nil, err
 	}
+	out = strings.TrimSpace(out)
 	res, perr := parseAnalysisJSON(out)
 	if perr != nil {
-		a.logger.Warn("AnalyzeDocument: parse failed, using fallback", zap.Error(perr))
-		return fallbackAnalysis(title, content), nil
-	}
-	ensureChapterSummaries(res)
-	res.Tags = normalizeTags(res.Tags, 10)
-	if len(res.Chapters) == 0 {
-		res.Chapters = []types.ChapterInfo{{
-			Title:   titleOrDefault(title),
-			Summary: truncateString(res.Summary, 200),
-			Content: content,
-		}}
+		a.logger.Warn("AnalyzeDocument: parse failed", zap.Error(perr))
+		return nil, fmt.Errorf("analyze document: parse json: %w", perr)
 	}
 	return res, nil
-}
-
-func titleOrDefault(t string) string {
-	if strings.TrimSpace(t) == "" {
-		return "Document"
-	}
-	return strings.TrimSpace(t)
-}
-
-func normalizeTags(tags []string, max int) []string {
-	out := make([]string, 0, len(tags))
-	seen := make(map[string]struct{}, len(tags))
-	for _, t := range tags {
-		t = strings.ToLower(strings.TrimSpace(t))
-		if t == "" {
-			continue
-		}
-		t = strings.ReplaceAll(t, " ", "-")
-		if _, ok := seen[t]; ok {
-			continue
-		}
-		seen[t] = struct{}{}
-		out = append(out, t)
-		if max > 0 && len(out) >= max {
-			break
-		}
-	}
-	return out
-}
-
-func ensureChapterSummaries(res *types.DocumentAnalysisResult) {
-	if res == nil {
-		return
-	}
-	for i := range res.Chapters {
-		ch := &res.Chapters[i]
-		ch.Title = strings.TrimSpace(ch.Title)
-		ch.Summary = strings.TrimSpace(ch.Summary)
-		if ch.Summary == "" {
-			// Defensive: never allow empty summaries (prompts require non-empty).
-			ch.Summary = truncateString(strings.TrimSpace(ch.Content), 200)
-			if ch.Summary == "" {
-				ch.Summary = "Section summary unavailable."
-			}
-		}
-	}
 }
 
 func parseAnalysisJSON(raw string) (*types.DocumentAnalysisResult, error) {
@@ -149,101 +106,76 @@ func parseAnalysisJSON(raw string) (*types.DocumentAnalysisResult, error) {
 	if raw == "" {
 		return nil, fmt.Errorf("empty response")
 	}
-	// Try to extract the first JSON object when the model wrapped it.
-	if i := strings.Index(raw, "{"); i >= 0 {
-		if j := strings.LastIndex(raw, "}"); j > i {
-			raw = raw[i : j+1]
-		}
+	raw = stripMarkdownCodeFence(raw)
+	if obj, ok := extractFirstJSONObject(raw); ok {
+		raw = obj
 	}
 	var res types.DocumentAnalysisResult
 	if err := json.Unmarshal([]byte(raw), &res); err != nil {
 		return nil, err
 	}
-	res.Summary = strings.TrimSpace(res.Summary)
-	for i := range res.Tags {
-		res.Tags[i] = strings.TrimSpace(res.Tags[i])
-	}
 	return &res, nil
 }
 
-// markdownOnlyAnalysis builds summary + chapter rows from heading-split markdown (same extractor as LLM prompt context).
-func markdownOnlyAnalysis(title, content string) *types.DocumentAnalysisResult {
-	title = strings.TrimSpace(title)
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return fallbackAnalysis(titleOrDefault(title), content)
+var (
+	// Matches a single fenced code block. This is intentionally conservative: we only use it as a fast-path to unwrap
+	// fenced JSON responses. If the model produced extra text around the fence, extractFirstJSONObject handles it.
+	codeFenceRe = regexp.MustCompile("(?s)^\\s*```[a-zA-Z0-9_-]*\\s*\\n(.*?)\\n```\\s*$")
+)
+
+func stripMarkdownCodeFence(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return s
 	}
-	chapters := extractMarkdownChapters(content)
-	if len(chapters) == 0 {
-		return fallbackAnalysis(titleOrDefault(title), content)
+	m := codeFenceRe.FindStringSubmatch(s)
+	if len(m) == 2 {
+		return strings.TrimSpace(m[1])
 	}
-	out := make([]types.ChapterInfo, 0, len(chapters))
-	for _, ch := range chapters {
-		t := strings.TrimSpace(ch.Title)
-		if t == "" {
-			t = "Section"
-		}
-		body := strings.TrimSpace(ch.Content)
-		sum := truncateString(body, 200)
-		if strings.TrimSpace(sum) == "" {
-			sum = "Markdown-derived section (no LLM)."
-		}
-		out = append(out, types.ChapterInfo{Title: t, Summary: sum, Content: body})
-	}
-	docSum := truncateString(content, 300)
-	if strings.TrimSpace(docSum) == "" {
-		docSum = titleOrDefault(title)
-	}
-	return &types.DocumentAnalysisResult{
-		Summary:  docSum,
-		Tags:     []string{},
-		Chapters: out,
-	}
+	return s
 }
 
-func fallbackAnalysis(title, content string) *types.DocumentAnalysisResult {
-	t := titleOrDefault(title)
-	body := strings.TrimSpace(content)
-	return &types.DocumentAnalysisResult{
-		Summary: truncateString(body, 300),
-		Tags:    []string{},
-		Chapters: []types.ChapterInfo{{
-			Title:   t,
-			Summary: truncateString(body, 200),
-			Content: body,
-		}},
+// extractFirstJSONObject returns the first balanced JSON object found in s. It is resilient to:
+// - extra prose before/after the JSON
+// - markdown formatting (handled by stripMarkdownCodeFence)
+// - braces within JSON strings
+func extractFirstJSONObject(s string) (string, bool) {
+	start := strings.Index(s, "{")
+	if start < 0 {
+		return "", false
 	}
-}
-
-type mdChapter struct {
-	Title   string
-	Content string
-}
-
-var mdHeadingRe = regexp.MustCompile(`(?m)^(#{1,6})\s+(.+?)\s*$`)
-
-func extractMarkdownChapters(md string) []mdChapter {
-	md = strings.TrimSpace(md)
-	if md == "" {
-		return []mdChapter{{Title: "Document", Content: ""}}
-	}
-	matches := mdHeadingRe.FindAllStringSubmatchIndex(md, -1)
-	if len(matches) == 0 {
-		return []mdChapter{{Title: "Document", Content: md}}
-	}
-	out := make([]mdChapter, 0, len(matches))
-	for i, m := range matches {
-		// m[0]:start of whole, m[1]:end of whole; m[4]:start of title, m[5]:end of title
-		title := strings.TrimSpace(md[m[4]:m[5]])
-		start := m[1]
-		end := len(md)
-		if i+1 < len(matches) {
-			end = matches[i+1][0]
+	inStr := false
+	escape := false
+	depth := 0
+	for i := start; i < len(s); i++ {
+		c := s[i]
+		if inStr {
+			if escape {
+				escape = false
+				continue
+			}
+			if c == '\\' {
+				escape = true
+				continue
+			}
+			if c == '"' {
+				inStr = false
+			}
+			continue
 		}
-		body := strings.TrimSpace(md[start:end])
-		out = append(out, mdChapter{Title: title, Content: body})
+		switch c {
+		case '"':
+			inStr = true
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return strings.TrimSpace(s[start : i+1]), true
+			}
+		}
 	}
-	return out
+	return "", false
 }
 
 func truncateString(s string, maxLen int) string {
@@ -257,4 +189,11 @@ func truncateString(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-var _ service.IDocumentAnalysisGenerator = (*documentAnalyzer)(nil)
+func titleOrDefault(t string) string {
+	if strings.TrimSpace(t) == "" {
+		return "Document"
+	}
+	return strings.TrimSpace(t)
+}
+
+var _ IDocumentAnalysisGenerator = (*documentAnalyzer)(nil)

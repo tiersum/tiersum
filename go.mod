@@ -18,6 +18,7 @@ require (
 	github.com/sugarme/tokenizer v0.3.0
 	github.com/yalue/onnxruntime_go v1.27.0
 	github.com/yanyiwu/gojieba v1.4.7
+	github.com/yuin/goldmark v1.7.8
 	go.opentelemetry.io/otel v1.35.0
 	go.opentelemetry.io/otel/sdk v1.35.0
 	go.opentelemetry.io/otel/trace v1.35.0

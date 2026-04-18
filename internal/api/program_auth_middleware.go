@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strings"
 
@@ -24,6 +25,44 @@ func APIKeyPrincipal(c *gin.Context) *service.APIKeyPrincipal {
 	return p
 }
 
+// checkProgramAuth validates system initialization, API key, and required scope.
+// It is shared between REST middleware and MCP gate so that both paths enforce the same rules.
+func checkProgramAuth(
+	ctx context.Context,
+	auth service.IProgramAuth,
+	rawKey, requiredScope, method, path, clientIP string,
+) (*service.APIKeyPrincipal, int, gin.H) {
+	init, err := auth.IsSystemInitialized(ctx)
+	if err != nil {
+		return nil, http.StatusInternalServerError, gin.H{"error": "auth_state_unavailable"}
+	}
+	if !init {
+		return nil, http.StatusForbidden, gin.H{"code": "SYSTEM_NOT_INITIALIZED"}
+	}
+
+	principal, err := auth.ValidateAPIKey(ctx, rawKey)
+	if err != nil {
+		switch err {
+		case service.ErrAuthAPIKeyRevoked:
+			return nil, http.StatusForbidden, gin.H{"error": "key_revoked", "contact_admin": true}
+		case service.ErrAuthInvalidAPIKey:
+			return nil, http.StatusUnauthorized, gin.H{"error": "invalid_key"}
+		default:
+			return nil, http.StatusUnauthorized, gin.H{"error": "invalid_key"}
+		}
+	}
+
+	if !auth.APIKeyMeetsScope(principal, requiredScope) {
+		return nil, http.StatusForbidden, gin.H{
+			"error":    "insufficient_scope",
+			"required": requiredScope,
+		}
+	}
+
+	_ = auth.RecordAPIKeyUse(ctx, principal.KeyID, method, path, clientIP)
+	return principal, 0, nil
+}
+
 // ProgramAuthMiddleware enforces system initialization and API key + scope on /api/v1.
 // When programAuth is nil, the middleware is a no-op (should not happen in production wiring).
 func ProgramAuthMiddleware(programAuth service.IProgramAuth) gin.HandlerFunc {
@@ -33,17 +72,6 @@ func ProgramAuthMiddleware(programAuth service.IProgramAuth) gin.HandlerFunc {
 		}
 	}
 	return func(c *gin.Context) {
-		ctx := c.Request.Context()
-		init, err := programAuth.IsSystemInitialized(ctx)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "auth_state_unavailable"})
-			return
-		}
-		if !init {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"code": "SYSTEM_NOT_INITIALIZED"})
-			return
-		}
-
 		raw := strings.TrimSpace(c.GetHeader("X-API-Key"))
 		if raw == "" {
 			authz := strings.TrimSpace(c.GetHeader("Authorization"))
@@ -51,29 +79,17 @@ func ProgramAuthMiddleware(programAuth service.IProgramAuth) gin.HandlerFunc {
 				raw = strings.TrimSpace(authz[7:])
 			}
 		}
-		principal, err := programAuth.ValidateAPIKey(ctx, raw)
-		if err != nil {
-			switch err {
-			case service.ErrAuthAPIKeyRevoked:
-				c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "key_revoked", "contact_admin": true})
-			case service.ErrAuthInvalidAPIKey:
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
-			default:
-				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid_key"})
-			}
-			return
-		}
 
 		required := apiRouteRequiredScope(c.Request.Method, c.Request.URL.Path)
-		if !programAuth.APIKeyMeetsScope(principal, required) {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-				"error":    "insufficient_scope",
-				"required": required,
-			})
+		principal, status, body := checkProgramAuth(
+			c.Request.Context(), programAuth, raw, required,
+			c.Request.Method, c.Request.URL.Path, c.ClientIP(),
+		)
+		if status != 0 {
+			c.AbortWithStatusJSON(status, body)
 			return
 		}
 
-		_ = programAuth.RecordAPIKeyUse(ctx, principal.KeyID, c.Request.Method, c.Request.URL.Path, c.ClientIP())
 		c.Set(ginKeyAPIKeyPrincipal, principal)
 		c.Next()
 	}

@@ -33,6 +33,8 @@ type IDocumentRepository interface {
 	UpdateSummary(ctx context.Context, docID string, summary string) error
 	// ListAll returns all documents for hot score calculation
 	ListAll(ctx context.Context, limit int) ([]types.Document, error)
+	// CountDocumentsByStatus returns counts grouped by status (full table; SQL aggregate).
+	CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error)
 }
 
 // IChapterRepository persists hot-document chapters.
@@ -103,27 +105,11 @@ type ICache interface {
 	Set(key string, value interface{})
 }
 
-// ColdIndexInvertedStats summarizes the Bleve BM25 / inverted-text side of the cold chapter index (monitoring).
-type ColdIndexInvertedStats struct {
-	// BleveDocCount is the number of documents (cold chapters) in the Bleve index.
-	BleveDocCount uint64 `json:"bleve_doc_count"`
-	// StorageBackend describes how the Bleve index is held (e.g. in-process memory only).
-	StorageBackend string `json:"storage_backend"`
-	// TextAnalyzer is a short label for the primary text analyzer pipeline.
-	TextAnalyzer string `json:"text_analyzer"`
-}
-
-// ColdIndexVectorStats summarizes the in-process HNSW vector side of the cold chapter index (monitoring).
-type ColdIndexVectorStats struct {
-	// HNSWNodes is the number of vectors in the HNSW graph (normally matches indexed cold chapters).
-	HNSWNodes int `json:"hnsw_nodes"`
-	VectorDim int `json:"vector_dim"`
-	HNSWM     int `json:"hnsw_m"`
-	// HNSWEfSearch is the HNSW efSearch setting used for vector recall.
-	HNSWEfSearch int `json:"hnsw_ef_search"`
-	// TextEmbedderConfigured is true when a text embedder was wired at startup (e.g. MiniLM or simple cold embeddings).
-	TextEmbedderConfigured bool `json:"text_embedder_configured"`
-}
+// Cold index monitoring DTOs live in pkg/types; type aliases keep IColdIndex method signatures stable here.
+type (
+	ColdIndexInvertedStats = types.ColdIndexInvertedStats
+	ColdIndexVectorStats   = types.ColdIndexVectorStats
+)
 
 // IColdIndex is the cold-document index contract for the service layer.
 // It exposes only documents and plain-text queries; ranking strategy and storage layout are implementation-defined.
@@ -142,8 +128,8 @@ type IColdIndex interface {
 	InvertedIndexStats() ColdIndexInvertedStats
 	// RebuildFromDocuments replaces the entire index from the given documents (typically all cold docs).
 	RebuildFromDocuments(ctx context.Context, docs []types.Document) error
-	// MarkdownChapters extracts chapters from markdown like cold ingest for document-detail chapter UI.
-	// Returned chapters are not persisted; fields like ID/timestamps may be empty.
+	// MarkdownChapters extracts chapters from markdown using the same splitter/token budget as cold ingest.
+	// Section display titles use pkg/markdown.ChapterDisplayTitle; returned rows are not persisted (ID/timestamps may be empty).
 	MarkdownChapters(docID, title, markdown string) []types.Chapter
 	Close() error
 }
@@ -200,8 +186,8 @@ type IAuthUserRepository interface {
 	List(ctx context.Context) ([]AuthUser, error)
 }
 
-// IBrowserSessionRepository stores browser session cookies and device binding metadata.
-type IBrowserSessionRepository interface {
+// IBrowserSessionCoreRepository stores browser session rows (CRUD and per-user listing).
+type IBrowserSessionCoreRepository interface {
 	Create(ctx context.Context, s *BrowserSession) error
 	GetByID(ctx context.Context, sessionID string) (*BrowserSession, error)
 	GetBySessionTokenHash(ctx context.Context, sessionTokenHashHex string) (*BrowserSession, error)
@@ -212,11 +198,26 @@ type IBrowserSessionRepository interface {
 	DeleteByUserAndFingerprint(ctx context.Context, userID, fingerprintHashHex string) error
 	DeleteAllForUser(ctx context.Context, userID string) error
 	ListByUser(ctx context.Context, userID string) ([]BrowserSession, error)
+}
+
+// IBrowserSessionLoginPolicyRepository enforces per-user device / fingerprint limits during login.
+type IBrowserSessionLoginPolicyRepository interface {
+	HasActiveSessionWithFingerprint(ctx context.Context, userID, fingerprintHashHex string, now time.Time) (bool, error)
+	CountActiveDistinctFingerprints(ctx context.Context, userID string, now time.Time) (int, error)
+}
+
+// IBrowserSessionAdminRepository supports admin-wide session listings and per-user counts.
+type IBrowserSessionAdminRepository interface {
 	// ListAllWithUsername returns every browser session with owning username (admin views).
 	ListAllWithUsername(ctx context.Context) ([]BrowserSessionAdminListRow, error)
 	CountByUser(ctx context.Context, userID string) (int, error)
-	CountActiveDistinctFingerprints(ctx context.Context, userID string, now time.Time) (int, error)
-	HasActiveSessionWithFingerprint(ctx context.Context, userID, fingerprintHashHex string, now time.Time) (bool, error)
+}
+
+// IBrowserSessionRepository is the full browser-session store (composition root field type).
+type IBrowserSessionRepository interface {
+	IBrowserSessionCoreRepository
+	IBrowserSessionLoginPolicyRepository
+	IBrowserSessionAdminRepository
 }
 
 // IAPIKeyRepository persists service-track API keys (hashed).

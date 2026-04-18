@@ -191,12 +191,11 @@ cold_index:
     minilm_tokenizer_path: ""
 
 # MCP — routes are fixed at /mcp/sse and /mcp/message.
+# MCP clients must provide a valid database API key via X-API-Key or Authorization: Bearer header.
 mcp:
   enabled: true
   # Public base URL for MCP clients that require absolute message endpoint URLs (no trailing slash).
   base_url: ""
-  # Optional fallback when TIERSUM_API_KEY is not set in the MCP process environment (same value as REST Bearer).
-  api_key: ""
 
 documents:
   # Max ingest body (UTF-8 byte length of content).
