@@ -342,45 +342,70 @@ const defaultColdMarkdownSlidingStrideTokens = 100
 
 ## 四、优化方案
 
-### 4.1 方案 A：段落感知的自顶向下分割（推荐）
+### 4.1 方案 A：段落感知的自顶向下分割
 
-**核心思想**：从根开始，尽量保持完整章节；如果太大，再向下分割
+⚠️ **注意**：经分析，自顶向下与当前自底向上在"全量合并贪心"策略下**等价**，两者检查的都是"整个子树是否 <= maxTokens"。本节保留仅为说明"段落分割"的价值。
+
+**核心思想**：超大叶子不按 rune 滑动窗口切分，而是按段落切分
 
 ```go
 func improvedSplit(docID, title, markdown string, maxTokens int) []ColdChapter {
-    // Stage 1: 构建标题树
+    // Stage 1: 构建标题树（与当前相同）
     tree := parseSplitTree(markdown)
     
-    // Stage 2: 自顶向下分割（替代自底向上合并）
-    return splitTopDown(tree, maxTokens)
+    // Stage 2: 自底向上合并（与当前相同，等价于自顶向下）
+    chapters := postOrderMergeSplit(tree, maxTokens)
+    
+    // Stage 3: 段落分割（替代 splitOversizedRaw）
+    for i, ch := range chapters {
+        if ch.tokens > maxTokens {
+            chapters[i] = splitByParagraphs(ch, maxTokens)
+        }
+    }
+    
+    return chapters
 }
 
-func splitTopDown(node *splitNode, maxTokens int) []ColdChapter {
-    tokens := EstimateTokens(node.FullText())
+func splitByParagraphs(chapter ColdChapter, maxTokens int) []ColdChapter {
+    paragraphs := splitIntoParagraphs(chapter.Text)
     
-    if tokens <= maxTokens {
-        // ✅ 整个节点作为一个章节
-        return []ColdChapter{{Path: node.Path, Text: node.FullText()}}
-    }
+    var chapters []ColdChapter
+    current := strings.Builder{}
+    currentTokens := 0
     
-    if len(node.Children) > 0 {
-        // 有子节点，递归处理
-        var chapters []ColdChapter
-        for _, child := range node.Children {
-            chapters = append(chapters, splitTopDown(child, maxTokens)...)
+    for _, para := range paragraphs {
+        paraTokens := EstimateTokens(para)
+        
+        if currentTokens + paraTokens > maxTokens && currentTokens > 0 {
+            // 保存当前章节
+            chapters = append(chapters, ColdChapter{
+                Path: chapter.Path + "/" + strconv.Itoa(len(chapters)+1),
+                Text: current.String(),
+            })
+            current.Reset()
+            currentTokens = 0
         }
-        return chapters
+        
+        current.WriteString(para)
+        currentTokens += paraTokens
     }
     
-    // 叶子节点且超大 → 段落分割
-    return splitByParagraphs(node, maxTokens)
+    // 保存最后一个
+    if currentTokens > 0 {
+        chapters = append(chapters, ColdChapter{
+            Path: chapter.Path + "/" + strconv.Itoa(len(chapters)+1),
+            Text: current.String(),
+        })
+    }
+    
+    return chapters
 }
 ```
 
-**改进点**：
-1. ✅ 避免父节点成为空章节
-2. ✅ 自顶向下更符合直觉
-3. ✅ 保持完整章节结构优先
+**改进点**（相对 splitOversizedRaw）：
+1. ✅ 按段落切分，不在代码块中间切断
+2. ✅ 保持段落完整性，向量语义连贯
+3. ✅ 与方向无关（自顶向下/自底向上等价）
 
 ---
 
@@ -534,11 +559,12 @@ func MarkdownChapters(docID, title, markdown string, maxTokens int) []Chapter {
 
 ## 五、优化优先级建议
 
-### P0（最高优先级）：段落感知分割
+### P0（最高优先级）：结构感知的兜底分割（替代 rune 滑动窗口）
 
 **原因**：
-- 代码块被切断是最严重的问题
-- 实现成本：中等（需新增 parseMarkdownBlocks）
+- 当前 splitOversizedRaw 按 rune 切分，可能切断代码块/表格
+- 改为按段落/结构块切分，保持语义完整性
+- 实现成本：中等（需新增段落解析）
 - 收益：保护代码完整性，提升检索质量
 
 ### P1：改进合并策略
