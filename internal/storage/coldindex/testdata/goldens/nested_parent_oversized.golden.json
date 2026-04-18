@@ -1,9 +1,14 @@
 {
-  "source_file": "nested_parent_oversized.input.md",
+  "source_file": "nested_parent_oversized.md",
   "doc_id": "boundary_nested",
   "doc_title": "Nested Parent Oversized",
   "max_tokens": 128,
   "chapters": [
+    {
+      "path": "boundary_nested/Level One",
+      "text": "#\n\n##",
+      "token_est": 2
+    },
     {
       "path": "boundary_nested/Level One/Level Two/1",
       "text": "xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv xyztuv x",
@@ -111,7 +116,7 @@
     }
   ],
   "meta": {
-    "chapter_count": 21,
+    "chapter_count": 22,
     "char_total_input": 5627
   }
 }

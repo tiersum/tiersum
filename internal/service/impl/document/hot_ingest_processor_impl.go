@@ -19,8 +19,8 @@ const failureChapterSummaryMax = 100
 // NewHotIngestProcessor constructs the IHotIngestProcessor implementation.
 func NewHotIngestProcessor(
 	docRepo storage.IDocumentRepository,
-	analyzer service.IDocumentAnalysisGenerator,
-	persister service.IDocumentAnalysisPersister,
+	analyzer IDocumentAnalysisGenerator,
+	persister IDocumentAnalysisPersister,
 	tagRepo storage.ITagRepository,
 	logger *zap.Logger,
 ) service.IHotIngestProcessor {
@@ -38,8 +38,8 @@ func NewHotIngestProcessor(
 
 type hotIngestProcessor struct {
 	docRepo   storage.IDocumentRepository
-	analyzer  service.IDocumentAnalysisGenerator
-	persister service.IDocumentAnalysisPersister
+	analyzer  IDocumentAnalysisGenerator
+	persister IDocumentAnalysisPersister
 	tagRepo   storage.ITagRepository
 	logger    *zap.Logger
 }

@@ -17,8 +17,8 @@ import (
 // NewDocumentMaintenanceService constructs the maintenance service implementation.
 func NewDocumentMaintenanceService(
 	docRepo storage.IDocumentRepository,
-	persister service.IDocumentAnalysisPersister,
-	analyzer service.IDocumentAnalysisGenerator,
+	persister IDocumentAnalysisPersister,
+	analyzer IDocumentAnalysisGenerator,
 	logger *zap.Logger,
 ) service.IDocumentMaintenanceService {
 	if logger == nil {
@@ -34,8 +34,8 @@ func NewDocumentMaintenanceService(
 
 type documentMaintenanceService struct {
 	docRepo      storage.IDocumentRepository
-	persister    service.IDocumentAnalysisPersister
-	analyzer     service.IDocumentAnalysisGenerator
+	persister    IDocumentAnalysisPersister
+	analyzer     IDocumentAnalysisGenerator
 	logger       *zap.Logger
 }
 

@@ -61,54 +61,77 @@ type IProgramAuth interface {
 	RecordAPIKeyUse(ctx context.Context, keyID, method, path, clientIP string) error
 }
 
-// IAuthService covers program track plus bootstrap, browser session, and admin operations.
-type IAuthService interface {
-	IProgramAuth
-
+// IAuthBootstrap performs one-time system initialization (first admin, API key, initialized flag).
+type IAuthBootstrap interface {
 	Bootstrap(ctx context.Context, adminUsername string) (*BootstrapResult, error)
+}
 
+// IBrowserSessionValidator resolves the HttpOnly session cookie to a browser principal (BFF session gate).
+type IBrowserSessionValidator interface {
+	ValidateBrowserSession(ctx context.Context, sessionCookiePlain, remoteIP, userAgent string) (*BrowserPrincipal, error)
+}
+
+// IBFFSessionMiddlewareAuth is the dependency surface for BFFSessionMiddleware (initialized check + session cookie).
+type IBFFSessionMiddlewareAuth interface {
+	IProgramAuth
+	IBrowserSessionValidator
+}
+
+// IBrowserCredentialAuth handles human login, sliding session updates, and persistent device tokens.
+type IBrowserCredentialAuth interface {
+	IBrowserSessionValidator
 	LoginWithAccessToken(ctx context.Context, accessTokenPlain string, fp FingerprintInput, remoteIP, userAgent string) (sessionCookiePlain string, err error)
 	// DeviceLogin issues a new browser session from a previously issued persistent device token.
-	// This supports "keep me signed in" without re-entering the access token.
 	DeviceLogin(ctx context.Context, deviceTokenPlain string, fp FingerprintInput, remoteIP, userAgent string) (sessionCookiePlain string, err error)
-	ValidateBrowserSession(ctx context.Context, sessionCookiePlain, remoteIP, userAgent string) (*BrowserPrincipal, error)
 	LogoutSession(ctx context.Context, sessionCookiePlain string) error
 	// CreateDeviceTokenForSession issues a persistent device token bound to the current session.
-	// Plaintext must be set as an HttpOnly cookie by the API layer; it is not retrievable later.
 	CreateDeviceTokenForSession(ctx context.Context, actor *BrowserPrincipal, deviceName, remoteIP, userAgent string) (deviceTokenPlain string, err error)
 	ListOwnDeviceTokens(ctx context.Context, actor *BrowserPrincipal) ([]DeviceTokenSummary, error)
 	RevokeDeviceToken(ctx context.Context, actor *BrowserPrincipal, tokenID string) error
 	RevokeAllOwnDeviceTokens(ctx context.Context, actor *BrowserPrincipal) error
-
 	SlideTouchFromBrowserRequest(ctx context.Context, userID string) error
+}
 
+// IAdminAuthDirectory manages users, API keys, browser devices (admin + self-service), and audit reads.
+type IAdminAuthDirectory interface {
 	CreateUser(ctx context.Context, actor *BrowserPrincipal, username, role string) (*CreatedSecretOnce, error)
 	ResetUserAccessToken(ctx context.Context, actor *BrowserPrincipal, targetUserID string) (*CreatedSecretOnce, error)
 	ListUsers(ctx context.Context, actor *BrowserPrincipal) ([]UserSummary, error)
-
 	CreateAPIKey(ctx context.Context, actor *BrowserPrincipal, name, scope string, expiresAt *time.Time) (*CreatedSecretOnce, *APIKeySummary, error)
 	RevokeAPIKey(ctx context.Context, actor *BrowserPrincipal, keyID string) error
 	ListAPIKeys(ctx context.Context, actor *BrowserPrincipal) ([]APIKeySummary, error)
-
 	ListOwnDevices(ctx context.Context, actor *BrowserPrincipal) ([]BrowserDeviceSummary, error)
 	ListUserDevicesAdmin(ctx context.Context, actor *BrowserPrincipal, targetUserID string) ([]BrowserDeviceSummary, error)
 	ListAllDevicesAdmin(ctx context.Context, actor *BrowserPrincipal) ([]AdminBrowserDeviceSummary, error)
 	UpdateDeviceAlias(ctx context.Context, actor *BrowserPrincipal, sessionID, alias string) error
 	RevokeDeviceSession(ctx context.Context, actor *BrowserPrincipal, sessionID string) error
 	RevokeAllOwnSessions(ctx context.Context, actor *BrowserPrincipal) error
-
 	APIKeyUsageCountsSince(ctx context.Context, actor *BrowserPrincipal, since time.Time) (map[string]int64, error)
+}
 
-	// ---- Passkeys (WebAuthn) ----
+// IPasskeyPolicyReader exposes whether passkeys gate admin routes (BFF admin passkey middleware).
+type IPasskeyPolicyReader interface {
 	PasskeyStatus(ctx context.Context, actor *BrowserPrincipal) (*PasskeyStatus, error)
+}
+
+// IPasskeyAuth manages WebAuthn credentials and ceremonies for browser users.
+type IPasskeyAuth interface {
+	IPasskeyPolicyReader
 	ListPasskeys(ctx context.Context, actor *BrowserPrincipal) ([]PasskeySummary, error)
 	RevokePasskey(ctx context.Context, actor *BrowserPrincipal, passkeyID string) error
-
-	// Begin/Finish registration returns objects directly consumable by the browser WebAuthn APIs.
 	BeginPasskeyRegistration(ctx context.Context, actor *BrowserPrincipal, rpID, origin, deviceName string) (any, error)
 	FinishPasskeyRegistration(ctx context.Context, actor *BrowserPrincipal, credential any) error
 	BeginPasskeyVerification(ctx context.Context, actor *BrowserPrincipal, rpID, origin string) (any, error)
 	FinishPasskeyVerification(ctx context.Context, actor *BrowserPrincipal, assertion any) error
+}
+
+// IAuthService is the browser/admin auth façade (composed capability-sized interfaces).
+type IAuthService interface {
+	IProgramAuth
+	IAuthBootstrap
+	IBrowserCredentialAuth
+	IAdminAuthDirectory
+	IPasskeyAuth
 }
 
 // IAdminConfigViewService exposes read-only, redacted configuration for admin troubleshooting.
@@ -123,24 +146,29 @@ type ITagService interface {
 	ListTags(ctx context.Context, topicIDs []string, byTopicLimit int, listAllCap int) ([]types.Tag, error)
 }
 
-// IChapterService exposes chapter reads for document detail.
-type IChapterService interface {
-	// ListChaptersForDocument returns persisted hot-document chapters (summary + source content) for detail UI.
+// IChapterDocumentReads loads persisted chapter rows for hot documents (detail UI and hot chapter APIs).
+type IChapterDocumentReads interface {
 	ListChaptersByDocumentID(ctx context.Context, documentID string) ([]types.Chapter, error)
-	// ExtractChaptersFromMarkdown returns markdown-extracted sections for detail UI when DB chapter rows are absent.
-	ExtractChaptersFromMarkdown(ctx context.Context, doc *types.Document) ([]types.Chapter, error)
-
-	// ListChaptersByDocumentIDs returns persisted hot-document chapters grouped by document id.
-	// Used by GET /hot/doc_chapters.
+	// ListChaptersByDocumentIDs returns persisted hot-document chapters grouped by document id (GET /hot/doc_chapters).
 	ListChaptersByDocumentIDs(ctx context.Context, docIDs []string) (map[string][]types.Chapter, error)
+}
 
-	// SearchColdChapterHits runs hybrid cold search and returns chapter-level hits.
-	// Used by GET /cold/chapter_hits.
+// IChapterMarkdownFallback extracts sections from raw markdown when DB chapter rows are absent (e.g. cold docs in UI).
+type IChapterMarkdownFallback interface {
+	ExtractChaptersFromMarkdown(ctx context.Context, doc *types.Document) ([]types.Chapter, error)
+}
+
+// IChapterHybridSearch runs cold hybrid index search and progressive hot chapter discovery (query + cold probe endpoints).
+type IChapterHybridSearch interface {
 	SearchColdChapterHits(ctx context.Context, query string, limit int) ([]types.ColdSearchHit, error)
-
-	// SearchHotChapters runs the progressive hot path (catalog tags/topics → documents → chapters) with LLM relevance at each hop (cold candidates in the doc set use keyword gating only), then returns ranked chapter hits.
-	// Used by progressive query; symmetric with SearchColdChapterHits at the chapter-service boundary.
 	SearchHotChapters(ctx context.Context, query string, limit int) ([]types.HotSearchHit, error)
+}
+
+// IChapterService composes persistence reads, markdown fallback, and hybrid search for chapters.
+type IChapterService interface {
+	IChapterDocumentReads
+	IChapterMarkdownFallback
+	IChapterHybridSearch
 }
 
 // IObservabilityService exposes monitoring reads for dashboards.
@@ -164,6 +192,8 @@ type ITraceService interface {
 // ITopicService runs LLM regrouping of catalog tags into themes (topics) and related reads.
 type ITopicService interface {
 	RegroupTags(ctx context.Context) error
+	// RegroupTagsIfNeeded runs RegroupTags only when ShouldRefresh is true (scheduled/job path).
+	RegroupTagsIfNeeded(ctx context.Context) error
 	ShouldRefresh(ctx context.Context) (bool, error)
 	ListTopics(ctx context.Context) ([]types.Topic, error)
 }

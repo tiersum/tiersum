@@ -436,27 +436,62 @@ TierSum 采用 **五层架构** + **接口与实现分离**（`I*` 接口 + `int
 
 ---
 
-## 仓库结构（节选）
+## 仓库结构（与英文 README「Project Structure」对应）
 
 ```
 tiersum/
 ├── cmd/
-│   ├── main.go               # entrypoint; //go:embed web/*
+│   ├── main.go                 # API 服务入口
 │   └── web/                    # Vue 3 CDN 前端（嵌入二进制）
-│       ├── index.html          # importmap + `js/main.js`
-│       └── js/                 # ESM：页面与 api_client
-├── configs/
+│       ├── index.html          # 外壳 + importmap；ESM 入口 `js/main.js`
+│       ├── js/                 # Vue 模块（页面、api_client 等）
+│       └── FRONTEND.md         # 技术栈、路由、界面 ↔ REST 对照
+├── configs/                    # 配置文件
+│   ├── config.example.yaml
+│   └── config.yaml
 ├── deployments/
-│   └── docker/
+│   └── docker/                 # Docker 与 compose
 ├── internal/
-│   ├── api/
-│   ├── service/
-│   ├── storage/
-│   ├── client/
-│   ├── job/
-│   └── di/
+│   ├── api/                    # 第 1 层：API（REST + MCP 处理器）
+│   ├── service/                # 第 2 层：门面契约与 DTO
+│   │   ├── interface.go
+│   │   ├── types.go
+│   │   └── impl/               # 实现（仅在 internal/di/container.go 中组装）
+│   │       ├── auth/
+│   │       ├── document/       # 含 analysis_contracts.go（组合用的文档分析能力接口）
+│   │       ├── query/
+│   │       ├── catalog/
+│   │       ├── observability/
+│   │       └── adminconfig/
+│   ├── storage/                # 第 3 层：持久化
+│   │   ├── interface.go
+│   │   ├── db/
+│   │   │   ├── unit_of_work_impl.go # NewUnitOfWork（组合根）
+│   │   │   ├── shared/         # SQLDB 辅助 + 基线 DDL（`BaseSchema`）
+│   │   │   ├── document/       # 文档、章节、标签、主题等仓库
+│   │   │   ├── auth/           # system_state、用户、会话、API Key、审计
+│   │   │   └── observability/  # OpenTelemetry span 行
+│   │   ├── cache/
+│   │   │   └── cache_impl.go   # 进程内缓存
+│   │   └── coldindex/          # 冷文档章节索引（Bleve + HNSW + 嵌入器）
+│   │       └── cold_index_impl.go # storage.IColdIndex
+│   ├── client/                 # 第 4 层：外部依赖（如 LLM）
+│   │   ├── interface.go
+│   │   └── llm/
+│   │       ├── llm_provider_factory.go
+│   │       └── *_provider_impl.go # OpenAI / Anthropic / Ollama
+│   ├── job/                    # 后台任务（仅依赖 internal/service 门面）
+│   │   ├── scheduler.go
+│   │   ├── jobs.go             # 主题重归类等
+│   │   ├── queues.go           # 全局队列 channel
+│   │   ├── maintenance_delegate_job.go # 冷→热推广、热度分等委托任务
+│   │   ├── promote_consumer.go
+│   │   ├── queue_consumer.go   # 通用队列消费者骨架
+│   │   └── hot_ingest_consumer.go
+│   └── di/                     # 依赖注入组合根
+│       └── container.go
 ├── pkg/
-│   └── types/
+│   └── types/                  # 对外 API 类型等
 ├── go.mod
 ├── Makefile
 ├── README.md
@@ -464,7 +499,7 @@ tiersum/
 └── LICENSE
 ```
 
-（细粒度文件列表以仓库当前树为准。）
+**说明：** `internal/service` 顶层仅保留 **`interface.go`**、**`types.go`** 等门面契约；文档分析的 **`IDocumentAnalysisGenerator` / `IDocumentAnalysisPersister`** 在 **`impl/document/analysis_contracts.go`**，供实现与 `internal/di` 组合使用，**API / Job 不引用**（与 `AGENTS.md`、`.cursor/rules/layer-dependencies.mdc` 一致）。
 
 ---
 
@@ -511,5 +546,6 @@ make build-all
 ### 翻译与一致性说明
 
 - 本文与 [README.md](README.md) **同步意图**介绍产品；**行为细节以当前分支代码与 `AGENTS.md` 为准**。  
+- **上文「仓库结构」** 与英文 README「Project Structure」**目录层级一致**（中文注释）；`internal/job` 等以当前仓库文件为准。  
 - 术语对照：**Progressive Query** → 渐进式查询；**Hot/Cold** → 热/冷（文档分层）；冷索引命中单位 → **章节**（整章正文）；**tier** → 层级/档。  
 - 英文 README 中的 **URL、JSON 字段名、工具名** 保持英文，便于直接复制调用。

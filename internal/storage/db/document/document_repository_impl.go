@@ -46,10 +46,8 @@ func (r *DocumentRepo) Create(ctx context.Context, doc *types.Document) error {
 		doc.Status = types.DocStatusCold
 	}
 
-	query := `INSERT INTO documents (id, title, summary, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-	if r.driver == "postgres" {
-		query = `INSERT INTO documents (id, title, summary, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`
-	}
+	vals := shared.PlaceholdersCSV(r.driver, 12)
+	query := fmt.Sprintf(`INSERT INTO documents (id, title, summary, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at) VALUES (%s)`, vals)
 
 	_, err := r.db.ExecContext(ctx, query, doc.ID, doc.Title, doc.Summary, doc.Content, doc.Format, shared.FormatStringArray(doc.Tags), doc.Status, doc.HotScore, doc.QueryCount, doc.LastQueryAt, doc.CreatedAt, doc.UpdatedAt)
 	return err
@@ -67,10 +65,8 @@ func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document,
 		}
 	}
 
-	query := `SELECT id, title, summary, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at FROM documents WHERE id = ?`
-	if r.driver == "postgres" {
-		query = `SELECT id, title, summary, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at FROM documents WHERE id = $1`
-	}
+	ph := shared.Placeholder(r.driver, 1, "")
+	query := fmt.Sprintf(`SELECT id, title, summary, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at FROM documents WHERE id = %s`, ph)
 
 	doc := &types.Document{}
 	var tagsStr string
@@ -103,16 +99,11 @@ func (r *DocumentRepo) GetRecent(ctx context.Context, limit int) ([]*types.Docum
 		limit = 100
 	}
 
-	query := `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+	ph := shared.Placeholder(r.driver, 1, "")
+	query := fmt.Sprintf(`SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
 			  FROM documents 
 			  ORDER BY created_at DESC 
-			  LIMIT ?`
-	if r.driver == "postgres" {
-		query = `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
-				  FROM documents 
-				  ORDER BY created_at DESC 
-				  LIMIT $1`
-	}
+			  LIMIT %s`, ph)
 
 	rows, err := r.db.QueryContext(ctx, query, limit)
 	if err != nil {
@@ -150,12 +141,14 @@ func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int)
 	var query string
 	var args []interface{}
 
-	if r.driver == "postgres" {
+	if shared.DriverIsPostgres(r.driver) {
 		// Use PostgreSQL array overlap operator
-		query = `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+		ph1 := shared.Placeholder(r.driver, 1, "")
+		ph2 := shared.Placeholder(r.driver, 2, "")
+		query = fmt.Sprintf(`SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
 				 FROM documents 
-				 WHERE tags && $1 
-				 LIMIT $2`
+				 WHERE tags && %s 
+				 LIMIT %s`, ph1, ph2)
 		args = append(args, tags, limit)
 	} else {
 		// SQLite: Use LIKE for each tag
@@ -215,11 +208,14 @@ func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []str
 	var query string
 	var args []interface{}
 
-	if r.driver == "postgres" {
-		query = `SELECT id, title, summary, '', format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+	if shared.DriverIsPostgres(r.driver) {
+		ph1 := shared.Placeholder(r.driver, 1, "")
+		ph2 := shared.Placeholder(r.driver, 2, "text[]")
+		ph3 := shared.Placeholder(r.driver, 3, "")
+		query = fmt.Sprintf(`SELECT id, title, summary, '', format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
 			FROM documents 
-			WHERE tags && $1 AND status = ANY($2::text[]) 
-			LIMIT $3`
+			WHERE tags && %s AND status = ANY(%s) 
+			LIMIT %s`, ph1, ph2, ph3)
 		args = []interface{}{pq.Array(tags), pq.Array(statusList), limit}
 	} else {
 		conditions := make([]string, len(tags))
@@ -260,10 +256,10 @@ func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []str
 
 // UpdateStatus updates the document's hot/cold status
 func (r *DocumentRepo) UpdateStatus(ctx context.Context, docID string, status types.DocumentStatus) error {
-	query := `UPDATE documents SET status = ?, updated_at = ? WHERE id = ?`
-	if r.driver == "postgres" {
-		query = `UPDATE documents SET status = $1, updated_at = $2 WHERE id = $3`
-	}
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "")
+	ph3 := shared.Placeholder(r.driver, 3, "")
+	query := fmt.Sprintf(`UPDATE documents SET status = %s, updated_at = %s WHERE id = %s`, ph1, ph2, ph3)
 
 	_, err := r.db.ExecContext(ctx, query, status, time.Now(), docID)
 	if err != nil {
@@ -280,10 +276,10 @@ func (r *DocumentRepo) UpdateStatus(ctx context.Context, docID string, status ty
 // IncrementQueryCount increments the query count for a document
 func (r *DocumentRepo) IncrementQueryCount(ctx context.Context, docID string) error {
 	now := time.Now()
-	query := `UPDATE documents SET query_count = query_count + 1, last_query_at = ?, updated_at = ? WHERE id = ?`
-	if r.driver == "postgres" {
-		query = `UPDATE documents SET query_count = query_count + 1, last_query_at = $1, updated_at = $2 WHERE id = $3`
-	}
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "")
+	ph3 := shared.Placeholder(r.driver, 3, "")
+	query := fmt.Sprintf(`UPDATE documents SET query_count = query_count + 1, last_query_at = %s, updated_at = %s WHERE id = %s`, ph1, ph2, ph3)
 
 	_, err := r.db.ExecContext(ctx, query, now, now, docID)
 	if err != nil {
@@ -299,10 +295,10 @@ func (r *DocumentRepo) IncrementQueryCount(ctx context.Context, docID string) er
 
 // UpdateHotScore updates the hot score for a document
 func (r *DocumentRepo) UpdateHotScore(ctx context.Context, docID string, score float64) error {
-	query := `UPDATE documents SET hot_score = ?, updated_at = ? WHERE id = ?`
-	if r.driver == "postgres" {
-		query = `UPDATE documents SET hot_score = $1, updated_at = $2 WHERE id = $3`
-	}
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "")
+	ph3 := shared.Placeholder(r.driver, 3, "")
+	query := fmt.Sprintf(`UPDATE documents SET hot_score = %s, updated_at = %s WHERE id = %s`, ph1, ph2, ph3)
 
 	_, err := r.db.ExecContext(ctx, query, score, time.Now(), docID)
 	if err != nil {
@@ -314,10 +310,10 @@ func (r *DocumentRepo) UpdateHotScore(ctx context.Context, docID string, score f
 // UpdateTags updates document tags and updated_at.
 func (r *DocumentRepo) UpdateTags(ctx context.Context, docID string, tags []string) error {
 	now := time.Now()
-	query := `UPDATE documents SET tags = ?, updated_at = ? WHERE id = ?`
-	if r.driver == "postgres" {
-		query = `UPDATE documents SET tags = $1, updated_at = $2 WHERE id = $3`
-	}
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "")
+	ph3 := shared.Placeholder(r.driver, 3, "")
+	query := fmt.Sprintf(`UPDATE documents SET tags = %s, updated_at = %s WHERE id = %s`, ph1, ph2, ph3)
 
 	_, err := r.db.ExecContext(ctx, query, shared.FormatStringArray(tags), now, docID)
 	if err != nil {
@@ -333,10 +329,10 @@ func (r *DocumentRepo) UpdateTags(ctx context.Context, docID string, tags []stri
 // UpdateSummary updates the persisted document-level summary.
 func (r *DocumentRepo) UpdateSummary(ctx context.Context, docID string, summary string) error {
 	now := time.Now()
-	query := `UPDATE documents SET summary = ?, updated_at = ? WHERE id = ?`
-	if r.driver == "postgres" {
-		query = `UPDATE documents SET summary = $1, updated_at = $2 WHERE id = $3`
-	}
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "")
+	ph3 := shared.Placeholder(r.driver, 3, "")
+	query := fmt.Sprintf(`UPDATE documents SET summary = %s, updated_at = %s WHERE id = %s`, ph1, ph2, ph3)
 	_, err := r.db.ExecContext(ctx, query, summary, now, docID)
 	if err != nil {
 		return fmt.Errorf("update document summary: %w", err)
@@ -353,16 +349,12 @@ func (r *DocumentRepo) ListByStatus(ctx context.Context, status types.DocumentSt
 		limit = 100
 	}
 
-	query := `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "")
+	query := fmt.Sprintf(`SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
 			  FROM documents 
-			  WHERE status = ? 
-			  LIMIT ?`
-	if r.driver == "postgres" {
-		query = `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
-				  FROM documents 
-				  WHERE status = $1 
-				  LIMIT $2`
-	}
+			  WHERE status = %s 
+			  LIMIT %s`, ph1, ph2)
 
 	rows, err := r.db.QueryContext(ctx, query, status, limit)
 	if err != nil {
@@ -393,14 +385,10 @@ func (r *DocumentRepo) ListAll(ctx context.Context, limit int) ([]types.Document
 		limit = 1000
 	}
 
-	query := `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
+	ph := shared.Placeholder(r.driver, 1, "")
+	query := fmt.Sprintf(`SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
 			  FROM documents 
-			  LIMIT ?`
-	if r.driver == "postgres" {
-		query = `SELECT id, title, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at 
-				  FROM documents 
-				  LIMIT $1`
-	}
+			  LIMIT %s`, ph)
 
 	rows, err := r.db.QueryContext(ctx, query, limit)
 	if err != nil {

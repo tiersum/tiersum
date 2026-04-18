@@ -22,6 +22,8 @@
 
 - 按行扫描 Markdown 正文。**围栏代码块**（`` ``` ``）切换状态，使围栏内的 **`#` 不作为标题** 解析。
 - 非围栏行若匹配 `^(#{1,6})\s+(.+)$`，则创建 **标题节点**：记录层级、标题文本，`pathTitles` = 父级路径 + 当前标题。
+- **Setext 标题**（CommonMark 风格）：非 ATX 的标题行且**下一行**仅为 `=`（一级）或仅为 `-`（二级），长度 ≥3、可含首尾空白 —— 记为该层级的标题节点；下划线行被消费，不进入 `localBody`。
+- **编号大纲行**（`2.1 小节`、`1. 单行标题`）由 `parseNumberedOutlineHeading` 的正则判定；单行 `^\d+\.\s+…` 若标题文本**以 ASCII 数字或全角数字**（`０`–`９`，U+FF10–U+FF19）开头则不作为大纲标题（减轻嵌套有序列表 / 混用数字形式误判）。
 - 标题之间及首个标题前的正文累积到对应节点的 **`localBody`**。
 
 ### 2.2 自下而上合并（`postOrderMergeSplit`）
@@ -31,7 +33,8 @@
 
 ### 2.3 Token 估算
 
-- **`EstimateTokens(s)`** ≈ `(utf8.RuneCountInString(s) + 3) / 4`，为低开销启发式，并与下文 **「每 token 约 4 个 rune」** 的窗口换算一致。
+- **用途**：为 **稠密向量索引**（嵌入模型的 **序列长度** 上限，如 MiniLM 约 **512 子词**）控制冷章节体量，**不是**为对话/推理 LLM 的 prompt 预算。目标是：在不超过嵌入序列上限的前提下 **尽量占满预算**，并在 Markdown 切分能力范围内 **保持章节结构尽量完整**。
+- **`EstimateTokens(s)`** 采用**混合单位**，使冷章节体量更接近上述子词上限：**汉字、平假名、片假名、韩文音节、常见 CJK 标点与全角区** 按约 **1 单位 / rune**；其余字符仍用 **`(runeCount+3)/4`** 的 **约 4 rune / 单位** 启发式。同一单位用于 **`postOrderMergeSplit`** 的合并判断，并与 **`splitOversizedRaw`** 的窗口宽度 `maxTokens * 4`（rune）换算一致。
 
 ### 2.4 滑动窗口（`splitOversizedRaw`）
 
@@ -50,6 +53,7 @@
 - **`IColdChapterSplitter`**：`Split(docID, docTitle, markdown, maxTokens) []ColdChapter`。
 - 默认实现 **`MarkdownSplitter`**（测试可设 **`SlidingStrideTokens`** 覆盖包级步长；否则走全局步长）。
 - **`SplitMarkdown`** 为包级入口；步长经 **`effectiveSlidingStrideTokens`** 解析。
+- **`MarkdownChaptersFromSplit`**（`markdown_chapters.go`）在与入库相同的 splitter、token 预算下生成 **`types.Chapter`** 供 REST/详情使用；人读标题由 **`pkg/markdown.ChapterDisplayTitle`** 生成。**`IColdIndex.MarkdownChapters`** 委托给该函数。
 
 ---
 

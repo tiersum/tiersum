@@ -21,6 +21,32 @@ const (
 	bffPublicLogout        = "/bff/v1/auth/logout"
 )
 
+// bffV1PublicPaths is the single source of truth for paths that skip session middleware
+// (must stay aligned with AuthBFFHandler.RegisterPublicRoutes).
+var bffV1PublicPaths = []string{
+	bffPublicSystemStatus,
+	bffPublicBootstrap,
+	bffPublicLogin,
+	bffPublicDeviceLogin,
+	bffPublicLogout,
+}
+
+var bffPublicPathLookup map[string]struct{}
+
+func init() {
+	bffPublicPathLookup = make(map[string]struct{}, len(bffV1PublicPaths))
+	for _, p := range bffV1PublicPaths {
+		bffPublicPathLookup[p] = struct{}{}
+	}
+}
+
+// BFFV1PublicPaths returns exact /bff/v1 paths that skip BFFSessionMiddleware (browser auth bootstrap and login).
+func BFFV1PublicPaths() []string {
+	out := make([]string, len(bffV1PublicPaths))
+	copy(out, bffV1PublicPaths)
+	return out
+}
+
 // BrowserPrincipal returns the human-track principal set by BFFSessionMiddleware, or nil.
 func BrowserPrincipal(c *gin.Context) *service.BrowserPrincipal {
 	v, ok := c.Get(ginKeyBrowserPrincipal)
@@ -32,16 +58,12 @@ func BrowserPrincipal(c *gin.Context) *service.BrowserPrincipal {
 }
 
 func isBFFPublicPath(path string) bool {
-	switch path {
-	case bffPublicSystemStatus, bffPublicBootstrap, bffPublicLogin, bffPublicDeviceLogin, bffPublicLogout:
-		return true
-	default:
-		return false
-	}
+	_, ok := bffPublicPathLookup[path]
+	return ok
 }
 
 // BFFSessionMiddleware enforces browser session cookie on /bff/v1 except small public auth paths.
-func BFFSessionMiddleware(auth service.IAuthService) gin.HandlerFunc {
+func BFFSessionMiddleware(auth service.IBFFSessionMiddlewareAuth) gin.HandlerFunc {
 	if auth == nil {
 		return func(c *gin.Context) {
 			c.Next()

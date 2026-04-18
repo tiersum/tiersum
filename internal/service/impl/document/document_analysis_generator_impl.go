@@ -11,7 +11,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
-	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -19,8 +18,8 @@ import (
 // Output is separately capped by the maxTokens argument to Generate.
 const llmInputMaxRunes = 50000
 
-// NewDocumentAnalysisGenerator constructs the service.IDocumentAnalysisGenerator implementation.
-func NewDocumentAnalysisGenerator(provider client.ILLMProvider, logger *zap.Logger) service.IDocumentAnalysisGenerator {
+// NewDocumentAnalysisGenerator constructs an IDocumentAnalysisGenerator implementation.
+func NewDocumentAnalysisGenerator(provider client.ILLMProvider, logger *zap.Logger) IDocumentAnalysisGenerator {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -197,4 +196,4 @@ func titleOrDefault(t string) string {
 	return strings.TrimSpace(t)
 }
 
-var _ service.IDocumentAnalysisGenerator = (*documentAnalyzer)(nil)
+var _ IDocumentAnalysisGenerator = (*documentAnalyzer)(nil)

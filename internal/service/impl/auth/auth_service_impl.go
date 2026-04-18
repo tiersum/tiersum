@@ -598,4 +598,14 @@ func (s *authService) APIKeyUsageCountsSince(ctx context.Context, actor *service
 	return s.audit.CountsPerKeySince(ctx, since)
 }
 
-var _ service.IAuthService = (*authService)(nil)
+var (
+	_ service.IProgramAuth              = (*authService)(nil)
+	_ service.IAuthBootstrap            = (*authService)(nil)
+	_ service.IBrowserSessionValidator  = (*authService)(nil)
+	_ service.IBFFSessionMiddlewareAuth = (*authService)(nil)
+	_ service.IBrowserCredentialAuth    = (*authService)(nil)
+	_ service.IAdminAuthDirectory       = (*authService)(nil)
+	_ service.IPasskeyPolicyReader      = (*authService)(nil)
+	_ service.IPasskeyAuth              = (*authService)(nil)
+	_ service.IAuthService              = (*authService)(nil)
+)

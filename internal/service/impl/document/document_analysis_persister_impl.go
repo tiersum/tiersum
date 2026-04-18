@@ -7,13 +7,12 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// NewDocumentAnalysisPersister constructs the service.IDocumentAnalysisPersister implementation.
-func NewDocumentAnalysisPersister(chapterRepo storage.IChapterRepository, docRepo storage.IDocumentRepository, logger *zap.Logger) service.IDocumentAnalysisPersister {
+// NewDocumentAnalysisPersister constructs an IDocumentAnalysisPersister implementation.
+func NewDocumentAnalysisPersister(chapterRepo storage.IChapterRepository, docRepo storage.IDocumentRepository, logger *zap.Logger) IDocumentAnalysisPersister {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
@@ -87,5 +86,5 @@ func sanitizePath(s string) string {
 	return s
 }
 
-var _ service.IDocumentAnalysisPersister = (*chapterMaterializer)(nil)
+var _ IDocumentAnalysisPersister = (*chapterMaterializer)(nil)
 

@@ -48,13 +48,13 @@ Single source of truth for **dependency direction**, **where types live**, **ser
 | File | Purpose |
 |------|---------|
 | `internal/service/interface.go` | **Facade interfaces** for API/Job only — small, stable, minimum surface. |
-| `internal/service/internal_interface.go` | **Capability interfaces** for implementations only — not imported by API/Job. |
+| `internal/service/impl/document/analysis_contracts.go` | **Capability interfaces** for document analysis composition only (`IDocumentAnalysisGenerator`, `IDocumentAnalysisPersister`) — not imported by API/Job. |
 | `internal/service/types.go` | Facade-adjacent DTOs, principals, sentinel errors shared with API. |
 | `internal/service/helper.go` | Optional: pure helpers (no hidden cross-layer deps). |
 
 - **Facade names:** `I…Service` / `I…Facade` — not internal decomposition (`*ReadService` unless intentionally public contract).
 - **Capability names:** `IDocumentAnalysisGenerator`, `IDocumentAnalysisPersister`, etc.
-- **API/Job must not reference `internal_interface.go` types.** Promote a façade method into `interface.go` if upper layers need it.
+- **API/Job must not reference implementation-package capability types** (e.g. `internal/service/impl/document` analysis contracts). Promote a façade method into `interface.go` if upper layers need it.
 
 ---
 

@@ -9,6 +9,7 @@ import (
 	"github.com/tiersum/tiersum/internal/client"
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
+	"github.com/tiersum/tiersum/pkg/markdown"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -53,17 +54,6 @@ func (s *chapterService) ListChaptersByDocumentID(ctx context.Context, documentI
 	return s.chapterRepo.ListByDocument(ctx, documentID)
 }
 
-func markdownChapterTitle(docID, path, fallback string) string {
-	rel := strings.TrimPrefix(path, docID+"/")
-	if rel == "" {
-		if strings.TrimSpace(fallback) != "" {
-			return fallback
-		}
-		return "Document"
-	}
-	return strings.ReplaceAll(rel, "/", " · ")
-}
-
 func (s *chapterService) ExtractChaptersFromMarkdown(ctx context.Context, doc *types.Document) ([]types.Chapter, error) {
 	_ = ctx
 	if doc == nil {
@@ -80,7 +70,7 @@ func (s *chapterService) ExtractChaptersFromMarkdown(ctx context.Context, doc *t
 	return []types.Chapter{{
 		DocumentID: doc.ID,
 		Path:       path,
-		Title:      markdownChapterTitle(doc.ID, path, doc.Title),
+		Title:      markdown.ChapterDisplayTitle(doc.ID, path, doc.Title),
 		Summary:    md,
 		Content:    md,
 	}}, nil
@@ -129,4 +119,9 @@ func (s *chapterService) SearchHotChapters(ctx context.Context, query string, li
 	return s.searchHotChaptersProgressive(ctx, query, limit)
 }
 
-var _ service.IChapterService = (*chapterService)(nil)
+var (
+	_ service.IChapterDocumentReads    = (*chapterService)(nil)
+	_ service.IChapterMarkdownFallback = (*chapterService)(nil)
+	_ service.IChapterHybridSearch     = (*chapterService)(nil)
+	_ service.IChapterService          = (*chapterService)(nil)
+)

@@ -49,6 +49,7 @@ func NewAuthBFFHandler(auth service.IAuthService, configView service.IAdminConfi
 }
 
 // RegisterPublicRoutes mounts unauthenticated paths on the given group (must be /bff/v1).
+// Keep route paths aligned with BFFV1PublicPaths in bff_session_middleware.go (session skip list).
 func (h *AuthBFFHandler) RegisterPublicRoutes(rg *gin.RouterGroup) {
 	rg.GET("/system/status", h.GetSystemStatus)
 	rg.POST("/system/bootstrap", h.PostBootstrap)

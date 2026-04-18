@@ -1,8 +1,4 @@
-// Package service defines internal service-layer contracts.
-//
-// These interfaces are used to compose service implementations and are not intended
-// to be consumed by upper layers (API/Job). Keep facade interfaces in interface.go.
-package service
+package document
 
 import (
 	"context"
@@ -12,6 +8,7 @@ import (
 
 // IDocumentAnalysisPersister persists document analysis outputs (document summary + chapter rows).
 // It is not a search indexer; cold search lives in storage.IColdIndex.
+// Composition-only contract for this package; not part of the service façade surface in interface.go.
 type IDocumentAnalysisPersister interface {
 	// PersistAnalysis writes analysis-derived fields onto the document row and its chapters table.
 	PersistAnalysis(ctx context.Context, doc *types.Document, analysis *types.DocumentAnalysisResult) error

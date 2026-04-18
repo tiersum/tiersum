@@ -18,11 +18,13 @@ This document describes the **core algorithms** for cold-document **chapter extr
 
 **Primary code:** `internal/storage/coldindex/markdown_chapter_splitter_impl.go`, `chapter_split_stride.go`, splitter tests under `internal/storage/coldindex/*_test.go`.
 
-### 2.1 Parse tree
+### 2.1 Parse tree (goldmark AST, conservative)
 
-- Input is Markdown body lines. **Fenced code blocks** (`` ``` ``) toggle a flag so `#` inside fences is **not** treated as a heading.
-- Non-fence lines matching `^(#{1,6})\s+(.+)$` start a **heading node** with level, title, and `pathTitles` = parent path + this title.
-- Inter-heading and pre-heading text accumulate into each node’s **`localBody`**.
+- **Parser:** `github.com/yuin/goldmark` CommonMark (`internal/storage/coldindex/markdown_chapter_splitter_ast.go`). The document is parsed once; chapter boundaries come only from **`ast.Heading`** nodes that **`goldmarkHeadingAdopt`** accepts.
+- **Adoption rule (“宁可漏提取，不要误提取”):** a heading is used **only** if it is a **direct child of the document** (`Heading.Parent().Kind() == Document`). Headings inside **blockquotes, lists, tables**, etc. are **ignored** for the tree (their text stays in the parent body region). Fenced code, indented code, and HTML blocks do not emit false `Heading` nodes for inner `#` lines under normal CommonMark parsing.
+- **ATX and Setext:** both appear as `ast.Heading` with `Level` 1–6; body slices use byte ranges from `Heading.Lines()` so delimiter / underline lines are not duplicated into `localBody`.
+- **Numbered “outline” lines** such as `1. Introduction` or `2.1 Methods` are **not** CommonMark headings; they remain **body text** (often under a single `#` chapter). The helper `parseNumberedOutlineHeading` in `markdown_chapter_splitter_impl.go` is retained for **unit tests** only, not for the cold tree.
+- Inter-heading and pre-heading text accumulate into each node’s **`localBody`** from the source between adopted heading spans.
 
 ### 2.2 Bottom-up merge (`postOrderMergeSplit`)
 
@@ -31,7 +33,8 @@ This document describes the **core algorithms** for cold-document **chapter extr
 
 ### 2.3 Token estimate
 
-- **`EstimateTokens(s)`** ≈ `(utf8.RuneCountInString(s) + 3) / 4` — a cheap heuristic aligned with **4 runes per token** used for rune-window sizing below.
+- **Purpose:** size cold chapters for **dense vector indexing** (embedder max **sequence** length, e.g. ~512 subwords for MiniLM), **not** for LLM prompt budgeting. Goal is to **fill the embedder budget** while keeping chapters as **structurally whole** as the markdown splitter allows.
+- **`EstimateTokens(s)`** uses **mixed units** so cold chapters stay closer to **~512 subword tokens** for MiniLM-sized embedders: **Han / Hiragana / Katakana / Hangul / common CJK punctuation and fullwidth forms** count **~1 unit per rune**; all other runes keep the legacy **`(runeCount + 3) / 4`** style **~4 runes per unit**. The same units gate **`postOrderMergeSplit`** merge decisions and align **`splitOversizedRaw`** window width (`maxTokens * 4` runes) with that heuristic.
 
 ### 2.4 Sliding windows (`splitOversizedRaw`)
 
@@ -50,6 +53,7 @@ Used when a single logical body still exceeds **`maxTokens`** after tree logic.
 - **`IColdChapterSplitter`**: `Split(docID, docTitle, markdown, maxTokens) []ColdChapter`.
 - Default: **`MarkdownSplitter`** (may set **`SlidingStrideTokens`** for tests; otherwise global stride applies).
 - **`SplitMarkdown`** is the package-level entry used when no per-splitter override is needed; it uses **`effectiveSlidingStrideTokens`**.
+- **`MarkdownChaptersFromSplit`** (`markdown_chapters.go`) builds **`types.Chapter`** for REST/detail flows using the same splitter + token budget as ingest; human-facing section titles use **`pkg/markdown.ChapterDisplayTitle`**. **`IColdIndex.MarkdownChapters`** delegates to it.
 
 ---
 

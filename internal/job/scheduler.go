@@ -7,16 +7,7 @@ import (
 	"time"
 
 	"go.uber.org/zap"
-
-	"github.com/tiersum/tiersum/pkg/types"
 )
-
-// PromoteQueue is a buffered channel for document promotion requests
-// When a cold document is accessed 3+ times, its ID is sent to this queue
-var PromoteQueue = make(chan string, 100)
-
-// HotIngestQueue carries hot documents that need deferred LLM analysis and materialization (summary + chapter rows + tags) after the document row exists.
-var HotIngestQueue = make(chan types.HotIngestWork, 100)
 
 // Scheduler manages and executes scheduled jobs
 type Scheduler struct {
@@ -79,16 +70,21 @@ func (s *Scheduler) Stop() {
 
 // run is the main scheduler loop
 func (s *Scheduler) run() {
-	// Track last execution time for each job
+	// Track last execution time for each job. Initialize to now so the first ticker tick does not
+	// fire every job at once (e.g. a 1h job should not run on the first 5-minute tick).
 	lastRuns := make(map[string]time.Time)
+	start := time.Now().UTC()
+	for _, job := range s.jobs {
+		lastRuns[job.Name()] = start
+	}
 
 	for {
 		select {
 		case <-s.ticker.C:
 			now := time.Now()
 			for _, job := range s.jobs {
-				lastRun, ok := lastRuns[job.Name()]
-				if !ok || now.Sub(lastRun) >= job.Interval() {
+				lastRun := lastRuns[job.Name()]
+				if now.Sub(lastRun) >= job.Interval() {
 					s.executeJob(job)
 					lastRuns[job.Name()] = now
 				}

@@ -31,8 +31,8 @@ func NewUnitOfWork(db shared.SQLDB, driver string, cache storage.ICache) *UnitOf
 	return &UnitOfWork{
 		Documents:       document.NewDocumentRepo(db, driver, cache),
 		Chapters:        document.NewChapterRepo(db, driver, cache),
-		Tags:            document.NewTagRepo(db, driver, cache),
-		Topics:          document.NewTopicRepo(db, driver, cache),
+		Tags:            document.NewTagRepo(db, driver),
+		Topics:          document.NewTopicRepo(db, driver),
 		OtelSpans:       observability.NewOtelSpanRepo(db, driver),
 		SystemAuth:      auth.NewSystemAuthStateRepo(db, driver),
 		AuthUsers:       auth.NewAuthUserRepo(db, driver),

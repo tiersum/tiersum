@@ -128,8 +128,8 @@ type IColdIndex interface {
 	InvertedIndexStats() ColdIndexInvertedStats
 	// RebuildFromDocuments replaces the entire index from the given documents (typically all cold docs).
 	RebuildFromDocuments(ctx context.Context, docs []types.Document) error
-	// MarkdownChapters extracts chapters from markdown like cold ingest for document-detail chapter UI.
-	// Returned chapters are not persisted; fields like ID/timestamps may be empty.
+	// MarkdownChapters extracts chapters from markdown using the same splitter/token budget as cold ingest.
+	// Section display titles use pkg/markdown.ChapterDisplayTitle; returned rows are not persisted (ID/timestamps may be empty).
 	MarkdownChapters(docID, title, markdown string) []types.Chapter
 	Close() error
 }
@@ -186,8 +186,8 @@ type IAuthUserRepository interface {
 	List(ctx context.Context) ([]AuthUser, error)
 }
 
-// IBrowserSessionRepository stores browser session cookies and device binding metadata.
-type IBrowserSessionRepository interface {
+// IBrowserSessionCoreRepository stores browser session rows (CRUD and per-user listing).
+type IBrowserSessionCoreRepository interface {
 	Create(ctx context.Context, s *BrowserSession) error
 	GetByID(ctx context.Context, sessionID string) (*BrowserSession, error)
 	GetBySessionTokenHash(ctx context.Context, sessionTokenHashHex string) (*BrowserSession, error)
@@ -198,11 +198,26 @@ type IBrowserSessionRepository interface {
 	DeleteByUserAndFingerprint(ctx context.Context, userID, fingerprintHashHex string) error
 	DeleteAllForUser(ctx context.Context, userID string) error
 	ListByUser(ctx context.Context, userID string) ([]BrowserSession, error)
+}
+
+// IBrowserSessionLoginPolicyRepository enforces per-user device / fingerprint limits during login.
+type IBrowserSessionLoginPolicyRepository interface {
+	HasActiveSessionWithFingerprint(ctx context.Context, userID, fingerprintHashHex string, now time.Time) (bool, error)
+	CountActiveDistinctFingerprints(ctx context.Context, userID string, now time.Time) (int, error)
+}
+
+// IBrowserSessionAdminRepository supports admin-wide session listings and per-user counts.
+type IBrowserSessionAdminRepository interface {
 	// ListAllWithUsername returns every browser session with owning username (admin views).
 	ListAllWithUsername(ctx context.Context) ([]BrowserSessionAdminListRow, error)
 	CountByUser(ctx context.Context, userID string) (int, error)
-	CountActiveDistinctFingerprints(ctx context.Context, userID string, now time.Time) (int, error)
-	HasActiveSessionWithFingerprint(ctx context.Context, userID, fingerprintHashHex string, now time.Time) (bool, error)
+}
+
+// IBrowserSessionRepository is the full browser-session store (composition root field type).
+type IBrowserSessionRepository interface {
+	IBrowserSessionCoreRepository
+	IBrowserSessionLoginPolicyRepository
+	IBrowserSessionAdminRepository
 }
 
 // IAPIKeyRepository persists service-track API keys (hashed).

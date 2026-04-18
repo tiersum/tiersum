@@ -32,6 +32,17 @@ type topicService struct {
 	lastTagCount    int
 }
 
+func (s *topicService) RegroupTagsIfNeeded(ctx context.Context) error {
+	shouldRefresh, err := s.ShouldRefresh(ctx)
+	if err != nil {
+		return err
+	}
+	if !shouldRefresh {
+		return nil
+	}
+	return s.RegroupTags(ctx)
+}
+
 func (s *topicService) RegroupTags(ctx context.Context) error {
 	tags, err := s.tagRepo.List(ctx)
 	if err != nil {
@@ -95,4 +106,3 @@ func (s *topicService) ListTopics(ctx context.Context) ([]types.Topic, error) {
 }
 
 var _ service.ITopicService = (*topicService)(nil)
-

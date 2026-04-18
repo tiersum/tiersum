@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/tiersum/tiersum/internal/storage/db/shared"
@@ -18,33 +19,29 @@ func NewAPIKeyAuditRepo(db shared.SQLDB, driver string) *APIKeyAuditRepo {
 }
 
 func (r *APIKeyAuditRepo) Insert(ctx context.Context, apiKeyID, method, path, clientIP string, at time.Time) error {
-	q := `INSERT INTO api_key_audit (api_key_id, method, path, client_ip, called_at) VALUES (?, ?, ?, ?, ?)`
-	args := []interface{}{apiKeyID, method, path, clientIP, at}
-	if r.driver == "postgres" {
-		q = `INSERT INTO api_key_audit (api_key_id, method, path, client_ip, called_at) VALUES ($1::uuid, $2, $3, $4, $5)`
-	}
-	_, err := r.db.ExecContext(ctx, q, args...)
+	vals := shared.PlaceholdersCSVWithPGCasts(r.driver, []string{"uuid", "", "", "", ""})
+	q := fmt.Sprintf(`INSERT INTO api_key_audit (api_key_id, method, path, client_ip, called_at) VALUES (%s)`, vals)
+	_, err := r.db.ExecContext(ctx, q, apiKeyID, method, path, clientIP, at)
 	return err
 }
 
 func (r *APIKeyAuditRepo) CountSince(ctx context.Context, apiKeyID string, since time.Time) (int64, error) {
-	q := `SELECT COUNT(*) FROM api_key_audit WHERE api_key_id = ? AND called_at >= ?`
-	args := []interface{}{apiKeyID, since}
-	if r.driver == "postgres" {
-		q = `SELECT COUNT(*) FROM api_key_audit WHERE api_key_id = $1::uuid AND called_at >= $2`
-	}
+	ph1 := shared.Placeholder(r.driver, 1, "uuid")
+	ph2 := shared.Placeholder(r.driver, 2, "")
+	q := fmt.Sprintf(`SELECT COUNT(*) FROM api_key_audit WHERE api_key_id = %s AND called_at >= %s`, ph1, ph2)
 	var n int64
-	err := r.db.QueryRowContext(ctx, q, args...).Scan(&n)
+	err := r.db.QueryRowContext(ctx, q, apiKeyID, since).Scan(&n)
 	return n, err
 }
 
 func (r *APIKeyAuditRepo) CountsPerKeySince(ctx context.Context, since time.Time) (map[string]int64, error) {
-	q := `SELECT api_key_id, COUNT(*) FROM api_key_audit WHERE called_at >= ? GROUP BY api_key_id`
-	args := []interface{}{since}
-	if r.driver == "postgres" {
-		q = `SELECT api_key_id::text, COUNT(*) FROM api_key_audit WHERE called_at >= $1 GROUP BY api_key_id`
+	keyCol := "api_key_id"
+	if shared.DriverIsPostgres(r.driver) {
+		keyCol = "api_key_id::text"
 	}
-	rows, err := r.db.QueryContext(ctx, q, args...)
+	ph := shared.Placeholder(r.driver, 1, "")
+	q := fmt.Sprintf(`SELECT %s, COUNT(*) FROM api_key_audit WHERE called_at >= %s GROUP BY api_key_id`, keyCol, ph)
+	rows, err := r.db.QueryContext(ctx, q, since)
 	if err != nil {
 		return nil, err
 	}

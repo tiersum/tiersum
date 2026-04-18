@@ -2,7 +2,6 @@ package observability
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 
@@ -27,28 +26,29 @@ func (r *OtelSpanRepo) InsertSpan(ctx context.Context, row *storage.OtelSpanRow)
 	if row == nil {
 		return nil
 	}
-	const sqliteQ = `
-INSERT INTO otel_spans (trace_id, span_id, parent_span_id, name, kind, start_time_unix_nano, end_time_unix_nano, status_code, status_message, attributes_json)
-VALUES (?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?)
-ON CONFLICT(trace_id, span_id) DO UPDATE SET
-  end_time_unix_nano = excluded.end_time_unix_nano,
-  status_code = excluded.status_code,
-  status_message = excluded.status_message,
-  attributes_json = excluded.attributes_json`
-	const pgQ = `
-INSERT INTO otel_spans (trace_id, span_id, parent_span_id, name, kind, start_time_unix_nano, end_time_unix_nano, status_code, status_message, attributes_json)
-VALUES ($1, $2, NULLIF($3, ''), $4, $5, $6, $7, $8, $9, $10)
+	ph := func(n int) string { return shared.Placeholder(r.driver, n, "") }
+	vals := fmt.Sprintf("%s, %s, NULLIF(%s, ''), %s, %s, %s, %s, %s, %s, %s",
+		ph(1), ph(2), ph(3), ph(4), ph(5), ph(6), ph(7), ph(8), ph(9), ph(10))
+	var conflictTail string
+	if shared.DriverIsPostgres(r.driver) {
+		conflictTail = `
 ON CONFLICT (trace_id, span_id) DO UPDATE SET
   end_time_unix_nano = EXCLUDED.end_time_unix_nano,
   status_code = EXCLUDED.status_code,
   status_message = EXCLUDED.status_message,
   attributes_json = EXCLUDED.attributes_json`
-	var err error
-	if r.driver == "postgres" {
-		_, err = r.db.ExecContext(ctx, pgQ, row.TraceID, row.SpanID, row.ParentSpanID, row.Name, row.Kind, row.StartUnixNano, row.EndUnixNano, row.StatusCode, row.StatusMessage, row.AttributesJSON)
 	} else {
-		_, err = r.db.ExecContext(ctx, sqliteQ, row.TraceID, row.SpanID, row.ParentSpanID, row.Name, row.Kind, row.StartUnixNano, row.EndUnixNano, row.StatusCode, row.StatusMessage, row.AttributesJSON)
+		conflictTail = `
+ON CONFLICT(trace_id, span_id) DO UPDATE SET
+  end_time_unix_nano = excluded.end_time_unix_nano,
+  status_code = excluded.status_code,
+  status_message = excluded.status_message,
+  attributes_json = excluded.attributes_json`
 	}
+	q := fmt.Sprintf(`
+INSERT INTO otel_spans (trace_id, span_id, parent_span_id, name, kind, start_time_unix_nano, end_time_unix_nano, status_code, status_message, attributes_json)
+VALUES (%s)%s`, vals, conflictTail)
+	_, err := r.db.ExecContext(ctx, q, row.TraceID, row.SpanID, row.ParentSpanID, row.Name, row.Kind, row.StartUnixNano, row.EndUnixNano, row.StatusCode, row.StatusMessage, row.AttributesJSON)
 	return err
 }
 
@@ -64,66 +64,41 @@ func (r *OtelSpanRepo) ListTraceSummaries(ctx context.Context, serviceName strin
 		offset = 0
 	}
 	serviceName = strings.TrimSpace(serviceName)
-	// attributes_json is compact JSON without spaces (json.Marshal), so a LIKE filter is stable enough
-	// for both SQLite and PostgreSQL.
 	pat := fmt.Sprintf(`%%"service.name":"%s"%%`, strings.ReplaceAll(serviceName, `"`, `\"`))
 
-	const sqliteQ = `
-WITH svc AS (
-  SELECT * FROM otel_spans
-  WHERE COALESCE(attributes_json, '') LIKE ?
-)
-SELECT s.trace_id,
-       MIN(s.start_time_unix_nano) AS t0,
-       MAX(s.end_time_unix_nano) AS t1,
-       COUNT(*) AS n,
-       COALESCE((
-         SELECT x.name FROM svc x
-         WHERE x.trace_id = s.trace_id
-           AND (x.parent_span_id IS NULL OR x.parent_span_id = '')
-         ORDER BY x.start_time_unix_nano ASC LIMIT 1
-       ), '') AS root_name
-FROM svc s
-WHERE EXISTS (
-  SELECT 1 FROM svc r
-  WHERE r.trace_id = s.trace_id
-    AND (r.parent_span_id IS NULL OR r.parent_span_id = '')
-)
-GROUP BY s.trace_id
-ORDER BY t0 DESC
-LIMIT ? OFFSET ?`
-
-	const pgQ = `
-WITH svc AS (
-  SELECT * FROM otel_spans
-  WHERE COALESCE(attributes_json, '') LIKE $1
-)
-SELECT s.trace_id,
-       MIN(s.start_time_unix_nano) AS t0,
-       MAX(s.end_time_unix_nano) AS t1,
-       COUNT(*)::int AS n,
-       COALESCE((
-         SELECT x.name FROM svc x
-         WHERE x.trace_id = s.trace_id
-           AND (x.parent_span_id IS NULL OR x.parent_span_id = '')
-         ORDER BY x.start_time_unix_nano ASC LIMIT 1
-       ), '') AS root_name
-FROM svc s
-WHERE EXISTS (
-  SELECT 1 FROM svc r
-  WHERE r.trace_id = s.trace_id
-    AND (r.parent_span_id IS NULL OR r.parent_span_id = '')
-)
-GROUP BY s.trace_id
-ORDER BY t0 DESC
-LIMIT $2 OFFSET $3`
-	var rows *sql.Rows
-	var err error
-	if r.driver == "postgres" {
-		rows, err = r.db.QueryContext(ctx, pgQ, pat, limit, offset)
-	} else {
-		rows, err = r.db.QueryContext(ctx, sqliteQ, pat, limit, offset)
+	countExpr := "COUNT(*)"
+	if shared.DriverIsPostgres(r.driver) {
+		countExpr = "COUNT(*)::int"
 	}
+	ph1 := shared.Placeholder(r.driver, 1, "")
+	ph2 := shared.Placeholder(r.driver, 2, "")
+	ph3 := shared.Placeholder(r.driver, 3, "")
+	q := fmt.Sprintf(`
+WITH svc AS (
+  SELECT * FROM otel_spans
+  WHERE COALESCE(attributes_json, '') LIKE %s
+)
+SELECT s.trace_id,
+       MIN(s.start_time_unix_nano) AS t0,
+       MAX(s.end_time_unix_nano) AS t1,
+       %s AS n,
+       COALESCE((
+         SELECT x.name FROM svc x
+         WHERE x.trace_id = s.trace_id
+           AND (x.parent_span_id IS NULL OR x.parent_span_id = '')
+         ORDER BY x.start_time_unix_nano ASC LIMIT 1
+       ), '') AS root_name
+FROM svc s
+WHERE EXISTS (
+  SELECT 1 FROM svc r
+  WHERE r.trace_id = s.trace_id
+    AND (r.parent_span_id IS NULL OR r.parent_span_id = '')
+)
+GROUP BY s.trace_id
+ORDER BY t0 DESC
+LIMIT %s OFFSET %s`, ph1, countExpr, ph2, ph3)
+
+	rows, err := r.db.QueryContext(ctx, q, pat, limit, offset)
 	if err != nil {
 		return nil, fmt.Errorf("list trace summaries: %w", err)
 	}
@@ -145,17 +120,10 @@ func (r *OtelSpanRepo) ListSpansByTraceID(ctx context.Context, traceID string) (
 	if traceID == "" {
 		return nil, fmt.Errorf("trace_id required")
 	}
-	const sqliteQ = `SELECT trace_id, span_id, COALESCE(parent_span_id, ''), name, kind, start_time_unix_nano, end_time_unix_nano, status_code, COALESCE(status_message, ''), COALESCE(attributes_json, '')
-FROM otel_spans WHERE trace_id = ? ORDER BY start_time_unix_nano ASC`
-	const pgQ = `SELECT trace_id, span_id, COALESCE(parent_span_id, ''), name, kind, start_time_unix_nano, end_time_unix_nano, status_code, COALESCE(status_message, ''), COALESCE(attributes_json, '')
-FROM otel_spans WHERE trace_id = $1 ORDER BY start_time_unix_nano ASC`
-	var rows *sql.Rows
-	var err error
-	if r.driver == "postgres" {
-		rows, err = r.db.QueryContext(ctx, pgQ, traceID)
-	} else {
-		rows, err = r.db.QueryContext(ctx, sqliteQ, traceID)
-	}
+	ph := shared.Placeholder(r.driver, 1, "")
+	q := fmt.Sprintf(`SELECT trace_id, span_id, COALESCE(parent_span_id, ''), name, kind, start_time_unix_nano, end_time_unix_nano, status_code, COALESCE(status_message, ''), COALESCE(attributes_json, '')
+FROM otel_spans WHERE trace_id = %s ORDER BY start_time_unix_nano ASC`, ph)
+	rows, err := r.db.QueryContext(ctx, q, traceID)
 	if err != nil {
 		return nil, fmt.Errorf("list spans: %w", err)
 	}

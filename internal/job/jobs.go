@@ -35,23 +35,10 @@ func (j *TopicRegroupJob) Interval() time.Duration {
 }
 
 func (j *TopicRegroupJob) Execute(ctx context.Context) error {
-	shouldRefresh, err := j.topicService.ShouldRefresh(ctx)
-	if err != nil {
-		j.logger.Error("failed to check topic regroup refresh", zap.Error(err))
+	if err := j.topicService.RegroupTagsIfNeeded(ctx); err != nil {
+		j.logger.Error("topic regroup job failed", zap.Error(err))
 		return err
 	}
-
-	if !shouldRefresh {
-		j.logger.Debug("topic regroup not needed")
-		return nil
-	}
-
-	j.logger.Info("running scheduled topic regroup")
-	if err := j.topicService.RegroupTags(ctx); err != nil {
-		j.logger.Error("topic regroup failed", zap.Error(err))
-		return err
-	}
-
-	j.logger.Info("topic regroup completed successfully")
+	j.logger.Debug("topic regroup job finished")
 	return nil
 }

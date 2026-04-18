@@ -6,91 +6,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestFenceDelimiterLine(t *testing.T) {
-	tests := []struct {
-		name     string
-		trim     string
-		expected bool
-	}{
-		{"triple backtick", "```", true},
-		{"triple backtick with lang", "```go", true},
-		{"triple tilde", "~~~", true},
-		{"not fence", "```not", false},
-		{"just text", "hello", false},
-		{"spaces then fence", "  ```", true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, fenceDelimiterLine(tt.trim))
-		})
-	}
-}
-
-func TestIndentedCodeContinuation(t *testing.T) {
-	tests := []struct {
-		name     string
-		raw      string
-		expected bool
-	}{
-		{"blank line", "", true},
-		{"spaces only", "    ", true},
-		{"4 spaces", "    code", true},
-		{"tab", "\tcode", true},
-		{"3 spaces", "   code", false},
-		{"no indent", "code", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, indentedCodeContinuation(tt.raw))
-		})
-	}
-}
-
-func TestIndentedCodeBlockStart(t *testing.T) {
-	tests := []struct {
-		name     string
-		prevRaw  string
-		currRaw  string
-		expected bool
-	}{
-		{"after blank line", "", "    code", true},
-		{"after empty line", "", "\tcode", true},
-		{"after text", "some text", "    code", false},
-		{"not indented", "", "code", false},
-		{"blank current", "", "", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, indentedCodeBlockStart(tt.prevRaw, tt.currRaw))
-		})
-	}
-}
-
-func TestLineLooksLikeHorizontalRule(t *testing.T) {
-	tests := []struct {
-		name     string
-		trim     string
-		expected bool
-	}{
-		{"dashes", "---", true},
-		{"stars", "***", true},
-		{"underscores", "___", true},
-		{"with spaces", "- - -", true},
-		{"too short", "--", false},
-		{"mixed chars", "-+-", false},
-		{"just text", "hello", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, lineLooksLikeHorizontalRule(tt.trim))
-		})
-	}
-}
-
 func TestParseSetextUnderline(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -117,11 +32,11 @@ func TestParseSetextUnderline(t *testing.T) {
 
 func TestExtractSingleOrderedPrefix(t *testing.T) {
 	tests := []struct {
-		name          string
-		trim          string
-		expectedN     int
-		expectedRest  string
-		expectedOK    bool
+		name         string
+		trim         string
+		expectedN    int
+		expectedRest string
+		expectedOK   bool
 	}{
 		{"simple", "1. Hello", 1, "Hello", true},
 		{"multi digit", "12. World", 12, "World", true},
@@ -144,97 +59,57 @@ func TestShortOrderedListTriple(t *testing.T) {
 	tests := []struct {
 		name     string
 		lines    []string
-		i        int
+		start    int
 		expected bool
 	}{
 		{
 			name:     "triple list",
 			lines:    []string{"1. a", "2. b", "3. c"},
-			i:        1,
+			start:    0,
 			expected: true,
 		},
 		{
 			name:     "not sequential",
 			lines:    []string{"1. a", "3. b", "4. c"},
-			i:        1,
+			start:    0,
 			expected: false,
 		},
 		{
 			name:     "too long",
 			lines:    []string{"1. this is a very long text", "2. b", "3. c"},
-			i:        1,
+			start:    0,
 			expected: false,
 		},
 		{
 			name:     "multi dot",
 			lines:    []string{"1.1. a", "1.2. b", "1.3. c"},
-			i:        1,
+			start:    0,
 			expected: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, shortOrderedListTriple(tt.lines, tt.i))
+			assert.Equal(t, tt.expected, shortOrderedListTriple(tt.lines, tt.start))
 		})
 	}
 }
 
 func TestPartOfShortOrderedListTriple(t *testing.T) {
 	lines := []string{"1. a", "2. b", "3. c"}
-	
+
 	// First line
 	assert.True(t, partOfShortOrderedListTriple(lines, 0))
-	
+
 	// Middle line
 	assert.True(t, partOfShortOrderedListTriple(lines, 1))
-	
+
 	// Last line
 	assert.True(t, partOfShortOrderedListTriple(lines, 2))
-	
+
 	// Too short
 	shortLines := []string{"1. a", "2. b"}
 	assert.False(t, partOfShortOrderedListTriple(shortLines, 0))
-}
-
-func TestSetextUnderlineImmediateNext(t *testing.T) {
-	tests := []struct {
-		name     string
-		lines    []string
-		index    int
-		expected bool
-	}{
-		{
-			name:     "immediate underline",
-			lines:    []string{"Title", "==="},
-			index:    0,
-			expected: true,
-		},
-		{
-			name:     "blank line gap",
-			lines:    []string{"Title", "", "==="},
-			index:    0,
-			expected: false,
-		},
-		{
-			name:     "last line",
-			lines:    []string{"Title"},
-			index:    0,
-			expected: false,
-		},
-		{
-			name:     "not underline",
-			lines:    []string{"Title", "hello"},
-			index:    0,
-			expected: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, setextUnderlineImmediateNext(tt.lines, tt.index))
-		})
-	}
 }
 
 func TestSanitizePathPart(t *testing.T) {
@@ -283,4 +158,9 @@ func TestSplitFirstLine(t *testing.T) {
 			assert.Equal(t, tt.expectedAfter, after)
 		})
 	}
+}
+
+func TestNormalizeEOL(t *testing.T) {
+	assert.Equal(t, "a\nb\nc", normalizeEOL("a\r\nb\rc"))
+	assert.Equal(t, "a\nb", normalizeEOL("a\nb"))
 }

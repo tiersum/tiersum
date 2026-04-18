@@ -1,5 +1,5 @@
 {
-  "source_file": "no_parent_oversized.input.md",
+  "source_file": "no_parent_oversized.md",
   "doc_id": "boundary_no_parent",
   "doc_title": "No Parent Oversized",
   "max_tokens": 128,

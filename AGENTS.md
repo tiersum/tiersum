@@ -103,9 +103,10 @@ internal/
     mcp.go                   # MCP protocol handlers
   service/                   # Layer 2: Service Layer
     interface.go             # I-prefixed facade interfaces (API + Job): documents, query, auth, tags, chapters, …
-    internal_interface.go    # Internal composition contracts (e.g. IDocumentAnalysisPersister, IDocumentAnalysisGenerator) — not for API/Job
     types.go                 # Shared sentinel errors and auth-facing DTOs (e.g. ErrColdIndexUnavailable, principals)
-    # Service implementations: Go package(s) under or beside service/, composed **only** in internal/di/container.go (see .cursor/rules/layer-dependencies.mdc)
+    # Service implementations: Go package(s) under impl/, composed **only** in internal/di/container.go (see .cursor/rules/layer-dependencies.mdc)
+    impl/document/
+      analysis_contracts.go  # Document-analysis capability interfaces (composition only) — not for API/Job
   storage/                   # Layer 3: Storage Layer
     interface.go             # I-prefixed storage interfaces
     auth_entities.go         # Auth row structs (users, sessions, api_keys, …)
@@ -181,7 +182,7 @@ Job Layer (same dependency rule as API): Service Layer only (`internal/service`,
 4. **DI in di/**: All wiring happens in `internal/di/container.go`
 5. **API unified**: REST and MCP handlers in same package (`internal/api/`)
 6. **English Comments Only**: All code comments must be written in English
-7. **Strict layer boundaries**: Upper layers (**`internal/api`**, **`internal/job`**) may depend only on **`internal/service`** **interfaces** (`interface.go` and the same package’s contracts) and neutral **`pkg/types`** — not on **`internal/storage`**, **`internal/storage/db`**, **`internal/client`**, or concrete service implementation packages. Service code uses storage and client **only through** `internal/storage/interface.go` and `internal/client/interface.go`. **`.cursor/rules/layer-dependencies.mdc`** is the single mandatory Cursor rule for layer edges, DTO placement, service contract shape, and when to update **`docs/CORE_API_FLOWS.md`**.
+7. **Strict layer boundaries**: Upper layers (**`internal/api`**, **`internal/job`**) may depend only on **`internal/service`** façade contracts (`interface.go`, `types.go`) and neutral **`pkg/types`** — not on **`internal/storage`**, **`internal/storage/db`**, **`internal/client`**, implementation packages under `internal/service/impl/`, or capability-only types (e.g. document analysis contracts). Service code uses storage and client **only through** `internal/storage/interface.go` and `internal/client/interface.go`. **`.cursor/rules/layer-dependencies.mdc`** is the single mandatory Cursor rule for layer edges, DTO placement, service contract shape, and when to update **`docs/CORE_API_FLOWS.md`**.
 
 ---
 

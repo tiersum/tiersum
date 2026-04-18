@@ -151,6 +151,10 @@ func (m *mockTopicService) RegroupTags(ctx context.Context) error {
 	return m.err
 }
 
+func (m *mockTopicService) RegroupTagsIfNeeded(ctx context.Context) error {
+	return m.RegroupTags(ctx)
+}
+
 func (m *mockTopicService) ShouldRefresh(ctx context.Context) (bool, error) {
 	return false, nil
 }
