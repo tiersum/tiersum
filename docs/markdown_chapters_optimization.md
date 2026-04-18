@@ -8,6 +8,37 @@
 
 ---
 
+## 实施与复核状态（2026-04-18）
+
+以下已在源码落地（以 `internal/storage/coldindex/markdown_chapter_splitter_impl.go` 为准）。
+
+| 标记 | 含义 |
+|------|------|
+| **[已实施]** | 行为已变更；冷文档需 **重建冷索引** 后，向量/BM25 与旧切分结果才会一致。 |
+| **[已部分实施]** | 仅覆盖部分场景；其余仍见下方「问题诊断」。 |
+| **[仍开放]** | 未改代码，或仅文档澄清。 |
+| **[文档勘误]** | 本报告旧版片段与仓库不一致，以源码与 `docs/COLD_INDEX*.md` 为准。 |
+
+| 原报告 § | 状态 | 说明 |
+|-----------|------|------|
+| 2.3 Token 估算 | **[已实施]** | `EstimateTokens`：**CJK 相关脚本约 1 rune / 预算单位**，拉丁等沿用 **`(other+3)/4`**，使合并章节更接近 **~512 子词级** MiniLM 预算；`pkg/types/cold_embedding.go` 注释已对齐。 |
+| 2.5 标题识别 | **[已部分实施]** | **Setext**（`===` / `---`）已进解析树；**`N.` 单行大纲**在 remainder **以十进制数字开头**时不再判为标题（减轻 `1. 2. …` 类列表误判）。下文旧伪代码 `strings.Contains` 为 **[文档勘误]**。Setext 与「仅 `---`」水平线仍靠「上一行非空作标题」的实用规则区分。 |
+| 2.2 滑窗与结构 | **[仍开放]** | 超大叶仍 **rune 滑窗**，未做 fence/段落感知切断。 |
+| 2.1 / 2.4 部分合并 | **[仍开放]** | `postOrderMergeSplit` **全合并或拆开**策略未改。 |
+| 2.6 stride | **[仍开放]** | 默认 100 token 步长与配置项未改。 |
+
+### 本次修改汇总（功能）
+
+1. **章节树识别**：在 ATX 之后、编号大纲之前增加 **Setext** 识别（下一行全 `=` 为一级、全 `-` 为二级）；**单行编号大纲**收紧。  
+2. **向量预算**：`EstimateTokens` 混合单位，减轻 **中文等 CJK 文本** 在 `maxTokens=512` 下仍按 `runes/4` 导致 **单章真实子词远超 512**、嵌入被静默截断的问题。  
+3. **文档**：`docs/COLD_INDEX.md` / `docs/COLD_INDEX_zh.md` §2.1、§2.3；`docs/CORE_API_FLOWS.md` §0；本文件增加本状态节与附录勘误。
+
+### 新增 / 调整测试
+
+- `internal/storage/coldindex/chapter_split_markdown_test.go`：`TestSplitMarkdown_setextHeadings`、`TestEstimateTokens`（CJK）、`TestParseNumberedOutlineHeading_rejectsRemainderStartingWithDigit`。
+
+---
+
 ## 一、算法流程概述
 
 ### 1.1 三层流水线架构
@@ -42,11 +73,13 @@ Phase 3: splitOversizedRaw (滑动窗口兜底)
 ### 1.2 核心数据结构
 
 ```go
+// 与源码一致（见 markdown_chapter_splitter_impl.go）
 type splitNode struct {
-    Level      int           // 标题层级 (1-6)
-    Heading    string        // 标题文本
-    LocalBody  string        // 本节点的正文内容
-    Children   []*splitNode  // 子节点
+	level      int
+	title      string
+	pathTitles []string
+	localBody  strings.Builder // pseudo-code; type in Go source
+	children   []*splitNode
 }
 
 type ColdChapter struct {
@@ -151,33 +184,15 @@ func main() {
 2. LLM 理解困难，可能产生错误回答
 3. 向量嵌入质量下降（语义不连贯）
 
-**根本原因**：
-```go
-func splitOversizedRaw(text string, maxTokens, stride int) []ColdChapter {
-    // ❌ 直接按 rune 窗口切分，不识别 Markdown 结构
-    runes := []rune(text)
-    windowSize := maxTokens * runesPerToken  // 4
-    
-    for i := 0; i < len(runes); i += stride {
-        end := min(i+windowSize, len(runes))
-        chunk := string(runes[i:end])  // 可能切在代码块中间
-    }
-}
-```
+**根本原因**：`splitOversizedRaw` 仍按 **rune 窗口**（`maxTokens*4`）切分，**不识别 fence/段落**；实现已改为 **UTF-8 前向滑窗**（无整篇 `[]rune`），语义风险不变。详见 **§8.2**。
 
 ---
 
-### 2.3 问题 3：Token 估算过于粗糙
+### 2.3 问题 3：Token 估算过于粗糙 **[已实施]**
 
-**严重等级**: 🟡 **中**
+**严重等级**: 🟡 **中**（行为已按 CJK 混合单位调整；本节保留为「历史问题陈述 + 残余风险」）
 
-**当前实现**：
-```go
-func EstimateTokens(s string) int {
-    if s == "" { return 0 }
-    return (utf8.RuneCountInString(s) + 3) / 4   // 4 runes ≈ 1 token
-}
-```
+**历史实现（已替换）**：曾为 `(utf8.RuneCountInString(s)+3)/4`。**当前实现**：`EstimateTokens` 对 **CJK-heavy rune** 计 **1 单位**，其余 rune 仍用 **`(other+3)/4`**；见源码与 **§8.1**。
 
 **准确性对比**：
 
@@ -241,9 +256,9 @@ if mergedTokens > maxTokens {
 
 ---
 
-### 2.5 问题 5：标题识别不完整
+### 2.5 问题 5：标题识别不完整 **[已部分实施]**
 
-**严重等级**: 🟢 **低**
+**严重等级**: 🟢 **低**（Setext 与部分编号误判已缓解；Setext/HR 边界与中文列表仍见上文）
 
 **未识别的标题类型**：
 
@@ -262,15 +277,9 @@ Setext 子标题（未识别）
 3. 第三步操作
 ```
 
-**当前过滤逻辑**：
-```go
-// 虽然有过滤，但不完善
-if !strings.Contains(line, "*") {
-    // 误判为标题
-}
-```
+**源码中的实际规则（节选）**：`parseNumberedOutlineHeading` 使用正则 `numberedHeadingSingle` / `numberedHeadingMulti`，并对 remainder 做 `restIsListLike`（以 `*`/`_` 开头等）拒绝；**2026-04-18** 起对 **remainder 首 rune 为数字** 的单行 `N.` 形式不再判为大纲标题，以减轻 `1. 2. …` 嵌套列表误判。**仍可能**将「`1. 第一步`」等中文步骤判为标题（首字非 ASCII 数字），属 **[仍开放]**。
 
-**实际影响**：有序列表项被误判为标题，破坏文档结构
+**[文档勘误]**：旧版此处虚构的 `strings.Contains(line, "*")` 并非仓库实现。
 
 ---
 
@@ -300,7 +309,7 @@ const defaultColdMarkdownSlidingStrideTokens = 100
 |------|--------|------|
 | `parseSplitTree` | O(n) | 单行扫描，n = rune 数 |
 | `postOrderMergeSplit` | O(n) | 每个 rune 被写入 strings.Builder 常数次 |
-| `splitOversizedRaw` | O(n) | 线性扫描 rune 切片 |
+| `splitOversizedRaw` | O(n) | UTF-8 前向滑窗（无整篇 `[]rune` 分配） |
 | **总体** | **O(n)** | 文档大小线性 |
 
 ### 3.2 空间复杂度
@@ -380,7 +389,7 @@ func countChineseRunes(s string) int {
     for _, r := range s {
         if unicode.Is(unicode.Han, r) || 
            (r >= '\u2E80' && r <= '\u9FFF') ||
-           (r >= '\uF900' >= '\uFAFF') ||
+           (r >= '\uF900' && r <= '\uFAFF') ||
            (r >= '\uFF00' && r <= '\uFFEF') {
             count++
         }
@@ -590,67 +599,39 @@ IColdIndex.MarkdownChapters(docID, title, markdown)
 
 ## 八、附录：当前代码关键片段
 
-### 8.1 Token 估算
+### 8.1 Token 估算（当前实现）
 
 ```go
 // internal/storage/coldindex/markdown_chapter_splitter_impl.go
-const runesPerToken = 4
+func isCJKHeavyRune(r rune) bool { /* Han, Kana, Hangul, CJK symbols, fullwidth */ }
 
 func EstimateTokens(s string) int {
-    if s == "" { return 0 }
-    return (utf8.RuneCountInString(s) + 3) / 4
+    // cjk runes -> +1 unit each; other runes -> +(other+3)/4 units
 }
 ```
 
-### 8.2 滑动窗口
+### 8.2 滑动窗口（当前实现）
 
 ```go
-func splitOversizedRaw(text string, maxTokens, stride int) []ColdChapter {
-    runes := []rune(text)
-    winRunes := maxTokens * runesPerToken
-    stepRunes := stride * runesPerToken
-    
-    // 线性切分，无视结构
-    // ...
-}
+// splitOversizedRaw：winRunes = maxTokens * 4，UTF-8 下用 utf8Pos / advanceUtf8Pos 取子串，无整篇 []rune(text)。
 ```
 
-### 8.3 "爆炸"策略
+### 8.3 "爆炸"策略（逻辑概要）
 
 ```go
-// postOrderMergeSplit 内部节点逻辑
-if mergedTokens <= maxTokens {
-    return []ColdChapter{{Path: path, Text: mergedBody.String()}}
+// postOrderMergeSplit：rawSplitChapter 与 buildMergedChapterBody
+if EstimateTokens(combined) <= maxTokens && n.level > 0 {
+    return []rawSplitChapter{{pathTitles: n.pathTitles, text: combined}}
 }
-
-// 爆炸：自身 + 子节点各自独立
-var out []ColdChapter
-if node.LocalBody != "" {
-    out = append(out, splitOversizedRaw(node.LocalBody, maxTokens, stride)...)
-}
-for _, child := range node.Children {
-    out = append(out, postOrderMergeSplit(child, maxTokens, stride)...)
-}
-return out
+// 否则：local -> splitOversizedRaw；再并列追加各子树 postOrder 结果
 ```
 
 ---
 
-## 九、结论
+## 九、结论（含 2026-04-18 复核更新）
 
-当前 `MarkdownChapters` 算法存在 **6 个主要问题**：
+原列 **6 项** 中：**#3 中文 token 低估** 已通过 **`EstimateTokens` 混合单位** 缓解 **[已实施]**；**#5** 中 **Setext** 与 **部分编号误判** 已缓解 **[已部分实施]**。**#2 滑窗碎代码**、**#1/#4 合并策略**、**#6 stride** 仍为 **[仍开放]**（见第二节状态表）。
 
-1. **空章节问题**：自底向上合并导致父节点成为无内容章节
-2. **代码切断**：滑动窗口无视 Markdown 结构
-3. **中文低估**：Token 估算 4x 误差
-4. **爆炸激进**：缺少部分合并策略
-5. **标题不全**：缺少 Setext 支持
-6. **步幅固定**：重叠比例不灵活
+**建议实施顺序**（对仍开放项）：仍以 **结构感知滑窗（P0）**、**合并策略（P1）**、**进一步 tokenizer 对齐（若需硬保证 512 子词）** 为主；文档与 golden 需与 **`docs/COLD_INDEX.md`** 同步。
 
-**建议实施顺序**：P0 → P1 → P2 → P3 → P4
-
-通过优化，预期实现：
-- 章节语义完整性提升 80%
-- 中文文档 token 估算准确率 85%+
-- 代码块保护率 100%
-- 空章节减少 90%
+**预期**（仅作路线图，非承诺）：中文场景下 **嵌入截断风险下降**；Setext 文档 **path 与索引结构**更贴近作者标题意图；完整「代码块零切断」等仍依赖未实施的 P0/P3。
