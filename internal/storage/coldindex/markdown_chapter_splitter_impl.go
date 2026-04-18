@@ -37,6 +37,8 @@ type IColdTextEmbedder interface {
 var (
 	numberedHeadingMulti  = regexp.MustCompile(`^(\d+(?:\.\d+)+)\s+(\S.*)$`)
 	numberedHeadingSingle = regexp.MustCompile(`^(\d+)\.\s+(\S.*)$`)
+	chineseNumberedHeading = regexp.MustCompile(`^([一二三四五六七八九十百]+)、(.+)$`)
+	chineseParenHeading    = regexp.MustCompile(`^（([一二三四五六七八九十百]+)）(.+)$`)
 )
 
 // parseNumberedOutlineHeading treats lines like "1. 概述", "2.1 小节" as headings for cold split.
@@ -610,15 +612,74 @@ func mergeAndSortSpans(goldmarkSpans, outlineSpans []headingSpan) []headingSpan 
 	return merged
 }
 
+// parseChineseHeading recognizes Chinese-numbered headings like "一、系统架构" or "（一）模块设计".
+// It returns the full line as title and a level (2 for 一、, 3 for （一）).
+func parseChineseHeading(trimmed string) (title string, level int, ok bool) {
+	if trimmed == "" {
+		return "", 0, false
+	}
+	if m := chineseNumberedHeading.FindStringSubmatch(trimmed); m != nil {
+		return trimmed, 2, true
+	}
+	if m := chineseParenHeading.FindStringSubmatch(trimmed); m != nil {
+		return trimmed, 3, true
+	}
+	return "", 0, false
+}
+
+// collectChineseHeadingSpans scans text for Chinese-numbered headings that goldmark does not treat
+// as ast.Heading (they are plain text in CommonMark). Only lines matching parseChineseHeading
+// and not already covered by goldmark spans are collected.
+func collectChineseHeadingSpans(source string, goldmarkSpans []headingSpan) []headingSpan {
+	lines := strings.Split(source, "\n")
+	var spans []headingSpan
+	var offset int
+
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if title, level, ok := parseChineseHeading(trimmed); ok {
+			lineStart := offset
+			lineEnd := offset + len(line)
+			if i < len(lines)-1 {
+				lineEnd++ // include \n
+			}
+
+			// Skip if this line falls inside an existing goldmark heading span.
+			overlaps := false
+			for _, g := range goldmarkSpans {
+				if lineStart < g.end && lineEnd > g.start {
+					overlaps = true
+					break
+				}
+			}
+			if overlaps {
+				offset += len(line) + 1
+				continue
+			}
+
+			spans = append(spans, headingSpan{
+				level: level,
+				title: title,
+				start: lineStart,
+				end:   lineEnd,
+			})
+		}
+		offset += len(line) + 1 // +1 for \n
+	}
+	return spans
+}
+
 // parseSplitTree builds a heading tree for cold chapter splitting using goldmark CommonMark AST.
 // Only headings that are direct children of the document are adopted (no blockquote/list/table headings).
 // Setext and ATX headings are both represented as ast.Heading.
+// Chinese-numbered headings (e.g. "一、系统架构") are detected as a supplement.
 func parseSplitTree(markdown string) *splitNode {
 	source := normalizeEOL(markdown)
 	source = stripYAMLFrontmatter(source)
 	sourceBytes := []byte(source)
 	spans := collectGoldmarkHeadingSpans(sourceBytes)
-	allSpans := spans
+	chineseSpans := collectChineseHeadingSpans(source, spans)
+	allSpans := mergeAndSortSpans(spans, chineseSpans)
 
 	root := &splitNode{level: 0, title: ""}
 	stack := []*splitNode{root}

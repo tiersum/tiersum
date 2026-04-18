@@ -18,18 +18,123 @@
 
 **主要代码：** `internal/storage/coldindex/markdown_chapter_splitter_impl.go`、`chapter_split_stride.go`，以及 `internal/storage/coldindex/*_test.go` 中的切分相关测试。
 
-### 2.1 解析树
+### 2.1 解析树（goldmark AST + 中文编号补充）
 
-- 按行扫描 Markdown 正文。**围栏代码块**（`` ``` ``）切换状态，使围栏内的 **`#` 不作为标题** 解析。
-- 非围栏行若匹配 `^(#{1,6})\s+(.+)$`，则创建 **标题节点**：记录层级、标题文本，`pathTitles` = 父级路径 + 当前标题。
-- **Setext 标题**（CommonMark 风格）：非 ATX 的标题行且**下一行**仅为 `=`（一级）或仅为 `-`（二级），长度 ≥3、可含首尾空白 —— 记为该层级的标题节点；下划线行被消费，不进入 `localBody`。
-- **编号大纲行**（`2.1 小节`、`1. 单行标题`）由 `parseNumberedOutlineHeading` 的正则判定；单行 `^\d+\.\s+…` 若标题文本**以 ASCII 数字或全角数字**（`０`–`９`，U+FF10–U+FF19）开头则不作为大纲标题（减轻嵌套有序列表 / 混用数字形式误判）。
-- 标题之间及首个标题前的正文累积到对应节点的 **`localBody`**。
+解析器采用**两阶段标题提取**策略，在最大化召回的同时最小化误判。
+
+#### 第一阶段：goldmark CommonMark AST（主）
+
+- **解析器：** `github.com/yuin/goldmark`（`coldChapterParser`）。文档一次性解析；章节边界仅来自被 `goldmarkHeadingAdopt` 接受的 **`ast.Heading`** 节点。
+- **采纳规则（"宁可漏提取，不要误提取"）：** 只有 **直接属于文档** 的标题才被使用（`Heading.Parent().Kind() == Document`）。**引用块、列表、表格** 等内部的标题在树构建时被 **忽略**（其文本保留在父级正文区）。围栏代码、缩进代码、HTML 块在正常 CommonMark 解析下不会产生虚假的 `Heading` 节点。
+- **ATX 与 Setext：** 两者均表现为 `ast.Heading`，`Level` 为 1–6；正文切片使用 `Heading.Lines()` 的字节范围，因此分隔符/下划线行不会重复进入 `localBody`。
+- **数字编号大纲行**（如 `1. Introduction`、`2.1 Methods`）**不是** CommonMark 标题，保留为 **正文**（通常落在某个 `#` 章节下）。`parseNumberedOutlineHeading` 仅用于 **单元测试**，不参与冷索引树构建。
+
+#### 第二阶段：中文编号标题补充
+
+goldmark/CommonMark 不识别中文编号行（`一、系统架构`、`（一）模块设计`）为标题。第二轮扫描将这些行作为 **补充 span** 收集：
+
+- **模式一：** `^([一二三四五六七八九十百]+)、(.+)$` → **层级 2**（例：`一、系统架构`）
+- **模式二：** `^（([一二三四五六七八九十百]+)）(.+)$` → **层级 3**（例：`（一）模块设计`）
+- 与 goldmark 标题 span **重叠** 的行被 **跳过**，避免重复。
+- 合并后的 span（goldmark + 中文）按 **字节偏移量排序** 后进入树构建。
+
+#### 算法流程
+
+```
+输入：markdown 字符串
+  │
+  ├─ normalizeEOL（\r\n → \n）
+  ├─ stripYAMLFrontmatter（移除 --- 元数据块）
+  │
+  ├─ 第一阶段：goldmark.Parse → 收集 ast.Heading（仅 Document 子节点）
+  │
+  ├─ 第二阶段：扫描文本 → 收集中文编号行
+  │     └─ 若与 goldmark span 重叠则跳过
+  │
+  ├─ mergeAndSortSpans(goldmarkSpans, chineseSpans)
+  │
+  └─ 构建树：
+        按顺序遍历每个 span：
+            flushBody(prevEnd, span.start) → 当前节点 localBody
+            栈顶层级 ≥ span.level 时出栈
+            压入新节点
+        flushBody(prevEnd, EOF)
+```
+
+#### 示例：混合标题
+
+```markdown
+# 产品指南
+
+一、系统架构
+
+架构概述……
+
+（一）总体设计
+
+设计说明……
+
+## API 参考
+
+API 详情……
+```
+
+**生成的树：**
+
+```
+root (level 0)
+├── "产品指南" (level 1)
+│   └── "一、系统架构" (level 2)
+│       └── "（一）总体设计" (level 3)
+└── "API 参考" (level 2)
+```
+
+**合并后的路径（预算充足时）：**
+- `docId/产品指南`
+- `docId/产品指南/一、系统架构`
+- `docId/产品指南/一、系统架构/（一）总体设计`
+- `docId/产品指南/API 参考`
+
+标题之间及首个标题前的正文累积到对应节点的 **`localBody`**。
 
 ### 2.2 自下而上合并（`postOrderMergeSplit`）
 
-- 对子树 **后序** 处理。若某节点下各子章节文本（可加本节点 `localBody` 前缀）拼接后的 **`EstimateTokens`** ≤ **`maxTokens`**（来自 `Index.coldChapterMaxTokens`，默认 `types.DefaultColdChapterMaxTokens`），则 **合并为一章**。
-- 若合并后仍超预算，或叶子节点正文本身过大，则将该段正文交给 **`splitOversizedRaw`** 处理。
+树按 **后序** 遍历（先子后父）。对每个节点：
+
+1. 递归合并子节点；每个子节点可能返回一个或多个 `rawSplitChapter` 切片。
+2. 将本节点的 `localBody`（标题与第一个子标题之间的正文）与所有子章节合并。
+3. 若 `EstimateTokens(合并后)` ≤ `maxTokens` 且该节点为真实标题（`level > 0`），**输出一章** 包含整棵子树的正文。合并后的文本会重新插入标题行（`# 标题`），避免丢失。
+4. 若合并后正文超出预算：
+   - 若本节点有 `localBody` 正文，将其作为独立章节输出（可能超大 → `splitOversizedRaw`）。
+   - 将每个子节点的章节分别输出。
+5. 对于 **根节点**（level 0，无标题），若子节点未产生章节但 `localBody` 非空，将整个文档视为一个超大叶子处理。
+
+**示例：**
+
+```markdown
+# 第一章
+
+引言……
+
+## 第一节
+
+第一节内容……
+
+## 第二节
+
+第二节内容……
+```
+
+预算充足时，整棵树合并为：
+- **路径：** `docId/第一章`
+- **正文：** `# 第一章\n\n引言……\n\n## 第一节\n\n第一节内容……\n\n## 第二节\n\n第二节内容……`
+
+预算较小时，拆分为：
+- `docId/第一章`（仅引言）
+- `docId/第一章/第一节`（第一节内容）
+- `docId/第一章/第二节`（第二节内容）
+
+若任一片段仍超出 `maxTokens`，则交由 **`splitOversizedRaw`** 处理。
 
 ### 2.3 Token 估算
 
@@ -148,10 +253,12 @@
 
 | 资产 | 用途 |
 |------|------|
-| `internal/storage/coldindex/testdata/chapter_split_boundaries/*.input.md` 与 `*.golden.json` | **边界** golden：无父标题 / 单级标题 / 嵌套标题 + 滑动切分；运行 `TestChapterSplitBoundaryGolden`；更新 golden：`UPDATE_CHAPTER_SPLIT_GOLDEN=1` |
-| `internal/storage/coldindex/chapter_split_sliding_test.go` | 滑动重叠与步长覆盖 |
-| `internal/storage/coldindex/index_chapter_test.go` | 索引写入、合并键、桩切分器 |
-| `TestSplitMarkdown_KafkaZkEtcdFixtures_IO` | 可选大批量 IO（`testdata/split_io_out/`）；若 `testdata/` 下不足 10 个 `.md` 则 **跳过** |
+| `internal/storage/coldindex/testdata/chapters/*.md`（22 个文件） | Markdown 夹具，覆盖：API 文档、技术指南、教程、Setext/ATX 混合、中文内容、中文编号标题、编号大纲、代码块（围栏/缩进）、引用块、YAML frontmatter、emoji、HTML 标签、链接/图片、长标题、注释、空行 |
+| `internal/storage/coldindex/testdata/goldens/*.golden.json` | **边界** golden：无父标题 / 单级标题 / 嵌套标题 + 滑动切分；运行 `TestChapterSplitBoundaryGolden`；更新 golden：`UPDATE_CHAPTER_SPLIT_GOLDEN=1` |
+| `chapter_split_integration_test.go` | 全部集成测试：夹具加载、边界 golden、滑动窗口、中文标题 |
+| `chapter_split_markdown_test.go` | Markdown 专项单元测试（Setext、代码围栏、列表、引用块） |
+| `chapter_split_unit_test.go` | 辅助函数测试（token 估算、路径清理、Setext 下划线等） |
+| `index_chapter_test.go` | 索引写入、合并键、桩切分器 |
 
 ---
 

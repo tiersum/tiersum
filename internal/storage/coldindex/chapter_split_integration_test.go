@@ -149,6 +149,53 @@ func TestSplitMarkdown_ChineseDocument(t *testing.T) {
 	assert.True(t, hasCh3, "should have 第三章 section")
 }
 
+// TestSplitMarkdown_ChineseNumberedHeadings tests Chinese-numbered headings (一、, （一）)
+func TestSplitMarkdown_ChineseNumberedHeadings(t *testing.T) {
+	md := loadTestMarkdown(t, "chinese_numbered_outline.md")
+	segs := SplitMarkdown("cn-num", "Chinese Numbered", md, 64)
+	require.NotEmpty(t, segs)
+
+	// Should recognize Chinese-numbered headings
+	var hasSys, hasDetail, hasDeploy, hasSummary bool
+	var combined strings.Builder
+	for _, s := range segs {
+		if strings.Contains(s.Path, "系统架构") {
+			hasSys = true
+		}
+		if strings.Contains(s.Path, "详细设计") {
+			hasDetail = true
+		}
+		if strings.Contains(s.Path, "部署方案") {
+			hasDeploy = true
+		}
+		if strings.Contains(s.Path, "总结") {
+			hasSummary = true
+		}
+		combined.WriteString(s.Text)
+		combined.WriteString("\n")
+	}
+	assert.True(t, hasSys, "should have 系统架构 (一、)")
+	assert.True(t, hasDetail, "should have 详细设计 (二、)")
+	assert.True(t, hasDeploy, "should have 部署方案 (三、)")
+	assert.True(t, hasSummary, "should have 总结 (四、)")
+
+	// Sub-headings may be merged into parent body; verify they exist in text
+	allText := combined.String()
+	assert.Contains(t, allText, "（一）总体架构", "should have sub-heading under 一、")
+	assert.Contains(t, allText, "（二）模块划分", "should have sub-heading under 一、")
+	assert.Contains(t, allText, "（一）数据层", "should have sub-heading under 二、")
+	assert.Contains(t, allText, "（二）服务层", "should have sub-heading under 二、")
+
+	// Mixed ATX headings should coexist
+	var hasMix bool
+	for _, s := range segs {
+		if strings.Contains(s.Path, "混合 ATX 标题") {
+			hasMix = true
+		}
+	}
+	assert.True(t, hasMix, "should have mixed ATX heading")
+}
+
 // TestSplitMarkdown_SetextHeadings tests Setext style headings
 func TestSplitMarkdown_SetextHeadings_FromFile(t *testing.T) {
 	md := loadTestMarkdown(t, "setext_headings.md")
@@ -616,6 +663,7 @@ func TestSplitMarkdown_AllFiles(t *testing.T) {
 		"tutorial_steps.md",
 		"boundary_cases.md",
 		"chinese_document.md",
+		"chinese_numbered_outline.md",
 		"setext_headings.md",
 		"numbered_outline.md",
 		"indented_code.md",
