@@ -196,6 +196,48 @@ func TestSplitMarkdown_ChineseNumberedHeadings(t *testing.T) {
 	assert.True(t, hasMix, "should have mixed ATX heading")
 }
 
+// TestSplitMarkdown_ChineseInCodeBlock tests that Chinese-numbered lines inside
+// fenced code blocks and tables are NOT extracted as headings.
+func TestSplitMarkdown_ChineseInCodeBlock(t *testing.T) {
+	md := loadTestMarkdown(t, "chinese_in_code_block.md")
+	segs := SplitMarkdown("cn-code", "Chinese Code Block", md, 64)
+	require.NotEmpty(t, segs)
+
+	// Should recognize top-level Chinese headings
+	var hasSys, hasDetail, hasDeploy bool
+	var combined strings.Builder
+	for _, s := range segs {
+		if strings.Contains(s.Path, "系统架构") {
+			hasSys = true
+		}
+		if strings.Contains(s.Path, "详细设计") {
+			hasDetail = true
+		}
+		if strings.Contains(s.Path, "部署方案") {
+			hasDeploy = true
+		}
+		combined.WriteString(s.Text)
+		combined.WriteString("\n")
+	}
+	assert.True(t, hasSys, "should have 系统架构 (一、)")
+	assert.True(t, hasDetail, "should have 详细设计 (二、)")
+	assert.True(t, hasDeploy, "should have 部署方案 (三、)")
+
+	// Code block and table lines must NOT become headings
+	for _, s := range segs {
+		assert.NotContains(t, s.Path, "初始化函数", "code block line should not be a heading: %s", s.Path)
+		assert.NotContains(t, s.Path, "配置加载", "code block line should not be a heading: %s", s.Path)
+		assert.NotContains(t, s.Path, "API层", "table cell should not be a heading: %s", s.Path)
+		assert.NotContains(t, s.Path, "服务层", "table cell should not be a heading: %s", s.Path)
+	}
+
+	// But they should still exist in the document body
+	allText := combined.String()
+	assert.Contains(t, allText, "一、初始化函数", "code block content should be preserved")
+	assert.Contains(t, allText, "二、配置加载", "code block content should be preserved")
+	assert.Contains(t, allText, "API层", "table content should be preserved")
+}
+
 // TestSplitMarkdown_SetextHeadings tests Setext style headings
 func TestSplitMarkdown_SetextHeadings_FromFile(t *testing.T) {
 	md := loadTestMarkdown(t, "setext_headings.md")
@@ -664,6 +706,7 @@ func TestSplitMarkdown_AllFiles(t *testing.T) {
 		"boundary_cases.md",
 		"chinese_document.md",
 		"chinese_numbered_outline.md",
+		"chinese_in_code_block.md",
 		"setext_headings.md",
 		"numbered_outline.md",
 		"indented_code.md",

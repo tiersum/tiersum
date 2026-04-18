@@ -25,7 +25,8 @@ The parser uses a **two-phase heading extraction** strategy to maximize recall w
 #### Phase 1: Goldmark CommonMark AST (primary)
 
 - **Parser:** `github.com/yuin/goldmark` (`coldChapterParser`). The document is parsed once; chapter boundaries come only from **`ast.Heading`** nodes that **`goldmarkHeadingAdopt`** accepts.
-- **Adoption rule ("宁可漏提取，不要误提取"):** a heading is used **only** if it is a **direct child of the document** (`Heading.Parent().Kind() == Document`). Headings inside **blockquotes, lists, tables**, etc. are **ignored** for the tree (their text stays in the parent body region). Fenced code, indented code, and HTML blocks do not emit false `Heading` nodes for inner `#` lines under normal CommonMark parsing.
+- **Adoption rule ("宁可漏提取，不要误提取"):** a heading is used **only** if it is a **direct child of the document** (`Heading.Parent().Kind() == Document`). Headings inside **blockquotes, lists, tables**, etc. are **ignored** for the tree (their text stays in the parent body region).
+- **Code blocks and tables are pre-excluded:** during AST walk, `collectGoldmarkSpans` builds a set of **forbidden byte ranges** for every `CodeBlock`, `FencedCodeBlock`, and table-like region. Any `ast.Heading` whose byte span overlaps a forbidden range is **dropped** before tree construction, so headings that accidentally appear inside code or tables can never become chapter boundaries.
 - **ATX and Setext:** both appear as `ast.Heading` with `Level` 1–6; body slices use byte ranges from `Heading.Lines()` so delimiter / underline lines are not duplicated into `localBody`.
 - **Numbered “outline” lines** such as `1. Introduction` or `2.1 Methods` are **not** CommonMark headings; they remain **body text** (often under a single `#` chapter). The helper `parseNumberedOutlineHeading` in `markdown_chapter_splitter_impl.go` is retained for **unit tests** only, not for the cold tree.
 
@@ -47,9 +48,11 @@ Input: markdown string
   ├─ stripYAMLFrontmatter (remove --- metadata blocks)
   │
   ├─ Phase 1: goldmark.Parse → collect ast.Heading (Document children only)
+  │     └─ drop any heading overlapping a forbidden span (code block, fenced code block)
   │
   ├─ Phase 2: scan text → collect Chinese-numbered lines
-  │     └─ skip if overlapping goldmark span
+  │     └─ skip if overlapping goldmark heading span OR forbidden span
+  │     └─ skip if line starts with "|" (table row guard)
   │
   ├─ mergeAndSortSpans(goldmarkSpans, chineseSpans)
   │

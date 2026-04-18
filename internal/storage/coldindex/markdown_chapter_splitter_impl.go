@@ -457,40 +457,75 @@ func goldmarkHeadingAdopt(h *ast.Heading) bool {
 	return true
 }
 
-func collectGoldmarkHeadingSpans(source []byte) []headingSpan {
+// collectGoldmarkSpans walks the goldmark AST and returns two sets of byte spans:
+//   - headings: ast.Heading nodes that are direct children of Document
+//   - forbidden: code blocks, fenced code blocks, and tables (Chinese scan skips these)
+func collectGoldmarkSpans(source []byte) (headings, forbidden []headingSpan) {
 	reader := text.NewReader(source)
 	doc := coldChapterParser.Parser().Parse(reader)
-	var spans []headingSpan
 	_ = ast.Walk(doc, func(n ast.Node, entering bool) (ast.WalkStatus, error) {
 		if !entering {
 			return ast.WalkContinue, nil
 		}
-		h, ok := n.(*ast.Heading)
-		if !ok || !goldmarkHeadingAdopt(h) {
-			return ast.WalkContinue, nil
+		switch n.Kind() {
+		case ast.KindHeading:
+			h := n.(*ast.Heading)
+			if !goldmarkHeadingAdopt(h) {
+				return ast.WalkContinue, nil
+			}
+			lines := h.Lines()
+			if lines.Len() == 0 {
+				return ast.WalkContinue, nil
+			}
+			title := strings.TrimSpace(string(h.Text(source)))
+			if title == "" {
+				return ast.WalkContinue, nil
+			}
+			start := lines.At(0).Start
+			end := lines.At(lines.Len() - 1).Stop
+			if start < 0 || end > len(source) || start > end {
+				return ast.WalkContinue, nil
+			}
+			headings = append(headings, headingSpan{
+				level: h.Level,
+				title: title,
+				start: start,
+				end:   end,
+			})
+		case ast.KindCodeBlock, ast.KindFencedCodeBlock:
+			lines := n.Lines()
+			if lines.Len() == 0 {
+				return ast.WalkContinue, nil
+			}
+			start := lines.At(0).Start
+			end := lines.At(lines.Len() - 1).Stop
+			if start < 0 || end > len(source) || start > end {
+				return ast.WalkContinue, nil
+			}
+			forbidden = append(forbidden, headingSpan{
+				start: start,
+				end:   end,
+			})
 		}
-		lines := h.Lines()
-		if lines.Len() == 0 {
-			return ast.WalkContinue, nil
-		}
-		title := strings.TrimSpace(string(h.Text(source)))
-		if title == "" {
-			return ast.WalkContinue, nil
-		}
-		start := lines.At(0).Start
-		end := lines.At(lines.Len() - 1).Stop
-		if start < 0 || end > len(source) || start > end {
-			return ast.WalkContinue, nil
-		}
-		spans = append(spans, headingSpan{
-			level: h.Level,
-			title: title,
-			start: start,
-			end:   end,
-		})
 		return ast.WalkContinue, nil
 	})
-	return spans
+	// Defensive: filter out any heading that falls inside a forbidden span.
+	// Goldmark normally does not emit ast.Heading inside code blocks, but this
+	// guarantees the invariant for downstream tree construction.
+	var filtered []headingSpan
+	for _, h := range headings {
+		insideForbidden := false
+		for _, f := range forbidden {
+			if h.start < f.end && h.end > f.start {
+				insideForbidden = true
+				break
+			}
+		}
+		if !insideForbidden {
+			filtered = append(filtered, h)
+		}
+	}
+	return filtered, forbidden
 }
 
 // collectOutlineHeadingSpans scans for numbered outline headings that goldmark does not treat as
@@ -628,15 +663,21 @@ func parseChineseHeading(trimmed string) (title string, level int, ok bool) {
 }
 
 // collectChineseHeadingSpans scans text for Chinese-numbered headings that goldmark does not treat
-// as ast.Heading (they are plain text in CommonMark). Only lines matching parseChineseHeading
-// and not already covered by goldmark spans are collected.
-func collectChineseHeadingSpans(source string, goldmarkSpans []headingSpan) []headingSpan {
+// as ast.Heading (they are plain text in CommonMark). Only lines matching parseChineseHeading,
+// not already covered by goldmark heading spans, and not inside forbidden spans (code blocks,
+// tables, etc.) are collected.
+func collectChineseHeadingSpans(source string, goldmarkSpans, forbidden []headingSpan) []headingSpan {
 	lines := strings.Split(source, "\n")
 	var spans []headingSpan
 	var offset int
 
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
+		// Skip table rows (GFM table lines start with |).
+		if strings.HasPrefix(trimmed, "|") {
+			offset += len(line) + 1
+			continue
+		}
 		if title, level, ok := parseChineseHeading(trimmed); ok {
 			lineStart := offset
 			lineEnd := offset + len(line)
@@ -650,6 +691,15 @@ func collectChineseHeadingSpans(source string, goldmarkSpans []headingSpan) []he
 				if lineStart < g.end && lineEnd > g.start {
 					overlaps = true
 					break
+				}
+			}
+			// Skip if inside a forbidden span (code block, table, etc.).
+			if !overlaps {
+				for _, f := range forbidden {
+					if lineStart < f.end && lineEnd > f.start {
+						overlaps = true
+						break
+					}
 				}
 			}
 			if overlaps {
@@ -672,13 +722,14 @@ func collectChineseHeadingSpans(source string, goldmarkSpans []headingSpan) []he
 // parseSplitTree builds a heading tree for cold chapter splitting using goldmark CommonMark AST.
 // Only headings that are direct children of the document are adopted (no blockquote/list/table headings).
 // Setext and ATX headings are both represented as ast.Heading.
-// Chinese-numbered headings (e.g. "一、系统架构") are detected as a supplement.
+// Chinese-numbered headings (e.g. "一、系统架构") are detected as a supplement, but lines inside
+// code blocks, fenced code blocks, or tables are skipped.
 func parseSplitTree(markdown string) *splitNode {
 	source := normalizeEOL(markdown)
 	source = stripYAMLFrontmatter(source)
 	sourceBytes := []byte(source)
-	spans := collectGoldmarkHeadingSpans(sourceBytes)
-	chineseSpans := collectChineseHeadingSpans(source, spans)
+	spans, forbidden := collectGoldmarkSpans(sourceBytes)
+	chineseSpans := collectChineseHeadingSpans(source, spans, forbidden)
 	allSpans := mergeAndSortSpans(spans, chineseSpans)
 
 	root := &splitNode{level: 0, title: ""}

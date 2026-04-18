@@ -25,7 +25,8 @@
 #### 第一阶段：goldmark CommonMark AST（主）
 
 - **解析器：** `github.com/yuin/goldmark`（`coldChapterParser`）。文档一次性解析；章节边界仅来自被 `goldmarkHeadingAdopt` 接受的 **`ast.Heading`** 节点。
-- **采纳规则（"宁可漏提取，不要误提取"）：** 只有 **直接属于文档** 的标题才被使用（`Heading.Parent().Kind() == Document`）。**引用块、列表、表格** 等内部的标题在树构建时被 **忽略**（其文本保留在父级正文区）。围栏代码、缩进代码、HTML 块在正常 CommonMark 解析下不会产生虚假的 `Heading` 节点。
+- **采纳规则（"宁可漏提取，不要误提取"）：** 只有 **直接属于文档** 的标题才被使用（`Heading.Parent().Kind() == Document`）。**引用块、列表、表格** 等内部的标题在树构建时被 **忽略**（其文本保留在父级正文区）。
+- **代码块和表格被预先排除：** AST 遍历时，`collectGoldmarkSpans` 会为每个 `CodeBlock`、`FencedCodeBlock` 及表格类区域建立 **禁用的字节范围**。任何 `ast.Heading` 的字节 span 若与禁用范围重叠，则在树构建前 **丢弃**，确保代码块或表格内偶然出现的标题绝不可能成为章节边界。
 - **ATX 与 Setext：** 两者均表现为 `ast.Heading`，`Level` 为 1–6；正文切片使用 `Heading.Lines()` 的字节范围，因此分隔符/下划线行不会重复进入 `localBody`。
 - **数字编号大纲行**（如 `1. Introduction`、`2.1 Methods`）**不是** CommonMark 标题，保留为 **正文**（通常落在某个 `#` 章节下）。`parseNumberedOutlineHeading` 仅用于 **单元测试**，不参与冷索引树构建。
 
@@ -47,9 +48,11 @@ goldmark/CommonMark 不识别中文编号行（`一、系统架构`、`（一）
   ├─ stripYAMLFrontmatter（移除 --- 元数据块）
   │
   ├─ 第一阶段：goldmark.Parse → 收集 ast.Heading（仅 Document 子节点）
+  │     └─ 丢弃与禁用 span（代码块、围栏代码块）重叠的标题
   │
   ├─ 第二阶段：扫描文本 → 收集中文编号行
-  │     └─ 若与 goldmark span 重叠则跳过
+  │     └─ 若与 goldmark heading span 或禁用 span 重叠则跳过
+  │     └─ 若行以 "|" 开头则跳过（表格行防护）
   │
   ├─ mergeAndSortSpans(goldmarkSpans, chineseSpans)
   │
