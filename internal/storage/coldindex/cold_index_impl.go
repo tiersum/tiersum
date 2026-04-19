@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -104,8 +105,20 @@ type GojiebaTokenizer struct {
 
 // NewGojiebaTokenizer creates a new gojieba tokenizer
 func NewGojiebaTokenizer() *GojiebaTokenizer {
+	var jieba *gojieba.Jieba
+	if dictPath := os.Getenv("GOJIEA_DICT_PATH"); dictPath != "" {
+		jieba = gojieba.NewJieba(
+			dictPath+"/jieba.dict.utf8",
+			dictPath+"/hmm_model.utf8",
+			dictPath+"/user.dict.utf8",
+			dictPath+"/idf.utf8",
+			dictPath+"/stop_words.utf8",
+		)
+	} else {
+		jieba = gojieba.NewJieba()
+	}
 	return &GojiebaTokenizer{
-		jieba: gojieba.NewJieba(),
+		jieba: jieba,
 	}
 }
 
