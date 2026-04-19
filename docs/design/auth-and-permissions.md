@@ -2,7 +2,7 @@
 
 TierSum separates **who can call the API** into two tracks: **human (browser)** and **program (integrations / MCP)**. Both are backed by the same database (`users`, `browser_sessions`, `api_keys`, `system_state`) and enforced in **`internal/api`** with **`internal/service`** (wired from **`internal/di/container.go`**: `authimpl.NewProgramAuth` + `authimpl.NewAuthService`).
 
-For **day-to-day usage** (bootstrap, login, keys, UI), see **[Access control and permissions (user guide)](../README.md#access-control-and-permissions-user-guide)** in the root **README**.
+For **day-to-day usage** (bootstrap, login, keys, UI), see **[../getting-started/installation.md](../getting-started/installation.md)** and the root **README**.
 
 ---
 
