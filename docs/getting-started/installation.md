@@ -30,11 +30,34 @@ make build
 
 ## Docker Compose (Recommended for Production)
 
+TierSum provides a pre-built Docker image hosted on **Alibaba Cloud Container Registry (ACR)** Personal Edition.
+
+### Pull and Run
+
 ```bash
+# Login to ACR (use your Alibaba Cloud credentials)
+docker login --username=your-alibaba-cloud-username crpi-gp9w4rgj2tki21xk.cn-hangzhou.personal.cr.aliyuncs.com
+
+# Pull the image (replace <tag> with actual version, e.g., latest or v1.0.0)
+docker pull crpi-gp9w4rgj2tki21xk.cn-hangzhou.personal.cr.aliyuncs.com/tiersum/tiersum:<tag>
+
+# Run with Docker Compose
 cd deployments/docker && docker-compose up -d
 ```
 
-Default setup uses SQLite with volume-mounted data directory. See `deployments/docker/README.md` for pre-built image from Alibaba ACR.
+### Image Reference
+
+| Registry | Repository | Tag |
+|----------|------------|-----|
+| `crpi-gp9w4rgj2tki21xk.cn-hangzhou.personal.cr.aliyuncs.com` | `tiersum/tiersum` | `<tag>` (e.g., `latest`, `v1.0.0`) |
+
+**Note:** The image includes:
+- Pre-built TierSum binary
+- Embedded Vue 3 frontend
+- ONNX Runtime and MiniLM model files (optional; can be mounted separately)
+- Default SQLite configuration
+
+Default setup uses SQLite with volume-mounted data directory. See `deployments/docker/README.md` for compose configuration details.
 
 ## Cold Document Embeddings (Optional)
 
@@ -117,12 +140,12 @@ User=tiersum
 Group=tiersum
 WorkingDirectory=/opt/tiersum
 
-# Environment variables (set your actual API key here)
+# Method A: Inline environment variables (simple but visible in `ps`)
 Environment="OPENAI_API_KEY=sk-your-key-here"
-# Uncomment if using Anthropic:
 # Environment="ANTHROPIC_API_KEY=sk-ant-your-key-here"
 
-# If you prefer an env file instead:
+# Method B: Environment file (recommended for production)
+# Create /opt/tiersum/.env first (see format below)
 # EnvironmentFile=/opt/tiersum/.env
 
 ExecStart=/opt/tiersum/build/tiersum --config /opt/tiersum/configs/config.yaml
@@ -133,17 +156,37 @@ RestartSec=5
 StartLimitInterval=60s
 StartLimitBurst=3
 
-# Security hardening (optional but recommended)
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/opt/tiersum/data /opt/tiersum/third_party
-
 [Install]
 WantedBy=multi-user.target
 ```
 
-> **Tip:** Use `EnvironmentFile` instead of inline `Environment` to avoid exposing the key in `ps` output. Create `/opt/tiersum/.env` with `OPENAI_API_KEY=sk-...` and set `chmod 600 /opt/tiersum/.env`.
+#### Environment file format
+
+If using `EnvironmentFile`, create `/opt/tiersum/.env`:
+
+```bash
+sudo tee /opt/tiersum/.env << 'EOF'
+OPENAI_API_KEY=sk-your-actual-key-here
+EOF
+
+# Must be readable by the tiersum user
+sudo chmod 600 /opt/tiersum/.env
+sudo chown tiersum:tiersum /opt/tiersum/.env
+```
+
+**Important:** Do **not** add quotes around values in systemd env files.
+`OPENAI_API_KEY=sk-...` is correct; `OPENAI_API_KEY="sk-..."` is wrong.
+
+#### Data directory (SQLite default)
+
+If using SQLite (the default), ensure the data directory exists:
+
+```bash
+sudo mkdir -p /opt/tiersum/data
+sudo chown -R tiersum:tiersum /opt/tiersum/data
+```
+
+> **Note on security hardening:** Options like `ProtectSystem=strict` or `NoNewPrivileges=true` can cause `Failed to set up mount namespacing` errors if directories are missing. Only add these after confirming the basic service starts successfully.
 
 ### 4. Reload systemd and start the service
 
