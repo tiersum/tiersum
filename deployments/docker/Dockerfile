@@ -61,8 +61,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN mkdir -p /app/data
 
+# Copy binary and config
 COPY --from=builder /out/tiersum ./tiersum
 COPY --from=builder /app/configs/config.example.yaml ./config.yaml
+
+# Copy gojieba dictionary files required for Chinese tokenization at runtime
+COPY --from=builder /go/pkg/mod/github.com/yanyiwu/gojieba@*/deps/cppjieba/dict /app/deps/cppjieba/dict
 
 RUN ARCH="$(uname -m)"; \
 	case "$ARCH" in \
