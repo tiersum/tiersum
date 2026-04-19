@@ -21,6 +21,9 @@ RELEASE_VERSION ?= $(if $(GITHUB_REF_NAME),$(GITHUB_REF_NAME),$(VERSION))
 RELEASE_STAMP := $(shell echo "$(RELEASE_VERSION)" | tr '/' '-')
 LDFLAGS=-ldflags "-w -s -X main.Version=$(VERSION)"
 
+# gojieba dictionary path (for embedding into release bundles)
+GOJIEBA_DICT_PATH=$(shell go env GOPATH)/pkg/mod/github.com/yanyiwu/gojieba@*/deps/cppjieba/dict
+
 UNAME_S := $(shell uname -s 2>/dev/null || echo unknown)
 ifeq ($(UNAME_S),Darwin)
 SHA256_CMD = shasum -a 256
@@ -120,9 +123,12 @@ release-linux-pack: ## Create $(DIST_DIR) Linux amd64/arm64 tarballs with embedd
 	  ROOT="$$D/.root-$$arch"; \
 	  rm -rf "$$ROOT"; \
 	  NAME="$(BINARY_NAME)_$${REL}_linux_$${arch}"; \
-	  mkdir -p "$$ROOT/$$NAME/third_party/minilm" "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir" "$$ROOT/$$NAME/configs"; \
-	  cp "$(BUILD_DIR)/$$bin" "$$ROOT/$$NAME/$(BINARY_NAME)"; \
-	  chmod +x "$$ROOT/$$NAME/$(BINARY_NAME)"; \
+  mkdir -p "$$ROOT/$$NAME/third_party/minilm" "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir" "$$ROOT/$$NAME/configs" "$$ROOT/$$NAME/deps/cppjieba/dict"; \
+  cp "$(BUILD_DIR)/$$bin" "$$ROOT/$$NAME/$(BINARY_NAME)"; \
+  chmod +x "$$ROOT/$$NAME/$(BINARY_NAME)"; \
+  if [[ -d "$(GOJIEBA_DICT_PATH)" ]]; then \
+    cp "$(GOJIEBA_DICT_PATH)"/*.utf8 "$$ROOT/$$NAME/deps/cppjieba/dict/" 2>/dev/null || true; \
+  fi; \
 	  cp third_party/minilm/model.onnx third_party/minilm/tokenizer.json "$$ROOT/$$NAME/third_party/minilm/"; \
 	  cp -R "third_party/onnxruntime/$$onnx_subdir/lib" "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir/"; \
 	  if [[ -f "third_party/onnxruntime/$$onnx_subdir/LICENSE.onnxruntime" ]]; then \
@@ -168,7 +174,7 @@ release-bundle-pack: ## Create $(DIST_DIR) per-OS bundles (binary + third_party/
 	  NAME="$(BINARY_NAME)_$${REL}_$${os}_$${arch}"; \
 	  ROOT="$$D/.root-$${os}-$${arch}"; \
 	  rm -rf "$$ROOT"; \
-	  mkdir -p "$$ROOT/$$NAME/third_party/minilm" "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir/lib" "$$ROOT/$$NAME/configs"; \
+	  mkdir -p "$$ROOT/$$NAME/third_party/minilm" "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir/lib" "$$ROOT/$$NAME/configs" "$$ROOT/$$NAME/deps/cppjieba/dict"; \
 	  cp "$(BUILD_DIR)/$$bin" "$$ROOT/$$NAME/$$bin"; \
 	  chmod +x "$$ROOT/$$NAME/$$bin"; \
 	  if [[ "$$os" == "windows" ]]; then \
@@ -176,6 +182,9 @@ release-bundle-pack: ## Create $(DIST_DIR) per-OS bundles (binary + third_party/
 	  else \
 	    mv "$$ROOT/$$NAME/$$bin" "$$ROOT/$$NAME/$(BINARY_NAME)"; \
 	  fi; \
+  if [[ "$$os" != "windows" ]] && [[ -d "$(GOJIEBA_DICT_PATH)" ]]; then \
+    cp "$(GOJIEBA_DICT_PATH)"/*.utf8 "$$ROOT/$$NAME/deps/cppjieba/dict/" 2>/dev/null || true; \
+  fi; \
 	  cp third_party/minilm/model.onnx third_party/minilm/tokenizer.json "$$ROOT/$$NAME/third_party/minilm/"; \
 	  cp -R "third_party/onnxruntime/$$onnx_subdir/lib/." "$$ROOT/$$NAME/third_party/onnxruntime/$$onnx_subdir/lib/"; \
 	  if [[ -f "third_party/onnxruntime/$$onnx_subdir/LICENSE.onnxruntime" ]]; then \
