@@ -542,7 +542,7 @@ var _ service.IMyService = (*MySvc)(nil)
 
 ## Security Considerations
 
-- **Dual-track auth (design):** see **[docs/design/auth-and-permissions.md](docs/design/auth-and-permissions.md)**; **operator / user steps:** **[README.md](README.md#access-control-and-permissions-user-guide)**.
+- **Dual-track auth (design):** see **[docs/design/auth-and-permissions.md](docs/design/auth-and-permissions.md)**; **operator / user steps:** see **README.md** → Access Control section and **docs/getting-started/installation.md** → First Launch.
 - **Dual-track auth (summary):** **`/api/v1/*`** and MCP tool calls require **database API keys** validated via **`service.IProgramAuth`** (implementations wired from `internal/di`); browser/admin flows use **`service.IAuthService`**. Send `X-API-Key` or `Authorization: Bearer` with `tsk_live_*` or `tsk_admin_*` values created in the admin UI (or the bootstrap response). Scopes: `read` (default GET + `POST /query/progressive`), `write` (+ document ingest + tag regroup), `admin` (superset). **`/bff/v1/*`** uses **HttpOnly session cookies** after `POST /bff/v1/auth/login` (`BFFSessionMiddleware`, then **`BFFHumanRBAC`**: human roles `admin` / `user` / `viewer`; **`viewer`** is read-only except `POST /query/progressive`; **`GET /monitoring`** and **`GET /traces*`** require human **`admin`**). Until first bootstrap, **`/api/v1`** returns **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`. **`GET /health`** and **`GET /metrics`** stay public at the root. MCP reads **`TIERSUM_API_KEY`** or `mcp.api_key` for the same validation as REST.
 - JWT authentication for REST is not implemented (no corresponding config keys).
 - CORS configuration for web UI
@@ -556,12 +556,20 @@ var _ service.IMyService = (*MySvc)(nil)
 
 ### Docker (Recommended)
 
+TierSum provides a pre-built image on **Alibaba Cloud ACR** Personal Edition:
+
 ```bash
-cd deployments/docker
-docker-compose up -d
+# Login to ACR
+docker login --username=your-alibaba-cloud-username crpi-gp9w4rgj2tki21xk.cn-hangzhou.personal.cr.aliyuncs.com
+
+# Pull image (replace <tag> with version, e.g., latest or v1.0.0)
+docker pull crpi-gp9w4rgj2tki21xk.cn-hangzhou.personal.cr.aliyuncs.com/tiersum/tiersum:<tag>
+
+# Run with Docker Compose
+cd deployments/docker && docker-compose up -d
 ```
 
-Default setup uses SQLite with volume-mounted data directory.
+Default setup uses SQLite with volume-mounted data directory. The image includes pre-built binary, embedded frontend, ONNX Runtime, MiniLM models, and gojieba dictionary files.
 
 ### Environment Variables
 
@@ -639,4 +647,21 @@ Default setup uses SQLite with volume-mounted data directory.
 - Run `make fetch-onnxruntime` and `make fetch-minilm` from repo root (or use Docker image, which bundles both)
 - Ensure `cold_index.embedding.minilm_model_path` and `onnx_runtime_path` match your OS (defaults in `configs/config.example.yaml`; paths resolve against process working directory)
 - With `provider: auto`, a failed MiniLM init falls back to simple hash embeddings (check logs for the message)
+
+**Docker: "Dictionary file does not exist" (gojieba) on startup:**
+
+- The gojieba Chinese tokenizer requires dictionary files at runtime (`deps/cppjieba/dict/*.utf8`)
+- Ensure the Dockerfile copies these files from the builder stage: `COPY --from=builder /go/pkg/mod/github.com/yanyiwu/gojieba@*/deps/cppjieba/dict /app/deps/cppjieba/dict`
+- Rebuild the Docker image if running a custom build
+
+**Systemd service fails with "Failed to set up mount namespacing":**
+
+- Caused by `ProtectSystem=strict` or missing data directories. See [docs/getting-started/installation.md](docs/getting-started/installation.md) → Run as Systemd Service for a working service template without security hardening
+- Ensure the `data` directory exists and is writable by the service user
+
+**"GLIBC_2.38 not found" when running binary:**
+
+- The binary was compiled on a newer glibc version than the target system
+- **Fix:** Compile on the target machine (`make build`) or use the Docker image
+- Do **not** attempt to upgrade glibc manually (will break the system)
 

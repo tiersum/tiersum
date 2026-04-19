@@ -4,7 +4,7 @@ TierSum includes a modern Vue 3 CDN-based frontend embedded in the Go binary.
 
 **Which screen calls which REST endpoint** is documented in [cmd/web/FRONTEND.md](../cmd/web/FRONTEND.md).
 
-**Sign-in, admin, and devices:** see [Access control and permissions (user guide)](../README.md#access-control-and-permissions-user-guide).
+**Sign-in, admin, and devices:** see [Auth and Permissions](../design/auth-and-permissions.md) and [Installation Guide](../getting-started/installation.md).
 
 ## Pages
 

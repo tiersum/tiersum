@@ -59,6 +59,16 @@ cd deployments/docker && docker-compose up -d
 
 Default setup uses SQLite with volume-mounted data directory. See `deployments/docker/README.md` for compose configuration details.
 
+#### Troubleshooting: gojieba dictionary files
+
+If you see `panic: Dictionary file does not exist: .../gojieba/.../jieba.dict.utf8` when starting the container, the gojieba Chinese tokenizer dictionary files are missing from the final image. This was fixed in recent Dockerfile versions; ensure your image includes:
+
+```dockerfile
+COPY --from=builder /go/pkg/mod/github.com/yanyiwu/gojieba@*/deps/cppjieba/dict /app/deps/cppjieba/dict
+```
+
+Rebuild the image if using a custom Dockerfile.
+
 ## Cold Document Embeddings (Optional)
 
 Semantic vectors for the **cold** index use **all-MiniLM-L6-v2** ONNX files on disk plus the **ONNX Runtime** shared library:
