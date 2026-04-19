@@ -66,8 +66,8 @@ COPY --from=builder /out/tiersum ./tiersum
 COPY --from=builder /app/configs/config.example.yaml ./config.yaml
 
 # Copy gojieba dictionary files required for Chinese tokenization at runtime
-COPY --from=builder /go/pkg/mod/github.com/yanyiwu/gojieba@*/deps/cppjieba/dict /app/deps/cppjieba/dict
-ENV GOJIEA_DICT_PATH=/app/deps/cppjieba/dict
+COPY --from=builder /go/pkg/mod/github.com/yanyiwu/gojieba@*/deps/cppjieba/dict /app/third_party/gojieba/dict
+ENV GOJIEA_DICT_PATH=/app/third_party/gojieba/dict
 
 RUN ARCH="$(uname -m)"; \
 	case "$ARCH" in \

@@ -115,10 +115,10 @@ func findGojiebaDictPath() string {
 		}
 	}
 
-	// 2. Relative to executable (release tarball layout: bin alongside deps/)
+	// 2. Relative to executable (release tarball layout: bin alongside third_party/)
 	if ex, err := os.Executable(); err == nil {
 		execDir := filepath.Dir(ex)
-		candidate := filepath.Join(execDir, "deps", "cppjieba", "dict")
+		candidate := filepath.Join(execDir, "third_party", "gojieba", "dict")
 		if _, err := os.Stat(filepath.Join(candidate, "jieba.dict.utf8")); err == nil {
 			return candidate
 		}
@@ -126,7 +126,7 @@ func findGojiebaDictPath() string {
 
 	// 3. Current working directory
 	if wd, err := os.Getwd(); err == nil {
-		candidate := filepath.Join(wd, "deps", "cppjieba", "dict")
+		candidate := filepath.Join(wd, "third_party", "gojieba", "dict")
 		if _, err := os.Stat(filepath.Join(candidate, "jieba.dict.utf8")); err == nil {
 			return candidate
 		}

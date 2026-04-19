@@ -650,8 +650,8 @@ Default setup uses SQLite with volume-mounted data directory. The image includes
 
 **Docker: "Dictionary file does not exist" (gojieba) on startup:**
 
-- The gojieba Chinese tokenizer requires dictionary files at runtime (`deps/cppjieba/dict/*.utf8`)
-- Ensure the Dockerfile copies these files from the builder stage: `COPY --from=builder /go/pkg/mod/github.com/yanyiwu/gojieba@*/deps/cppjieba/dict /app/deps/cppjieba/dict`
+- The gojieba Chinese tokenizer requires dictionary files at runtime (`third_party/gojieba/dict/*.utf8`)
+- Ensure the Dockerfile copies these files from the builder stage: `COPY --from=builder /go/pkg/mod/github.com/yanyiwu/gojieba@*/deps/cppjieba/dict /app/third_party/gojieba/dict`
 - Rebuild the Docker image if running a custom build
 
 **Systemd service fails with "Failed to set up mount namespacing":**

@@ -64,7 +64,7 @@ Default setup uses SQLite with volume-mounted data directory. See `deployments/d
 If you see `panic: Dictionary file does not exist: .../gojieba/.../jieba.dict.utf8` when starting the container, the gojieba Chinese tokenizer dictionary files are missing from the final image. This was fixed in recent Dockerfile versions; ensure your image includes:
 
 ```dockerfile
-COPY --from=builder /go/pkg/mod/github.com/yanyiwu/gojieba@*/deps/cppjieba/dict /app/deps/cppjieba/dict
+COPY --from=builder /go/pkg/mod/github.com/yanyiwu/gojieba@*/deps/cppjieba/dict /app/third_party/gojieba/dict
 ```
 
 Rebuild the image if using a custom Dockerfile.
