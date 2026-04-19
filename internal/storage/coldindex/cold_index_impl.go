@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -103,16 +105,48 @@ type GojiebaTokenizer struct {
 	jieba *gojieba.Jieba
 }
 
+// findGojiebaDictPath searches for gojieba dictionary files in common locations.
+// Priority: GOJIEA_DICT_PATH env > executable-relative > working-directory-relative.
+func findGojiebaDictPath() string {
+	// 1. Explicit env var (Docker, systemd, etc.)
+	if envPath := os.Getenv("GOJIEA_DICT_PATH"); envPath != "" {
+		if _, err := os.Stat(filepath.Join(envPath, "jieba.dict.utf8")); err == nil {
+			return envPath
+		}
+	}
+
+	// 2. Relative to executable (release tarball layout: bin alongside deps/)
+	if ex, err := os.Executable(); err == nil {
+		execDir := filepath.Dir(ex)
+		candidate := filepath.Join(execDir, "deps", "cppjieba", "dict")
+		if _, err := os.Stat(filepath.Join(candidate, "jieba.dict.utf8")); err == nil {
+			return candidate
+		}
+	}
+
+	// 3. Current working directory
+	if wd, err := os.Getwd(); err == nil {
+		candidate := filepath.Join(wd, "deps", "cppjieba", "dict")
+		if _, err := os.Stat(filepath.Join(candidate, "jieba.dict.utf8")); err == nil {
+			return candidate
+		}
+	}
+
+	// 4. Fall back to gojieba default (uses compiled-in module cache path)
+	return ""
+}
+
 // NewGojiebaTokenizer creates a new gojieba tokenizer
 func NewGojiebaTokenizer() *GojiebaTokenizer {
 	var jieba *gojieba.Jieba
-	if dictPath := os.Getenv("GOJIEA_DICT_PATH"); dictPath != "" {
+	dictPath := findGojiebaDictPath()
+	if dictPath != "" {
 		jieba = gojieba.NewJieba(
-			dictPath+"/jieba.dict.utf8",
-			dictPath+"/hmm_model.utf8",
-			dictPath+"/user.dict.utf8",
-			dictPath+"/idf.utf8",
-			dictPath+"/stop_words.utf8",
+			filepath.Join(dictPath, "jieba.dict.utf8"),
+			filepath.Join(dictPath, "hmm_model.utf8"),
+			filepath.Join(dictPath, "user.dict.utf8"),
+			filepath.Join(dictPath, "idf.utf8"),
+			filepath.Join(dictPath, "stop_words.utf8"),
 		)
 	} else {
 		jieba = gojieba.NewJieba()

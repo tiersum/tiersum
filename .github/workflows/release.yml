@@ -110,10 +110,21 @@ jobs:
           path: build
           merge-multiple: true
 
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
       - name: Install archive tools
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip zip
+
+      - name: Download gojieba dictionaries
+        run: |
+          go mod download github.com/yanyiwu/gojieba
+          echo "GOJIEBA_DICT_PATH=$(go env GOPATH)/pkg/mod/github.com/yanyiwu/gojieba@*/deps/cppjieba/dict" >> $GITHUB_ENV
 
       - name: Vendor ONNX Runtime + MiniLM
         run: |
