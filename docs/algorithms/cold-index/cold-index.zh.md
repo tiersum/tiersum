@@ -173,7 +173,7 @@ root (level 0)
 
 每个索引单元是一条 **冷章节**（非整篇文档）：
 
-- **`DocumentIndex`**：`id` / `path`（与章节键一致）、`document_id`、`title`（文档标题）、`content`（该章全文）、`embedding`。
+- **`ChapterIndex`**：`id` / `path`（与章节键一致）、`document_id`、`title`（文档标题）、`content`（该章全文）、`embedding`。
 
 ### 3.2 Bleve（BM25，词法）
 

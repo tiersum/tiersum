@@ -13,8 +13,8 @@ func newInvertedBleve(idx bleve.Index) *invertedBleve {
 	return &invertedBleve{idx: idx}
 }
 
-func (b *invertedBleve) indexChapter(path string, doc *DocumentIndex) error {
-	payload := *doc
+func (b *invertedBleve) indexChapter(path string, ch *ChapterIndex) error {
+	payload := *ch
 	payload.Embedding = nil
 	return b.idx.Index(path, &payload)
 }
@@ -27,7 +27,7 @@ func (b *invertedBleve) search(queryText string, topK int) (*bleve.SearchResult,
 	q := bleve.NewQueryStringQuery(queryText)
 	req := bleve.NewSearchRequest(q)
 	req.Size = topK
-	req.Fields = []string{"*"}
+	// Fields are not stored in Bleve; metadata is read from idx.documents.
 	return b.idx.Search(req)
 }
 

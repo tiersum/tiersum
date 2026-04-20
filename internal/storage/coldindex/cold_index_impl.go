@@ -47,9 +47,8 @@ const (
 	defaultBranchRecallCeiling    = 200
 )
 
-// DocumentIndex represents one cold document chapter in the index (Bleve + HNSW).
-type DocumentIndex struct {
-	ID         string    `json:"id"` // Same as Path; Bleve document external ID
+// ChapterIndex represents one cold document chapter in the index (Bleve + HNSW).
+type ChapterIndex struct {
 	DocumentID string    `json:"document_id"`
 	Path       string    `json:"path"`
 	Title      string    `json:"title"`
@@ -79,7 +78,7 @@ type Index struct {
 	mu                     sync.RWMutex
 	inverted               *invertedBleve
 	vector                 *vectorHNSW
-	documents              map[string]*DocumentIndex // key: chapter path (docID/...)
+	documents              map[string]*ChapterIndex // key: chapter path (docID/...)
 	docChapterPaths        map[string][]string       // docID -> chapter paths (same keys as DocumentIndex.Path)
 	coldChapterMaxTokens   int
 	branchRecallMultiplier int // per-branch fetch size = clamp(limit*multiplier, floor, ceiling)
@@ -216,7 +215,7 @@ func NewIndex(logger *zap.Logger) (*Index, error) {
 	return &Index{
 		inverted:               newInvertedBleve(bleveIdx),
 		vector:                 newVectorHNSW(hnswIdx, VectorDimension),
-		documents:              make(map[string]*DocumentIndex),
+		documents:              make(map[string]*ChapterIndex),
 		docChapterPaths:        make(map[string][]string),
 		coldChapterMaxTokens:   types.DefaultColdChapterMaxTokens,
 		branchRecallMultiplier: defaultBranchRecallMultiplier,
@@ -358,41 +357,38 @@ func createIndexMapping() (mapping.IndexMapping, error) {
 	// Create a new index mapping
 	indexMapping := bleve.NewIndexMapping()
 
-	// Create document mapping for DocumentIndex
+	// Create document mapping for ChapterIndex
 	docMapping := bleve.NewDocumentMapping()
 
-	// Configure title field with Chinese analyzer
+	// Configure title field with Chinese analyzer (index only, do not store —
+	// full text lives in idx.documents shared with the vector branch).
 	titleFieldMapping := bleve.NewTextFieldMapping()
 	titleFieldMapping.Analyzer = "jieba_analyzer"
-	titleFieldMapping.Store = true
+	titleFieldMapping.Store = false
 	titleFieldMapping.Index = true
 	docMapping.AddFieldMappingsAt("title", titleFieldMapping)
 
-	// Configure content field with Chinese analyzer
+	// Configure content field with Chinese analyzer (index only, do not store).
 	contentFieldMapping := bleve.NewTextFieldMapping()
 	contentFieldMapping.Analyzer = "jieba_analyzer"
-	contentFieldMapping.Store = true
+	contentFieldMapping.Store = false
 	contentFieldMapping.Index = true
 	docMapping.AddFieldMappingsAt("content", contentFieldMapping)
 
-	// Configure ID field (no analysis needed)
-	idFieldMapping := bleve.NewTextFieldMapping()
-	idFieldMapping.Store = true
-	idFieldMapping.Index = false
-	docMapping.AddFieldMappingsAt("id", idFieldMapping)
-
+	// Path and document_id are indexed only (not stored) because full metadata is
+	// always read from idx.documents after the Bleve search returns the hit key.
 	pathFieldMapping := bleve.NewTextFieldMapping()
-	pathFieldMapping.Store = true
+	pathFieldMapping.Store = false
 	pathFieldMapping.Index = false
 	docMapping.AddFieldMappingsAt("path", pathFieldMapping)
 
 	docIDFieldMapping := bleve.NewTextFieldMapping()
-	docIDFieldMapping.Store = true
+	docIDFieldMapping.Store = false
 	docIDFieldMapping.Index = false
 	docMapping.AddFieldMappingsAt("document_id", docIDFieldMapping)
 
 	// Add document mapping to index mapping
-	indexMapping.AddDocumentMapping("DocumentIndex", docMapping)
+	indexMapping.AddDocumentMapping("ChapterIndex", docMapping)
 
 	// Set default analyzer for any other fields
 	indexMapping.DefaultAnalyzer = "jieba_analyzer"
@@ -435,8 +431,7 @@ func (idx *Index) AddDocument(ctx context.Context, doc *types.Document) error {
 		} else {
 			vec = GenerateSimpleEmbedding(text)
 		}
-		docIdx := &DocumentIndex{
-			ID:         ch.Path,
+		docIdx := &ChapterIndex{
 			DocumentID: doc.ID,
 			Path:       ch.Path,
 			Title:      doc.Title,
@@ -839,9 +834,9 @@ func ComputeSimilarity(a, b []float32) float64 {
 	return dotProduct / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
-// MarshalJSON implements json.Marshaler for DocumentIndex
-func (d *DocumentIndex) MarshalJSON() ([]byte, error) {
-	type Alias DocumentIndex
+// MarshalJSON implements json.Marshaler for ChapterIndex
+func (d *ChapterIndex) MarshalJSON() ([]byte, error) {
+	type Alias ChapterIndex
 	return json.Marshal(&struct {
 		*Alias
 		EmbeddingLen int `json:"embedding_len"`
