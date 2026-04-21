@@ -2,36 +2,112 @@
 
 This document traces **non-trivial** REST endpoints: anything beyond simple list/get of stored rows. It follows the call chain from `internal/api` into `internal/service/impl` and related storage.
 
-**Full auth design:** roles, scopes, dual-track model, DB tables, and config are in **[../design/auth-and-permissions.md](../design/auth-and-permissions.md)**. End-user steps are in **[../getting-started/installation.md](../getting-started/installation.md)** and the root README.
+---
 
-**Mount points and auth:** The same `Handler.RegisterRoutes` surface is mounted at **`/api/v1`** (program track: **`api.ProgramAuthMiddleware`** → `service.IProgramAuth` / `authimpl.NewProgramAuth`: DB API keys with scopes `read` | `write` | `admin`, `X-API-Key` or `Authorization: Bearer`) and at **`/bff/v1`** for the embedded UI (human track: **`api.BFFSessionMiddleware`** + HttpOnly **`tiersum_session`** cookie after `POST /bff/v1/auth/login` or `POST /bff/v1/auth/device_login`, then **`api.BFFHumanRBAC`**: `viewer` is read-only except **`POST /bff/v1/query/progressive`**; **`GET /bff/v1/monitoring`** and **`GET /bff/v1/traces*`** require human **`admin`**). Optional HttpOnly **`tiersum_device`** cookie stores a persistent **device token** (`ts_d_*`, DB row in `device_tokens`) for “keep me signed in” / quick re-login. Until bootstrap, **`IsSystemInitialized`** is false: **`/api/v1/*`** returns **403** JSON `{ "code": "SYSTEM_NOT_INITIALIZED" }`; protected **`/bff/v1/*`** (everything except small public auth paths) returns the same or **401** when unauthenticated. Paths below use **`/api/v1`**; use **`/bff/v1`** for the same handlers behind the session cookie. **Probes / metrics:** **`GET /health`** and **`GET /metrics`** stay at the **server root** and are not gated by either track.
+## Auth and mount points (quick reference)
 
-**Bootstrap (first boot):** `GET /bff/v1/system/status` → `{ initialized, version }`. `POST /bff/v1/system/bootstrap` `{ "username" }` (only when `initialized=false`) → `IAuthService.Bootstrap` (wired by `authimpl.NewAuthService`): creates first admin user (hashed `ts_u_*` access token), one read-scoped `tsk_live_*` API key, sets `system_state.initialized_at`, returns plaintext secrets once. Initialization cannot be repeated.
+**Full auth design:** see [../design/auth-and-permissions.md](../design/auth-and-permissions.md). End-user steps: [../getting-started/installation.md](../getting-started/installation.md) and root README.
 
-**Browser login:** `POST /bff/v1/auth/login` `{ "access_token", "fingerprint": { "timezone", "client_signal?" }, "remember_me?": bool, "device_name?" }` → `IAuthService.LoginWithAccessToken` validates hashed access token, enforces per-user **max_devices** against active distinct fingerprints, stores **`browser_sessions`** (hashed opaque session cookie value), sets **`Set-Cookie`**. When `remember_me=true`, the server mints a **device token** (`IAuthService.CreateDeviceTokenForSession`) and sets HttpOnly **`tiersum_device`** (`auth.browser.device_token_ttl`).
+### Dual-track auth
 
-**Device login (persistent token):** `POST /bff/v1/auth/device_login` `{ "device_token?", "fingerprint" }` (or omit `device_token` and rely on the **`tiersum_device`** cookie) → `IAuthService.DeviceLogin` validates `device_tokens` row (not revoked / not expired + same loose IP/UA binding rules as sessions), then creates a fresh **`browser_sessions`** row and sets **`tiersum_session`**.
+| Track | Prefix | Auth mechanism | Scopes / roles |
+|-------|--------|----------------|----------------|
+| **Program** | `/api/v1/*` | DB API key (`X-API-Key` or `Authorization: Bearer`) | `read` \| `write` \| `admin` |
+| **Human (browser)** | `/bff/v1/*` | HttpOnly session cookie (`tiersum_session`) | `viewer` (read-only), `user`, `admin` |
+| **Public** | `/health`, `/metrics` | None | — |
 
-**WebAuthn passkeys (browser):** under **`/bff/v1/me/security/passkeys/*`** (session required) the UI can register and verify passkeys via `IAuthService.Begin/FinishPasskeyRegistration` and `Begin/FinishPasskeyVerification` (implemented with `github.com/go-webauthn/webauthn`, in-memory WebAuthn ceremony sessions, persisted credentials in `passkey_credentials`, and “recently verified” state in `passkey_session_verifications`). Successful registration or verification upserts a short-lived verification row keyed by **browser session id** (`auth.passkey.session_verification_ttl`).
+Until `IsSystemInitialized == false`:
+- `/api/v1/*` → **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`
+- Protected `/bff/v1/*` → **403** or **401**
 
-**Passkey-gated admin APIs:** `POST /bff/v1/admin/*` additionally runs `api.BFFRequireAdminPasskey`: when `auth.passkey.admin_required=true` **and** the admin has at least one passkey, admin routes require a **non-expired** `passkey_session_verifications` row for the current session (use **Verify passkey** in `/settings`, or register a passkey which also marks the session verified).
+### Key auth flows
 
-Subsequent authenticated browser requests use **`IAuthService.ValidateBrowserSession`** (loose IP/UA consistency + sliding session and user token TTL when configured).
+**Bootstrap**
+```
+GET  /bff/v1/system/status   → { initialized, version }
+POST /bff/v1/system/bootstrap { username }  (only when initialized=false)
+└─ IAuthService.Bootstrap
+   ├─ create first admin user (hashed ts_u_* access token)
+   ├─ create one read-scoped tsk_live_* API key
+   └─ set system_state.initialized_at
+```
 
-**BFF request hardening (browser track):**
+**Browser login**
+```
+POST /bff/v1/auth/login
+{ access_token, fingerprint: { timezone, client_signal? },
+  remember_me?: bool, device_name? }
+└─ IAuthService.LoginWithAccessToken
+   ├─ validate hashed access token
+   ├─ enforce per-user max_devices
+   ├─ store browser_sessions row
+   └─ Set-Cookie: tiersum_session
+   └─ [if remember_me]
+      └─ IAuthService.CreateDeviceTokenForSession
+         └─ Set-Cookie: tiersum_device (HttpOnly)
+```
 
-- **Human RBAC** (`api.BFFHumanRBAC`): after the session cookie is validated, **`users.role`** gates write-style traffic for **`viewer`** and gates observability reads for non-**`admin`** (see **[../design/auth-and-permissions.md](../design/auth-and-permissions.md)**).
-- **CSRF**: all non-GET/HEAD/OPTIONS requests under `/bff/v1` are protected by a same-origin check (`api.BFFSameOriginMiddleware`). The server requires `Origin` or `Referer` to match the current request host (or be allowlisted via `auth.browser.csrf.allowed_origins`). This defends cookie-authenticated endpoints from cross-site form / fetch abuse.
-- **Rate limiting**: `POST /bff/v1/system/bootstrap`, `POST /bff/v1/auth/login`, and `POST /bff/v1/auth/device_login` are IP rate-limited in-process. Login additionally applies an exponential cooldown after repeated failures (`try_later` with `retry_after`).
-- **Secure cookie behind proxies**: session cookie `Secure` attribute is controlled by `auth.browser.cookie_secure_mode` (`auto|always|never`). In `auto`, the server sets `Secure` when the request is TLS, or when `auth.browser.trust_proxy_headers=true` and `X-Forwarded-Proto=https` / `X-Forwarded-Ssl=on` is present (reverse-proxy TLS termination).
-- **Recommended public deployment**: run Nginx and TierSum on the same host, terminate TLS at Nginx, and bind TierSum to `127.0.0.1` (`server.host: "127.0.0.1"`). This makes the Go server unreachable from the public internet except via the proxy.
+**Device login (persistent token)**
+```
+POST /bff/v1/auth/device_login
+{ device_token?, fingerprint }
+└─ IAuthService.DeviceLogin
+   ├─ validate device_tokens row (not revoked, not expired, loose IP/UA binding)
+   └─ create fresh browser_sessions + Set-Cookie: tiersum_session
+```
 
-**Admin (browser, admin role only):** under **`/bff/v1/admin/*`** with `BFFRequireAdmin` **and** `BFFRequireAdminPasskey` (see passkey gating above): users CRUD tokens, **`GET /bff/v1/admin/devices`** (all users’ browser sessions with usernames), per-user devices at **`GET /bff/v1/admin/users/:id/devices`**, API keys list/create/revoke, usage snapshot `GET /bff/v1/admin/api_keys/usage`, **`GET /bff/v1/admin/config/snapshot`** (read-only merged `viper` settings with `api_key` / `dsn` / `password` / … leaves redacted — **Management → Configuration** in the UI at **`/admin/config`**). **`/bff/v1/me/*`**: profile, devices, alias, revoke sessions (admins may PATCH/DELETE another user’s session id here for support). **Management → Security** (`/settings`) uses **`GET /bff/v1/admin/devices`** when the browser profile role is admin so the list covers every user’s bound browsers; otherwise it uses **`GET /bff/v1/me/devices`** (own sessions only), and includes passkey + device-token management calls under **`/bff/v1/me/security/*`**.
+**Passkeys**
+```
+/bff/v1/me/security/passkeys/*  (session required)
+├─ Begin/FinishPasskeyRegistration  → IAuthService.Begin/FinishPasskeyRegistration
+└─ Begin/FinishPasskeyVerification  → IAuthService.Begin/FinishPasskeyVerification
+   └─ [on success] upsert passkey_session_verifications row
+```
 
-**MCP:** each tool calls **`MCPServer.mcpProgramGate`** with the same scope rules as REST; API key is read from **`TIERSUM_API_KEY`** or `mcp.api_key` in config.
+**Admin passkey gating**
+```
+POST /bff/v1/admin/*
+├─ BFFRequireAdmin
+└─ BFFRequireAdminPasskey
+   └─ [when auth.passkey.admin_required=true AND admin has passkeys]
+      └─ require non-expired passkey_session_verifications for current session
+```
 
-**Simple CRUD / pass-through (not detailed here)**  
-`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/topics`, `GET /api/v1/quota`, **`GET /health`** (root JSON liveness), and **`GET /metrics`** (root Prometheus text) — mostly read from DB or Prometheus without multi-step domain logic. **`/health`** and **`/metrics`** remain public.
+### BFF hardening
+
+| Layer | Mechanism | Detail |
+|-------|-----------|--------|
+| RBAC | `api.BFFHumanRBAC` | `viewer` read-only; observability reads require `admin` |
+| CSRF | `api.BFFSameOriginMiddleware` | Non-GET/HEAD/OPTIONS require matching Origin/Referer |
+| Rate limit | In-process | `/system/bootstrap`, `/auth/login`, `/auth/device_login` IP-limited; login has exponential cooldown |
+| Secure cookie | `auth.browser.cookie_secure_mode` | `auto`\|`always`\|`never`; in `auto` trusts `X-Forwarded-Proto` when `trust_proxy_headers=true` |
+
+**Deployment recommendation:** Nginx + TierSum on same host, TLS terminated at Nginx, TierSum bound to `127.0.0.1`.
+
+### Admin endpoints
+
+```
+/bff/v1/admin/*  (BFFRequireAdmin + BFFRequireAdminPasskey)
+├─ users CRUD, tokens
+├─ GET /admin/devices          → all users' browser sessions
+├─ GET /admin/users/:id/devices
+├─ API keys list/create/revoke
+├─ GET /admin/api_keys/usage
+└─ GET /admin/config/snapshot  (viper merged, secrets redacted)
+
+/bff/v1/me/*
+├─ profile, devices, alias
+├─ revoke own sessions
+└─ /me/security/*  → passkey + device-token management
+```
+
+### MCP
+
+Each tool calls `MCPServer.mcpProgramGate` with same scope rules as REST. API key from `TIERSUM_API_KEY` or `mcp.api_key`.
+
+### Simple CRUD (not detailed below)
+
+`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/topics`, `GET /api/v1/quota`, `GET /health`, `GET /metrics` — mostly pass-through reads without multi-step domain logic.
 
 `GET /api/v1/documents/:id/chapters` is detailed below (cold docs always markdown-derived; hot docs use DB rows with markdown fallback when empty).
 
