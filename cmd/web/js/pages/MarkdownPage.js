@@ -22,6 +22,9 @@ export const MarkdownPage = {
             handler() {
                 this.loadMarkdown();
             }
+        },
+        '$route.hash'() {
+            this.scrollToHash();
         }
     },
     methods: {
@@ -59,6 +62,19 @@ export const MarkdownPage = {
                 console.error('Failed to load markdown:', e);
             } finally {
                 this.loading = false;
+                // Scroll to hash after DOM update
+                this.$nextTick(() => {
+                    this.scrollToHash();
+                });
+            }
+        },
+        scrollToHash() {
+            const hash = this.$route.hash;
+            if (!hash) return;
+            const id = hash.slice(1);
+            const el = document.getElementById(id);
+            if (el) {
+                el.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
         }
     },
@@ -132,7 +148,7 @@ export const MarkdownPage = {
                             </div>
                         </div>
                         
-                         <div v-else class="markdown-body max-w-none text-slate-300">
+                         <div v-else class="markdown-body max-w-none text-slate-300" ref="contentEl">
                             <div v-html="content"></div>
                         </div>
                     </main>

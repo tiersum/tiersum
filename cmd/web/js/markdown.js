@@ -13,6 +13,15 @@ renderer.heading = function(text, level, raw) {
     return `<h${level} id="${id}">${text}</h${level}>`;
 };
 
+const originalLink = renderer.link.bind(renderer);
+renderer.link = function(href, title, text) {
+    // If the link is an anchor on the current page, prevent default navigation
+    if (href.startsWith('#')) {
+        return `<a href="${href}" onclick="event.preventDefault(); window.location.hash='${href}'; return false;"${title ? ` title="${title}"` : ''}>${text}</a>`;
+    }
+    return originalLink(href, title, text);
+};
+
 export function parseMarkdown(content) {
     if (!content) return '';
     try {
