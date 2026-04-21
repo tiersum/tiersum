@@ -36,6 +36,8 @@ import (
 )
 
 //go:embed web/*
+//go:embed web/site/*
+//go:embed web/site/*.md
 var webFS embed.FS
 
 var (
@@ -263,6 +265,8 @@ func registerStaticRoutes(r *gin.Engine, deps *ServerDeps) {
 	deps.Logger.Info("Registering static file routes with embedded files")
 
 	h := StaticFileServer()
+	// Serve site markdown files directly
+	r.GET("/site/*filepath", h)
 	// Explicit root + SPA fallback: some setups only hit NoRoute for unknown paths, not for "/".
 	r.GET("/", h)
 	r.HEAD("/", h)
@@ -290,6 +294,12 @@ func StaticFileServer() gin.HandlerFunc {
 		filePath := "web" + path
 		data, err := webFS.ReadFile(filePath)
 		if err != nil {
+			// SPA fallback: serve index.html for Vue Router paths
+			// Don't fallback for .md files (they should 404 if not found)
+			if strings.HasSuffix(path, ".md") {
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "not found"})
+				return
+			}
 			data, err = webFS.ReadFile("web/index.html")
 			if err != nil {
 				c.Next()

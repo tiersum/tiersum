@@ -16,7 +16,7 @@ export const AppHeader = {
         /** Highlight Library for browse, create, and detail routes. */
         libraryNavActive() {
             const p = this.$route?.path || '';
-            return p === '/library' || p === '/docs' || p.startsWith('/docs/');
+            return p === '/library' || p === '/docs' || (p.startsWith('/docs/') && !p.match(/^\/docs\/(index|features|documentation|about)$/));
         },
         /** Two-letter (or one) initials from username for the header avatar. */
         userAvatarInitials() {
@@ -89,22 +89,38 @@ export const AppHeader = {
                     </span>
                 </router-link>
                 <nav class="flex items-center gap-1 flex-wrap justify-end">
-                    <router-link to="/" custom v-slot="{ navigate, isActive }">
+                    <router-link to="/site/index" custom v-slot="{ navigate, isActive }">
                         <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
-                            Search
+                            Home
                         </button>
                     </router-link>
-                    <router-link to="/library" custom v-slot="{ navigate }">
-                        <button @click="navigate" :class="['btn btn-ghost btn-sm', libraryNavActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
-                            Library
+                    <router-link to="/site/features" custom v-slot="{ navigate, isActive }">
+                        <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
+                            Features
                         </button>
                     </router-link>
-                    <router-link to="/about" custom v-slot="{ navigate, isActive }">
+                    <router-link to="/site/documentation" custom v-slot="{ navigate, isActive }">
+                        <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
+                            Docs
+                        </button>
+                    </router-link>
+                    <router-link to="/site/about" custom v-slot="{ navigate, isActive }">
                         <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
                             About
                         </button>
                     </router-link>
                     <template v-if="me">
+                        <div class="w-px h-6 bg-slate-700 mx-1"></div>
+                        <router-link to="/search" custom v-slot="{ navigate, isActive }">
+                            <button @click="navigate" :class="['btn btn-ghost btn-sm', isActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
+                                Search
+                            </button>
+                        </router-link>
+                        <router-link to="/library" custom v-slot="{ navigate }">
+                            <button @click="navigate" :class="['btn btn-ghost btn-sm', libraryNavActive ? 'text-blue-400 bg-blue-500/10' : 'text-slate-400']">
+                                Library
+                            </button>
+                        </router-link>
                         <div class="dropdown dropdown-end">
                             <div tabindex="0" role="button" :class="['btn btn-ghost btn-sm gap-1', managementMenuActive ? 'text-sky-300 bg-sky-500/10' : 'text-slate-300']">
                                 <span>Management</span>

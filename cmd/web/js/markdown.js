@@ -1,9 +1,22 @@
 import { marked } from './vendor/marked.esm.js';
 
+// Custom renderer to fix anchor links for SPA navigation
+const renderer = new marked.Renderer();
+const originalHeading = renderer.heading.bind(renderer);
+renderer.heading = function(text, level, raw) {
+    // Generate ID from heading text (same logic as GitHub)
+    const id = raw.toLowerCase()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '');
+    return `<h${level} id="${id}">${text}</h${level}>`;
+};
+
 export function parseMarkdown(content) {
     if (!content) return '';
     try {
-        return marked.parse(content);
+        return marked.parse(content, { renderer });
     } catch {
         return '';
     }

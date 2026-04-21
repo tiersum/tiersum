@@ -91,9 +91,72 @@
         .fade-leave-to {
             opacity: 0;
         }
+
+        /* Markdown body overrides for dark theme */
+        .markdown-body {
+            background-color: transparent !important;
+            color: #cbd5e1 !important;
+        }
+        .markdown-body h1,
+        .markdown-body h2,
+        .markdown-body h3,
+        .markdown-body h4,
+        .markdown-body h5,
+        .markdown-body h6 {
+            color: #f1f5f9 !important;
+            border-bottom-color: #334155 !important;
+        }
+        .markdown-body p {
+            color: #cbd5e1 !important;
+        }
+        .markdown-body blockquote {
+            border-left-color: #3b82f6 !important;
+            background-color: rgba(59, 130, 246, 0.1) !important;
+            color: #93c5fd !important;
+        }
+        .markdown-body code {
+            background-color: rgba(30, 41, 59, 0.8) !important;
+            color: #e2e8f0 !important;
+        }
+        .markdown-body pre {
+            background-color: #0f172a !important;
+            border: 1px solid #334155 !important;
+        }
+        .markdown-body table th,
+        .markdown-body table td {
+            border-color: #334155 !important;
+        }
+        .markdown-body table tr {
+            background-color: transparent !important;
+            border-top-color: #334155 !important;
+        }
+        .markdown-body table tr:nth-child(2n) {
+            background-color: rgba(30, 41, 59, 0.5) !important;
+        }
+        .markdown-body hr {
+            background-color: #334155 !important;
+        }
+        .markdown-body ul li::marker,
+        .markdown-body ol li::marker {
+            color: #3b82f6 !important;
+        }
+        .markdown-body a {
+            color: #60a5fa !important;
+        }
+        .markdown-body a:hover {
+            color: #93c5fd !important;
+        }
+        .markdown-body strong {
+            color: #f1f5f9 !important;
+        }
+        
+        /* Force body background to dark */
+        html, body {
+            background-color: #020617 !important;
+        }
     </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen">
+<body class="bg-[#020617] text-slate-100 min-h-screen">
     <div id="app">
         <div id="app-boot" style="padding:2rem;font-family:system-ui,sans-serif;background:#020617;color:#e2e8f0;min-height:100vh;">
             <p style="margin:0 0 0.5rem 0"><strong>TierSum</strong> is loading…</p>

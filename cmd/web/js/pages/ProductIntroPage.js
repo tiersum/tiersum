@@ -1,4 +1,4 @@
-/** End-user product overview: bilingual (English first, then Chinese). */
+/** End-user product overview: bilingual (English first, then Chinese). Static page, no backend calls. */
 
 export const ProductIntroPage = {
     template: `
