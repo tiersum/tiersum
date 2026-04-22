@@ -2,143 +2,337 @@
 
 This document traces **non-trivial** REST endpoints: anything beyond simple list/get of stored rows. It follows the call chain from `internal/api` into `internal/service/impl` and related storage.
 
-**Full auth design:** roles, scopes, dual-track model, DB tables, and config are in **[../design/auth-and-permissions.md](../design/auth-and-permissions.md)**. End-user steps are in **[../getting-started/installation.md](../getting-started/installation.md)** and the root README.
+---
 
-**Mount points and auth:** The same `Handler.RegisterRoutes` surface is mounted at **`/api/v1`** (program track: **`api.ProgramAuthMiddleware`** → `service.IProgramAuth` / `authimpl.NewProgramAuth`: DB API keys with scopes `read` | `write` | `admin`, `X-API-Key` or `Authorization: Bearer`) and at **`/bff/v1`** for the embedded UI (human track: **`api.BFFSessionMiddleware`** + HttpOnly **`tiersum_session`** cookie after `POST /bff/v1/auth/login` or `POST /bff/v1/auth/device_login`, then **`api.BFFHumanRBAC`**: `viewer` is read-only except **`POST /bff/v1/query/progressive`**; **`GET /bff/v1/monitoring`** and **`GET /bff/v1/traces*`** require human **`admin`**). Optional HttpOnly **`tiersum_device`** cookie stores a persistent **device token** (`ts_d_*`, DB row in `device_tokens`) for “keep me signed in” / quick re-login. Until bootstrap, **`IsSystemInitialized`** is false: **`/api/v1/*`** returns **403** JSON `{ "code": "SYSTEM_NOT_INITIALIZED" }`; protected **`/bff/v1/*`** (everything except small public auth paths) returns the same or **401** when unauthenticated. Paths below use **`/api/v1`**; use **`/bff/v1`** for the same handlers behind the session cookie. **Probes / metrics:** **`GET /health`** and **`GET /metrics`** stay at the **server root** and are not gated by either track.
+## Auth and mount points (quick reference)
 
-**Bootstrap (first boot):** `GET /bff/v1/system/status` → `{ initialized, version }`. `POST /bff/v1/system/bootstrap` `{ "username" }` (only when `initialized=false`) → `IAuthService.Bootstrap` (wired by `authimpl.NewAuthService`): creates first admin user (hashed `ts_u_*` access token), one read-scoped `tsk_live_*` API key, sets `system_state.initialized_at`, returns plaintext secrets once. Initialization cannot be repeated.
+**Full auth design:** see [../design/auth-and-permissions.md](../design/auth-and-permissions.md). End-user steps: [../getting-started/installation.md](../getting-started/installation.md) and root README.
 
-**Browser login:** `POST /bff/v1/auth/login` `{ "access_token", "fingerprint": { "timezone", "client_signal?" }, "remember_me?": bool, "device_name?" }` → `IAuthService.LoginWithAccessToken` validates hashed access token, enforces per-user **max_devices** against active distinct fingerprints, stores **`browser_sessions`** (hashed opaque session cookie value), sets **`Set-Cookie`**. When `remember_me=true`, the server mints a **device token** (`IAuthService.CreateDeviceTokenForSession`) and sets HttpOnly **`tiersum_device`** (`auth.browser.device_token_ttl`).
+### Dual-track auth
 
-**Device login (persistent token):** `POST /bff/v1/auth/device_login` `{ "device_token?", "fingerprint" }` (or omit `device_token` and rely on the **`tiersum_device`** cookie) → `IAuthService.DeviceLogin` validates `device_tokens` row (not revoked / not expired + same loose IP/UA binding rules as sessions), then creates a fresh **`browser_sessions`** row and sets **`tiersum_session`**.
+| Track | Prefix | Auth mechanism | Scopes / roles |
+|-------|--------|----------------|----------------|
+| **Program** | `/api/v1/*` | DB API key (`X-API-Key` or `Authorization: Bearer`) | `read` \| `write` \| `admin` |
+| **Human (browser)** | `/bff/v1/*` | HttpOnly session cookie (`tiersum_session`) | `viewer` (read-only), `user`, `admin` |
+| **Public** | `/health`, `/metrics` | None | — |
 
-**WebAuthn passkeys (browser):** under **`/bff/v1/me/security/passkeys/*`** (session required) the UI can register and verify passkeys via `IAuthService.Begin/FinishPasskeyRegistration` and `Begin/FinishPasskeyVerification` (implemented with `github.com/go-webauthn/webauthn`, in-memory WebAuthn ceremony sessions, persisted credentials in `passkey_credentials`, and “recently verified” state in `passkey_session_verifications`). Successful registration or verification upserts a short-lived verification row keyed by **browser session id** (`auth.passkey.session_verification_ttl`).
+Until `IsSystemInitialized == false`:
+- `/api/v1/*` → **403** `{ "code": "SYSTEM_NOT_INITIALIZED" }`
+- Protected `/bff/v1/*` → **403** or **401**
 
-**Passkey-gated admin APIs:** `POST /bff/v1/admin/*` additionally runs `api.BFFRequireAdminPasskey`: when `auth.passkey.admin_required=true` **and** the admin has at least one passkey, admin routes require a **non-expired** `passkey_session_verifications` row for the current session (use **Verify passkey** in `/settings`, or register a passkey which also marks the session verified).
+### Key auth flows
 
-Subsequent authenticated browser requests use **`IAuthService.ValidateBrowserSession`** (loose IP/UA consistency + sliding session and user token TTL when configured).
+**Bootstrap**
+```
+GET  /bff/v1/system/status   → { initialized, version }
+POST /bff/v1/system/bootstrap { username }  (only when initialized=false)
+└─ IAuthService.Bootstrap
+   ├─ create first admin user (hashed ts_u_* access token)
+   ├─ create one read-scoped tsk_live_* API key
+   └─ set system_state.initialized_at
+```
 
-**BFF request hardening (browser track):**
+**Browser login**
+```
+POST /bff/v1/auth/login
+{ access_token, fingerprint: { timezone, client_signal? },
+  remember_me?: bool, device_name? }
+└─ IAuthService.LoginWithAccessToken
+   ├─ validate hashed access token
+   ├─ enforce per-user max_devices
+   ├─ store browser_sessions row
+   └─ Set-Cookie: tiersum_session
+   └─ [if remember_me]
+      └─ IAuthService.CreateDeviceTokenForSession
+         └─ Set-Cookie: tiersum_device (HttpOnly)
+```
 
-- **Human RBAC** (`api.BFFHumanRBAC`): after the session cookie is validated, **`users.role`** gates write-style traffic for **`viewer`** and gates observability reads for non-**`admin`** (see **[../design/auth-and-permissions.md](../design/auth-and-permissions.md)**).
-- **CSRF**: all non-GET/HEAD/OPTIONS requests under `/bff/v1` are protected by a same-origin check (`api.BFFSameOriginMiddleware`). The server requires `Origin` or `Referer` to match the current request host (or be allowlisted via `auth.browser.csrf.allowed_origins`). This defends cookie-authenticated endpoints from cross-site form / fetch abuse.
-- **Rate limiting**: `POST /bff/v1/system/bootstrap`, `POST /bff/v1/auth/login`, and `POST /bff/v1/auth/device_login` are IP rate-limited in-process. Login additionally applies an exponential cooldown after repeated failures (`try_later` with `retry_after`).
-- **Secure cookie behind proxies**: session cookie `Secure` attribute is controlled by `auth.browser.cookie_secure_mode` (`auto|always|never`). In `auto`, the server sets `Secure` when the request is TLS, or when `auth.browser.trust_proxy_headers=true` and `X-Forwarded-Proto=https` / `X-Forwarded-Ssl=on` is present (reverse-proxy TLS termination).
-- **Recommended public deployment**: run Nginx and TierSum on the same host, terminate TLS at Nginx, and bind TierSum to `127.0.0.1` (`server.host: "127.0.0.1"`). This makes the Go server unreachable from the public internet except via the proxy.
+**Device login (persistent token)**
+```
+POST /bff/v1/auth/device_login
+{ device_token?, fingerprint }
+└─ IAuthService.DeviceLogin
+   ├─ validate device_tokens row (not revoked, not expired, loose IP/UA binding)
+   └─ create fresh browser_sessions + Set-Cookie: tiersum_session
+```
 
-**Admin (browser, admin role only):** under **`/bff/v1/admin/*`** with `BFFRequireAdmin` **and** `BFFRequireAdminPasskey` (see passkey gating above): users CRUD tokens, **`GET /bff/v1/admin/devices`** (all users’ browser sessions with usernames), per-user devices at **`GET /bff/v1/admin/users/:id/devices`**, API keys list/create/revoke, usage snapshot `GET /bff/v1/admin/api_keys/usage`, **`GET /bff/v1/admin/config/snapshot`** (read-only merged `viper` settings with `api_key` / `dsn` / `password` / … leaves redacted — **Management → Configuration** in the UI at **`/admin/config`**). **`/bff/v1/me/*`**: profile, devices, alias, revoke sessions (admins may PATCH/DELETE another user’s session id here for support). **Management → Security** (`/settings`) uses **`GET /bff/v1/admin/devices`** when the browser profile role is admin so the list covers every user’s bound browsers; otherwise it uses **`GET /bff/v1/me/devices`** (own sessions only), and includes passkey + device-token management calls under **`/bff/v1/me/security/*`**.
+**Passkeys**
+```
+/bff/v1/me/security/passkeys/*  (session required)
+├─ Begin/FinishPasskeyRegistration  → IAuthService.Begin/FinishPasskeyRegistration
+└─ Begin/FinishPasskeyVerification  → IAuthService.Begin/FinishPasskeyVerification
+   └─ [on success] upsert passkey_session_verifications row
+```
 
-**MCP:** each tool calls **`MCPServer.mcpProgramGate`** with the same scope rules as REST; API key is read from **`TIERSUM_API_KEY`** or `mcp.api_key` in config.
+**Admin passkey gating**
+```
+POST /bff/v1/admin/*
+├─ BFFRequireAdmin
+└─ BFFRequireAdminPasskey
+   └─ [when auth.passkey.admin_required=true AND admin has passkeys]
+      └─ require non-expired passkey_session_verifications for current session
+```
 
-**Simple CRUD / pass-through (not detailed here)**  
-`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/topics`, `GET /api/v1/quota`, **`GET /health`** (root JSON liveness), and **`GET /metrics`** (root Prometheus text) — mostly read from DB or Prometheus without multi-step domain logic. **`/health`** and **`/metrics`** remain public.
+### BFF hardening
+
+| Layer | Mechanism | Detail |
+|-------|-----------|--------|
+| RBAC | `api.BFFHumanRBAC` | `viewer` read-only; observability reads require `admin` |
+| CSRF | `api.BFFSameOriginMiddleware` | Non-GET/HEAD/OPTIONS require matching Origin/Referer |
+| Rate limit | In-process | `/system/bootstrap`, `/auth/login`, `/auth/device_login` IP-limited; login has exponential cooldown |
+| Secure cookie | `auth.browser.cookie_secure_mode` | `auto`\|`always`\|`never`; in `auto` trusts `X-Forwarded-Proto` when `trust_proxy_headers=true` |
+
+**Deployment recommendation:** Nginx + TierSum on same host, TLS terminated at Nginx, TierSum bound to `127.0.0.1`.
+
+### Admin endpoints
+
+```
+/bff/v1/admin/*  (BFFRequireAdmin + BFFRequireAdminPasskey)
+├─ users CRUD, tokens
+├─ GET /admin/devices          → all users' browser sessions
+├─ GET /admin/users/:id/devices
+├─ API keys list/create/revoke
+├─ GET /admin/api_keys/usage
+└─ GET /admin/config/snapshot  (viper merged, secrets redacted)
+
+/bff/v1/me/*
+├─ profile, devices, alias
+├─ revoke own sessions
+└─ /me/security/*  → passkey + device-token management
+```
+
+### MCP
+
+Each tool calls `MCPServer.mcpProgramGate` with same scope rules as REST. API key from `TIERSUM_API_KEY` or `mcp.api_key`.
+
+### Simple CRUD (not detailed below)
+
+`GET /api/v1/documents`, `GET /api/v1/documents/:id`, `GET /api/v1/topics`, `GET /api/v1/quota`, `GET /health`, `GET /metrics` — mostly pass-through reads without multi-step domain logic.
 
 `GET /api/v1/documents/:id/chapters` is detailed below (cold docs always markdown-derived; hot docs use DB rows with markdown fallback when empty).
 
 ---
 
+## How to read the call trees
+
+Each endpoint is rendered as an **ASCII call tree** (Jaeger-style span hierarchy).
+
+```text
+FunctionName (file/path.go:line)
+├─ ChildCall (file/path.go:line)          ← synchronous, sequential
+├─ [conditional: expr]
+│  └─ BranchA (file/path.go:line)
+└─ [else]
+   └─ BranchB (file/path.go:line)
+```
+
+Annotations:
+- **`[conditional: …]`** — runtime branch predicate.
+- **`[goroutine]`** — runs concurrently with siblings at the same tree level.
+- **`[async]`** — fire-and-forget (queued or background goroutine, caller does not wait).
+- **`[loop]`** — iterated over a collection.
+- **File paths** are relative to repository root and point to the primary implementation file.
+
+---
+
 ## 0. `GET /api/v1/documents/:id/chapters` — sections for detail UI
 
-**Handler:** `ExecuteListDocumentChaptersByDocumentID`. **Cold** documents always use **`IChapterService.ExtractChaptersFromMarkdown`**: when a cold index is wired, **`IColdIndex.MarkdownChapters`** delegates to **`coldindex.MarkdownChaptersFromSplit`** (same splitter / **same `EstimateTokens` budget units** as cold ingest — sized for **vector embedder sequence length**, not LLM prompts; see **`cold-index/cold-index.md` §2.3**) and section titles use **`pkg/markdown.ChapterDisplayTitle`**; when no cold index is wired, the service returns a single synthetic `{doc_id}/body` chapter from raw markdown with the same title helper. **Hot/warming:** load persisted **`IChapterService.ListChaptersByDocumentID`** rows; if none, fall back to **`ExtractChaptersFromMarkdown`** as above. JSON `summary` is the section body for cold markdown fallback and the stored chapter summary for hot rows.
+```text
+Handler.GetDocumentChapters
+└─ Handler.ExecuteListDocumentChaptersByDocumentID (internal/api/handler_execute.go:79)
+   ├─ DocService.GetDocument (internal/service/impl/document/document_service_impl.go:269)
+   │  └─ docs.GetByID (internal/storage/db/document/document_repository_impl.go)
+   ├─ [conditional: doc.Status == cold]
+   │  └─ ChaptersService.ExtractChaptersFromMarkdown (internal/service/impl/catalog/chapter_service_impl.go:57)
+   │     ├─ [conditional: coldIndex != nil]
+   │     │  └─ coldIndex.MarkdownChapters (internal/storage/coldindex/cold_index_impl.go:672)
+   │     │     └─ MarkdownChaptersFromSplit (internal/storage/coldindex/markdown_chapter_splitter_impl.go)
+   │     └─ [else: coldIndex == nil]
+   │        └─ pkg/markdown.ChapterDisplayTitle (pkg/markdown/...)
+   └─ [else: hot / warming]
+      ├─ ChaptersService.ListChaptersByDocumentID (internal/service/impl/catalog/chapter_service_impl.go:53)
+      │  └─ chapterRepo.ListByDocument (internal/storage/db/document/chapter_repository_impl.go)
+      └─ [conditional: len(chapters) == 0]
+         └─ ExtractChaptersFromMarkdown (fallback, same as cold path above)
+```
+
+**Notes:**
+- **Cold** documents always use `ExtractChaptersFromMarkdown` so the UI sees the same merged sections as the cold index (avoids stale partial persisted rows).
+- **Hot/warming** loads persisted DB chapter rows first; if none, falls back to markdown extraction.
 
 ---
 
 ## 1. `POST /api/v1/documents` — Ingest (hot / cold)
 
-**Handler:** `Handler.CreateDocument` → `ExecuteCreateDocument` → `IDocumentService.CreateDocument` (`internal/service/impl/document/document_service_impl.go`).
+```text
+Handler.CreateDocument (internal/api/handler.go:106)
+└─ Handler.ExecuteCreateDocument (internal/api/handler_execute.go:38)
+   └─ DocService.CreateDocument (internal/service/impl/document/document_service_impl.go:53)
+      ├─ validateCreateIngest (internal/service/impl/document/document_service_impl.go:149)
+      │  ├─ config.DocumentMaxBodyBytes (internal/config/documents_ingest.go)
+      │  ├─ config.DocumentFormatAllowed
+      │  └─ config.DocumentChunkingMaxChars
+      ├─ resolveHotIngest (internal/service/impl/document/document_service_impl.go:166)
+      │  ├─ req.EffectiveIngestMode
+      │  ├─ [conditional: mode == auto && no prebuilt summary+chapters]
+      │  │  └─ quota.CheckAndConsume (internal/service/impl/document/hot_ingest_quota_impl.go)
+      │  └─ config.HotContentThreshold (internal/config/tiering.go)
+      ├─ [conditional: hot == true] ───────── HOT PATH ─────────
+      │  ├─ docs.Create (internal/storage/db/document/document_repository_impl.go)
+      │  │  └─ [DB] INSERT documents (status = hot)
+      │  ├─ [conditional: len(req.Chapters) > 0 && chapters != nil]
+      │  │  ├─ materializePrebuiltChapters
+      │  │  └─ chapters.ReplaceByDocument (internal/storage/db/document/chapter_repository_impl.go)
+      │  ├─ syncCatalogTags (internal/service/impl/document/document_service_impl.go:248)
+      │  │  └─ [loop: tagNames]
+      │  │     ├─ tags.GetByName
+      │  │     ├─ [conditional: missing] tags.Create
+      │  │     └─ tags.IncrementDocumentCount
+      │  └─ [conditional: hot && len(req.Chapters) == 0 && hotIngestSink != nil]
+      │     └─ hotIngestSink.SubmitHotIngest [async]
+      │        └─ (consumed by job.HotIngestQueue)
+      │           └─ HotIngestQueueConsumer (internal/job/hot_ingest_consumer.go)
+      │              └─ IHotIngestProcessor.ProcessHotIngest (internal/service/impl/document/hot_ingest_processor_impl.go:47)
+      │                 ├─ docRepo.GetByID
+      │                 ├─ [conditional: doc.Status != hot] → skip
+      │                 ├─ IDocumentAnalysisGenerator.GenerateAnalysis (LLM call)
+      │                 │  └─ [on failure] analysisFailureResult → virtual failure chapter
+      │                 └─ IDocumentAnalysisPersister.PersistAnalysis
+      │                    ├─ docRepo.UpdateSummary
+      │                    └─ chapters.ReplaceByDocument
+      ├─ [conditional: hot == false && coldIndex != nil] ── COLD PATH ──
+      │  ├─ coldIndex.AddDocument (internal/storage/coldindex/cold_index_impl.go:404)
+      │  │  ├─ removeChaptersForDocLocked (dedupe existing doc chapters)
+      │  │  ├─ coldSplitter.Split (internal/storage/coldindex/markdown_chapter_splitter_impl.go)
+      │  │  └─ [loop: chapters]
+      │  │     ├─ [conditional: textEmbedder != nil]
+      │  │     │  └─ FallbackColdTextEmbedding
+      │  │     └─ [else] GenerateSimpleEmbedding (coldvec)
+      │  │     ├─ inverted.indexChapter (Bleve)
+      │  │     └─ vector.add (HNSW)
+      │  │  └─ docChapterPaths[doc.ID] = paths
+      │  └─ docs.Create
+      └─ [conditional: hot == false && coldIndex == nil]
+         └─ docs.Create
+      └─ docs.GetByID (reload for response)
+```
 
-### 1.0 Ingest validation (configurable)
-
-Before hot/cold routing, **`IDocumentService.CreateDocument`** enforces **`documents.max_size`** (UTF-8 byte length of `content`), **`documents.supported_formats`** (when non-empty), and optional **`documents.chunking`** (`enabled` + **`max_chunk_size`** as Unicode code points). Violations return **`service.ErrIngestValidation`**, mapped to **HTTP 400** in **`ExecuteCreateDocument`**.
-
-### 1.1 Hot vs cold decision
-
-Resolved mode: `**req.EffectiveIngestMode()**` (`ingest_mode` JSON field: `auto` | `hot` | `cold`; legacy `force_hot=true` maps to `hot`).
-
-1. **`hot`** → always hot.
-2. **`cold`** → always cold.
-3. **`auto`** → hot if **prebuilt summary and chapters** (`req.Summary != ""` and `len(req.Chapters) > 0`); else hot only if the in-process hourly **`HotIngestQuota`** (`quota.per_hour`, wired in `internal/di`) still has capacity via **`CheckAndConsume()`** and **`len(content) > HotContentThreshold()`** (UTF-8 byte length vs `documents.tiering.hot_content_threshold`, default **5000**); else cold.
-
-### 1.2 Hot path (implemented)
-
-- Persist **`documents`** via `**DocRepo.Create**` with `**status = hot**`, request **tags** (deduplicated), **`summary`** from the request body, full **content**.
-- Optional client **`chapters[]`**: map each `**ChapterInfo**` to `**types.Chapter**` (stable `path` under the document id), then `**IChapterRepository.ReplaceByDocument**`.
-- Catalog tags: for each tag name, `**TagRepo.GetByName**` → `**TagRepo.Create**` when missing → `**IncrementDocumentCount**`.
-- **Deferred analyze / materialize:** `**internal/di**` always wires `**IHotIngestProcessor**`, `**IHotIngestWorkSink**` (`**di.NewHotIngestQueueSink**` → `**job.HotIngestQueue**`, capacity 100), and `**cmd/main.go**` starts `**job.StartHotIngestQueueConsumer**`. Hot `**CreateDocument**` enqueues `**types.HotIngestWork**` when there are **no** client `**chapters[]**`. `**ProcessHotIngest**` is intentionally two-step: (1) `**internal/service/impl/document**.**IDocumentAnalysisGenerator**.**GenerateAnalysis**` — one LLM call, then JSON parse into summary/tags/chapters (length/chapter-count guidance is **prompt-only**; the server does **not** truncate or normalize LLM fields after parse; invalid chapter offsets leave empty `**content**` so gaps show in the document UI); (2) `**internal/service/impl/document**.**IDocumentAnalysisPersister**.**PersistAnalysis**` — write summary + replace chapter rows. **LLM/parse errors** materialize as a **single virtual failure chapter** (title prefixed with `[analysis failed]`) instead of silently inventing structure. **Without a configured LLM provider**, analysis errors the same way (no markdown-only substitute). **Cold→hot maintenance** (`**IDocumentMaintenanceService**`) remains disabled without an LLM. If the bounded queue is full, the sink drops work and logs a warning (no automatic retry; re-ingest or restart processing is manual).
-
-### 1.3 Cold path (implemented)
-
-- Persist **`documents`** with `**status = cold**` and **empty `tags`** (even if the client sent tags).
-- Then `**IColdIndex.AddDocument(ctx, doc)**` (`**coldindex.Index**` from `cmd/main.go`): chapter split, Bleve + HNSW indexing, optional embedder — same behavior as cold index design (markdown windows / paths as in **`cold-index/cold-index.md`**). **Heading tree:** **goldmark** CommonMark AST; only **`ast.Heading`** nodes that are **direct children of the document** define chapters (prefer missed headings over false splits); see **`cold-index/cold-index.md` §2.1** and **`cold-index/chapter-tree-quality.md`**.
-- **Order:** DB row first, then index; index failure surfaces as **HTTP 500** (row may already exist — operators can reindex or delete manually if needed).
-
-### 1.4 Response
-
-Returns `CreateDocumentResponse` (id, title, format, tags, summary preview fields, chapter count, status, timestamps).
+**Key decisions:**
+- `resolveHotIngest` decides the path: `hot` always, `cold` always, `auto` uses prebuilt analysis → quota + content length threshold.
+- **Cold path order:** index first, then DB; if DB fails, index is rolled back via `RemoveDocument`.
+- **Hot ingest queue:** bounded capacity (100); when full, work is dropped with a warning (manual retry needed).
 
 ---
 
 ## 2. `POST /api/v1/query/progressive` — Progressive query
 
-**Handler:** `Handler.ProgressiveQuery` → `ExecuteProgressiveQuery` → `IQueryService.ProgressiveQuery` (`internal/service/impl/query/query_service_impl.go`).
+```text
+Handler.ProgressiveQuery (internal/api/handler.go:139)
+└─ Handler.ExecuteProgressiveQuery (internal/api/handler_execute.go:144)
+   └─ QueryService.ProgressiveQuery (internal/service/impl/query/query_service_impl.go:256)
+      ├─ [goroutine] queryHotPath (internal/service/impl/query/query_service_impl.go:417)
+      │  └─ WithOptionalSpan("hot_chapter_search")
+      │     └─ chapterSearch.SearchHotChapters (internal/service/impl/catalog/chapter_service_impl.go:118)
+      │        └─ searchHotChaptersProgressive (internal/service/impl/catalog/search_hot_progressive.go:19)
+      │           ├─ filterCatalogTags
+      │           │  ├─ TagRepo.List
+      │           │  ├─ [conditional: tagCount < 200]
+      │           │  │  └─ FilterTagsByQuery (LLM via hotProgressiveLLMCore)
+      │           │  └─ [else]
+      │           │     ├─ TopicRepo.List
+      │           │     ├─ FilterTopicsByQuery (LLM, max 3, ≥0.5)
+      │           │     ├─ TagRepo.ListByTopic per selected topic
+      │           │     └─ FilterTagsByQuery
+      │           ├─ queryAndFilterDocumentsForHotSearch
+      │           │  ├─ DocRepo.ListByTags (OR) OR DocRepo.ListAll fallback
+      │           │  ├─ [split: hot/warming vs cold in candidate set]
+      │           │  │  ├─ hot/warming candidates → FilterDocuments (LLM, ≥0.5)
+      │           │  │  └─ cold candidates → ExtractKeywords substring match
+      │           │  └─ merge + rank
+      │           └─ queryAndFilterChaptersForHotSearch
+      │              ├─ ChapterRepo.ListByDocument (hot/warming docs)
+      │              ├─ cold candidates → pseudo-chapter (docId/full)
+      │              └─ FilterChapters (LLM, ≥0.5)
+      │  └─ trackDocumentAccess [async goroutine per distinct docID]
+      │     ├─ docRepo.IncrementQueryCount
+      │     └─ [conditional: status == cold && queryCount+1 >= threshold]
+      │        └─ job.PromoteQueue <- docID
+      ├─ [goroutine] queryColdPath (internal/service/impl/query/query_service_impl.go:534)
+      │  └─ WithOptionalSpan("cold_index_search")
+      │     └─ chapterSearch.SearchColdChapterHits (internal/service/impl/catalog/chapter_service_impl.go:94)
+      │        └─ coldIndex.Search (internal/storage/coldindex/cold_index_impl.go:498)
+      │           ├─ [conditional: textEmbedder != nil]
+      │           │  └─ FallbackColdTextEmbedding(queryText)
+      │           └─ hybridSearch
+      │              ├─ searchWithBleve (BM25, recall = branchRecallSize(topK))
+      │              │  └─ inverted.search (Bleve)
+      │              ├─ [conditional: queryEmbedding valid dimension]
+      │              │  └─ searchWithVector (HNSW cosine, recall = branchRecallSize(topK))
+      │              │     └─ vector.search (hnsw.Graph)
+      │              └─ mergeHybridResults
+      │                 ├─ [loop: bm25] normalize score, weight 0.5
+      │                 ├─ [loop: vector] weight 0.5, merge or add
+      │                 └─ sort by score + topK trim
+      ├─ mergeHotAndColdQueryItems (dedupe by docID+path, sort relevance, cap maxResults)
+      └─ generateProgressiveAnswer
+         ├─ buildProgressiveAnswerPrompt (up to 30 refs, ~6KB excerpts each)
+         └─ [conditional: llm != nil && len(items) > 0]
+            └─ llm.Generate
+               └─ [on failure] answer = ""
+```
 
-### 2.1 Parallel paths
-
-Two goroutines run concurrently:
-
-| Path     | Purpose |
-| -------- | ------- |
-| **Hot**  | `**IChapterService.SearchHotChapters**` — legacy **progressive** pipeline: adaptive catalog **tags/topics** (LLM) → **documents** (LLM for hot/warming; keyword for cold in the candidate set) → **chapters** (LLM), returned as `**HotSearchHit**` rows (`content_source: hot_progressive`). |
-| **Cold** | `**IChapterService.SearchColdChapterHits**` — hybrid cold index search over cold chapter chunks (`**IColdIndex.Search**`). |
-
-Results are **merged** (`mergeHotAndColdQueryItems`): one `**QueryItem**` per **(document id, chapter path)**; if the same chapter appears on both paths, the higher **relevance** wins; sort by relevance; cap at `max_results`.
-
-### 2.2 Hot path (`queryHotPath`)
-
-1. `**SearchHotChapters(ctx, question, max_results/2)**` (`internal/service/impl/catalog/chapter_service_impl.go` + `search_hot_progressive.go` + `hot_progressive_llm_core.go`):  
-   - **Tags**: `**TagRepo.List**`; if catalog tag count **< 200** → `**FilterTagsByQuery**` on all tags; else `**TopicRepo.List**` → `**FilterTopicsByQuery**` (up to **3**, relevance **≥ 0.5**) → `**TagRepo.ListByTopic**` per selected topic → `**FilterTagsByQuery**` on that subset.  
-   - **Documents**: `**DocRepo.ListByTags**` (OR tags) or `**DocRepo.ListAll**` fallback when no tags; split **hot/warming** vs **cold** in the candidate set; hot/warming uses `**FilterDocuments**` (≥0.5); cold uses `**ExtractKeywords**` substring match on title/content/tags.  
-   - **Chapters**: load persisted `**ChapterRepo.ListByDocument**` for hot/warming; cold candidates become one pseudo-chapter (`path` `docId/full`); `**FilterChapters**` (≥0.5). Each retained chapter maps to a `**HotSearchHit**` with `**Score**` from the chapter filter relevance.  
-2. `**trackDocumentAccess**` (async per distinct document id from hot hits): `**DocRepo.IncrementQueryCount**`. Cold promotion via `**job.PromoteQueue**` applies only when the document status is **cold** (hot-path hits are hot/warming only).
-
-### 2.3 Cold path (`queryColdPath`)
-
-- If the cold index is unavailable → empty cold step (no error).  
-- `**IChapterService.SearchColdChapterHits(ctx, question, max_results/2)**` → `**IColdIndex.Search**` — optional semantic branch when a text embedder was wired at startup (see §5).  
-- Map each `**types.ColdSearchHit**` to a `**QueryItem**`; empty `path` falls back to `docId/full`. `status=cold`.
-
-### 2.4 Answer field (`generateProgressiveAnswer`)
-
-`**internal/service/impl/query/query_service_impl.go**` (answer synthesis): builds a prompt with up to 30 references, excerpts capped (~6KB UTF-8 each), instructs Markdown + `[^N^]` citations; `**ILLMProvider.Generate**` using configured `max_tokens`. On failure, `answer` is empty (UI may fall back).
+**Notes:**
+- Two goroutines run **concurrently**; results merge after both complete.
+- **Hot path** uses LLM filtering at three hops (tags → documents → chapters) when `relCore` (LLM) is available; without it, hot returns empty.
+- **Cold path** silently returns empty if the cold index is unavailable (`ErrColdIndexUnavailable`), without failing the overall request.
+- **Track access** fires background goroutines per document to increment query counts and enqueue cold documents for promotion when threshold is reached.
+- **Answer synthesis** is optional: if LLM fails or is absent, `answer` is empty and the UI may render raw results.
 
 ---
 
 ## 3. `POST /api/v1/topics/regroup` — Topic regrouping (catalog tags → themes)
 
-**Handler:** `ExecuteRegroupTagsIntoTopics` → `ITopicService.RegroupTags` (`internal/service/impl/catalog/topic_service_impl.go`).
+```text
+Handler.RegroupTagsIntoTopics (internal/api/handler.go:157)
+└─ Handler.ExecuteRegroupTagsIntoTopics (internal/api/handler_execute.go:183)
+   └─ TopicService.RegroupTags (internal/service/impl/catalog/topic_service_impl.go:46)
+      ├─ TagRepo.List
+      ├─ [conditional: len(tags) == 0]
+      │  └─ no-op (update refresh bookkeeping only)
+      └─ [deterministic impl: single catch-all topic]
+         ├─ TopicRepo.DeleteAll
+         ├─ TopicRepo.Create (topic "All tags")
+         └─ [loop: tags]
+            └─ TagRepo.Create (upsert with TopicID)
+```
 
-1. `**TagRepo.List`** all catalog tags (empty list → no-op, refresh bookkeeping updated).
-2. **Deterministic regroup (current implementation):** build one topic **"All tags"** containing every catalog tag name; `**TopicRepo.DeleteAll**` then `**TopicRepo.Create**` for that topic.
-3. For each tag row: assign `**TopicID**` to the topic and `**TagRepo.Create**` (upsert path used by the implementation).
-4. Updates in-memory refresh bookkeeping for `**ShouldRefresh**`.
-
-`GET /api/v1/topics` lists persisted topics (`**ITopicService.ListTopics**` → `**TopicRepo.List**`).
-
-Scheduled `**TopicRegroupJob**` (`internal/job/jobs.go`) runs the same regroup path on an interval when `**ShouldRefresh**` is true.
+**Scheduled job:** `TopicRegroupJob` (`internal/job/jobs.go`) runs the same path on an interval when `ShouldRefresh` is true.
 
 ---
 
 ## 4. Hot retrieval family (`GET /api/v1/hot/...`)
 
-**Handlers:** Gin entrypoints in `internal/api/handler_catalog.go` call `ExecuteListHotDocumentSummariesByTags` and `ExecuteListHotDocumentChaptersByDocumentIDs` in `internal/api/handler_execute.go`.  
-**Data:** `**IDocumentService**` + `**IChapterService**` (DB reads only; no LLM in these endpoints).
+### 4.1 `GET /api/v1/hot/doc_summaries`
 
+```text
+Handler.ListHotDocumentSummariesByTags (internal/api/handler_catalog.go)
+└─ Handler.ExecuteListHotDocumentSummariesByTags (internal/api/handler_execute.go:222)
+   └─ DocService.ListHotDocumentsWithSummariesByTags (internal/service/impl/document/document_service_impl.go:303)
+      └─ docs.ListMetaByTagsAndStatuses (internal/storage/db/document/document_repository_impl.go)
+         └─ [DB] SELECT hot + warming by tags (OR), cap max_results
+```
 
-| Endpoint                 | Algorithm                                                                                                                                                                                             |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `**/hot/doc_summaries`** | Require `tags`. `**IDocumentService.ListHotDocumentsWithSummariesByTags**` → `**DocRepo.ListMetaByTagsAndStatuses**` for `hot` + `warming`, cap `max_results`. Return `{ document_id, title, format, status, tags, summary }` from the document rows (body content not loaded). |
-| `**/hot/doc_chapters`**  | Require `doc_ids` (trimmed to `max_results` doc cap). For each id: load persisted `chapters` rows, return path/title/summary/content.                                                                           |
+### 4.2 `GET /api/v1/hot/doc_chapters`
 
+```text
+Handler.ListHotDocumentChaptersByDocumentIDs (internal/api/handler_catalog.go)
+└─ Handler.ExecuteListHotDocumentChaptersByDocumentIDs (internal/api/handler_execute.go:250)
+   └─ ChaptersService.ListChaptersByDocumentIDs (internal/service/impl/catalog/chapter_service_impl.go:79)
+      └─ chapterRepo.ListByDocumentIDs (internal/storage/db/document/chapter_repository_impl.go)
+         └─ [DB] SELECT chapters WHERE document_id IN (...)
+```
+
+**Note:** These are DB-only reads; no LLM or cold index is involved.
 
 ---
 
@@ -146,31 +340,54 @@ Scheduled `**TopicRegroupJob**` (`internal/job/jobs.go`) runs the same regroup p
 
 **Design (algorithms, indexing, merge, config):** [cold-index/cold-index.md](cold-index/cold-index.md) · [cold-index/cold-index.zh.md](cold-index/cold-index.zh.md)（中文）
 
-**Handler:** `ExecuteSearchColdChapterHits` → `**IChapterService.SearchColdChapterHits**` → `**IColdIndex.Search**` (`internal/storage/coldindex/cold_index_impl.go`).
+```text
+Handler.SearchColdChapterHits (internal/api/handler.go)
+└─ Handler.ExecuteSearchColdChapterHits (internal/api/handler_execute.go:283)
+   └─ ChaptersService.SearchColdChapterHits (internal/service/impl/catalog/chapter_service_impl.go:94)
+      ├─ [conditional: coldIndex == nil] → return ErrColdIndexUnavailable
+      └─ coldIndex.Search (internal/storage/coldindex/cold_index_impl.go:498)
+         ├─ [conditional: textEmbedder != nil]
+         │  └─ FallbackColdTextEmbedding(queryText)
+         └─ hybridSearch (internal/storage/coldindex/cold_index_impl.go:586)
+            ├─ searchWithBleve (recall = branchRecallSize(topK))
+            │  └─ inverted.search (Bleve BM25)
+            ├─ [conditional: queryEmbedding valid dimension]
+            │  └─ searchWithVector (recall = branchRecallSize(topK))
+            │     └─ vector.search (hnsw.Graph cosine)
+            └─ mergeHybridResults
+               ├─ [loop: bm25 hits] normalize score (maxBM25), weight 0.5, source="bm25"
+               ├─ [loop: vector hits] weight 0.5
+               │  ├─ [conditional: path already in map]
+               │  │  └─ blend scores (existing + vector*0.5), source="hybrid"
+               │  └─ [else] add new, source="vector"
+               └─ sort by blended score + topK trim
+      └─ [map] ColdIndexHit → types.ColdSearchHit for JSON
+```
 
-1. Parse `**q`** as comma-separated terms → single query string.
-2. `**IChapterService.SearchColdChapterHits**` (`internal/service/impl/catalog/chapter_service_impl.go`) calls `**IColdIndex.Search**`, then maps each `**ColdIndexHit**` to `**types.ColdSearchHit**` for JSON. If `**coldindex.Index.SetTextEmbedder**` was wired at startup (`cmd/main.go` via `**NewTextEmbedderFromViper**`), the index may rank using additional signals internally; otherwise search is text-only.
-3. Inside `**Search**`, the implementation may merge lexical and optional semantic indexes:
-  - Each branch retrieves more candidates than the final **topK** (pool size from **cold_index.search**: `branch_recall_multiplier`, `branch_recall_floor`, `branch_recall_ceiling`), then merge so overlap can surface in the final cut.  
-  - Text index branch — each hit is one **cold chapter**; `context` is the **full** chapter text (no keyword windowing).
-  - Vector branch when embedding length matches `VectorDimension` — same chapter-level hits.
-  - `**mergeHybridResults`**: dedupe by **`document_id` + `path`** (not by document alone); normalized score blend; combined rows get `source: hybrid`; sort by score; keep **`topK`**.
-4. Handler maps `**types.ColdSearchHit**` rows to JSON (`document_id`, optional `path`, `title`, `score`, `context`, optional `source` for UI/debug trace only).
+**Key config:**
+- `cold_index.search.branch_recall_multiplier` (default 2)
+- `cold_index.search.branch_recall_floor` (default 20)
+- `cold_index.search.branch_recall_ceiling` (default 200)
 
 ---
 
 ## 6. `GET /api/v1/tags` — Filtered tag list (lightweight core)
 
-**Handler:** `ExecuteListTags`.
-
-- `**ITagService.ListTags**`: if `**topic_ids**` non-empty, `**TagRepo.ListByTopicIDs**` with `max_results` (defaults/clamps per handler); else `**TagRepo.List**` with optional cap from `max_results`.
+```text
+Handler.ListTags (internal/api/handler.go)
+└─ Handler.ExecuteListTags (internal/api/handler_execute.go:195)
+   └─ TagsService.ListTags (internal/service/impl/catalog/tag_service_impl.go)
+      ├─ [conditional: len(topicIDs) > 0]
+      │  └─ TagRepo.ListByTopicIDs (internal/storage/db/document/tag_repository_impl.go)
+      └─ [else]
+         └─ TagRepo.List (internal/storage/db/document/tag_repository_impl.go)
+```
 
 No LLM; included because behavior differs from a single-table dump when `topic_ids` is set.
 
 ---
 
 ## Related code map
-
 
 | Concern                   | Primary files                                                                          |
 | ------------------------- | -------------------------------------------------------------------------------------- |
@@ -183,7 +400,6 @@ No LLM; included because behavior differs from a single-table dump when `topic_i
 | Cold index algorithms     | [cold-index/cold-index.md](cold-index/cold-index.md), [cold-index/cold-index.zh.md](cold-index/cold-index.zh.md)                    |
 | Cold embeddings           | `coldindex.NewTextEmbedderFromViper` + `**coldindex.Index.SetTextEmbedder**` in `cmd/main.go`; `**storage.IColdIndex**` exposes only documents + text `**Search**` / `**ColdIndexHit**` |
 | Promotion side effect     | `job.PromoteQueue` → `IDocumentMaintenanceService.PromoteColdDocumentByID`; scheduled sweep `RunColdPromotionSweep` in `internal/service/impl/document/document_maintenance_service_impl.go` |
-
 
 ---
 

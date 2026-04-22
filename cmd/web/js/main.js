@@ -7,7 +7,7 @@ import { DocumentCreatePage } from './pages/DocumentCreatePage.js';
 import { DocumentDetailPage } from './pages/DocumentDetailPage.js';
 import { LibraryPage } from './pages/LibraryPage.js';
 import { ObservabilityPage } from './pages/ObservabilityPage.js';
-import { ProductIntroPage } from './pages/ProductIntroPage.js';
+import { MarkdownPage } from './pages/MarkdownPage.js';
 import { InitPage } from './pages/InitPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
@@ -21,13 +21,13 @@ const routes = [
     { path: '/settings', component: SettingsPage },
     { path: '/admin/config', component: AdminConfigPage },
     { path: '/admin', component: AdminPage },
-    { path: '/', component: SearchPage },
+    { path: '/', redirect: '/site/index' },
+    { path: '/search', component: SearchPage },
     { path: '/library', component: LibraryPage },
-    { path: '/docs', redirect: '/library' },
     { path: '/tags', redirect: '/library' },
     { path: '/docs/new', component: DocumentCreatePage },
-    { path: '/docs/:id', component: DocumentDetailPage, props: true },
-    { path: '/about', component: ProductIntroPage },
+    { path: '/docs/:id([a-zA-Z0-9-]+)', component: DocumentDetailPage, props: true },
+    { path: '/site/:path(index|about|features|documentation)', component: MarkdownPage, props: true },
     { path: '/observability', component: ObservabilityPage },
     { path: '/monitoring', redirect: '/observability' }
 ];
@@ -61,8 +61,8 @@ router.beforeEach(async (to, _from, next) => {
         next();
         return;
     }
-    // Public product overview (no session) once the system is initialized.
-    if (to.path === '/about') {
+    // Public site pages (no session) once the system is initialized.
+    if (to.path.startsWith('/site/')) {
         next();
         return;
     }

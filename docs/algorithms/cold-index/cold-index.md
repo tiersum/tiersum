@@ -173,7 +173,7 @@ Used when a single logical body still exceeds **`maxTokens`** after tree logic.
 
 Each indexed unit is one **cold chapter** (not whole document):
 
-- **`DocumentIndex`**: `id` / `path` (same as chapter key), `document_id`, `title` (document title), `content` (full chapter text), `embedding`.
+- **`ChapterIndex`**: `id` / `path` (same as chapter key), `document_id`, `title` (document title), `content` (full chapter text), `embedding`.
 
 ### 3.2 Bleve (BM25, lexical)
 
