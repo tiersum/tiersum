@@ -34,7 +34,7 @@ function redirectAuth(endpoint, status, errBody) {
             '/bff/v1/auth/logout'
         ];
         if (open.some((p) => endpoint.startsWith(p))) return;
-        if (!path.startsWith('/login') && !path.startsWith('/init')) window.location.assign('/login');
+        if (!path.startsWith('/login') && !path.startsWith('/init') && !path.startsWith('/site/')) window.location.assign('/login');
     }
 }
 
