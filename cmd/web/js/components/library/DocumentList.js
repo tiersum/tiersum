@@ -36,32 +36,39 @@ export const DocumentList = {
             this.$emit('select-catalog-tag', tag);
         },
         filterLabel() {
-            if (this.browseMode === BROWSE_COLD) return 'Cold tier only';
-            if (this.browseMode === BROWSE_UNTAGGED) return 'Documents with no tags';
+            if (this.browseMode === BROWSE_COLD) return this.$t('libraryFilterCold');
+            if (this.browseMode === BROWSE_UNTAGGED) return this.$t('libraryFilterUntagged');
             if (this.browseMode === BROWSE_TOPIC && this.selectedTopic) {
-                let s = `Topic "${this.selectedTopic.name}"`;
-                if (this.selectedCatalogTagName) s += ` · tag "${this.selectedCatalogTagName}"`;
-                return s;
+                if (this.selectedCatalogTagName) {
+                    return this.$t('libraryFilterTopicTag', { topic: this.selectedTopic.name, tag: this.selectedCatalogTagName });
+                }
+                return this.$t('libraryFilterTopic', { topic: this.selectedTopic.name });
             }
-            return 'All documents';
+            return this.$t('libraryFilterAll');
         },
         emptyTitle() {
-            if (this.browseMode === BROWSE_COLD) return 'No cold documents';
-            if (this.browseMode === BROWSE_UNTAGGED) return 'No untagged documents';
-            if (this.browseMode === BROWSE_TOPIC) return 'No documents in this topic';
-            return 'No documents yet';
+            if (this.browseMode === BROWSE_COLD) return this.$t('libraryEmptyCold');
+            if (this.browseMode === BROWSE_UNTAGGED) return this.$t('libraryEmptyUntagged');
+            if (this.browseMode === BROWSE_TOPIC) return this.$t('libraryEmptyTopic');
+            return this.$t('libraryEmptyAll');
         },
         emptyHint() {
             if (this.browseMode === BROWSE_COLD) {
-                return 'Documents that exceed the hot quota or are too short will appear here.';
+                return this.$t('libraryHintCold');
             }
             if (this.browseMode === BROWSE_UNTAGGED) {
-                return 'All documents have tags. Great job!';
+                return this.$t('libraryHintUntagged');
             }
             if (this.browseMode === BROWSE_TOPIC) {
-                return 'Try selecting a different topic or ingest tagged documents.';
+                return this.$t('libraryHintTopic');
             }
-            return 'Get started by adding your first document.';
+            return this.$t('libraryHintAll');
+        },
+        searchPlaceholder() {
+            if (this.browseMode === BROWSE_ALL) return this.$t('librarySearchAll');
+            if (this.browseMode === BROWSE_COLD) return this.$t('librarySearchCold');
+            if (this.browseMode === BROWSE_UNTAGGED) return this.$t('librarySearchUntagged');
+            return this.$t('librarySearchTopic');
         }
     },
     template: `
@@ -92,7 +99,7 @@ export const DocumentList = {
                             ]"
                             @click="onClearTag"
                         >
-                            All
+                            {{ $t('libraryAllTags') }}
                         </button>
                         <button
                             v-for="tag in tags"
@@ -117,7 +124,7 @@ export const DocumentList = {
                     <icon name="search" class-name="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                     <input
                         v-model="localSearch"
-                        :placeholder="'Search in ' + (browseMode === '${BROWSE_ALL}' ? 'all documents' : browseMode === '${BROWSE_COLD}' ? 'cold documents' : browseMode === '${BROWSE_UNTAGGED}' ? 'untagged documents' : 'this topic') + '...'"
+                        :placeholder="searchPlaceholder()"
                         class="w-full pl-10 pr-4 py-2 bg-slate-900/50 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 rounded-lg outline-none text-sm"
                     />
                 </div>
@@ -134,7 +141,7 @@ export const DocumentList = {
                     <icon name="empty" class-name="w-16 h-16 mx-auto mb-4 text-slate-600" />
                     <h3 class="text-xl font-medium text-slate-300 mb-2">{{ emptyTitle() }}</h3>
                     <p class="text-slate-500 mb-4 text-sm max-w-sm mx-auto">{{ emptyHint() }}</p>
-                    <router-link v-if="!isViewer" to="/docs/new" class="btn btn-primary btn-sm">Add document</router-link>
+                    <router-link v-if="!isViewer" to="/docs/new" class="btn btn-primary btn-sm">{{ $t('libraryAddDoc') }}</router-link>
                 </div>
                 <div v-else class="grid gap-3">
                     <document-card

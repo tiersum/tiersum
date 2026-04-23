@@ -34,7 +34,7 @@ export const CatalogTagPanel = {
                 <div class="p-4 border-b border-slate-800 flex items-center justify-between gap-2 shrink-0">
                     <div class="flex items-center gap-2 min-w-0">
                         <icon name="tag" class-name="w-5 h-5 text-emerald-500" />
-                        <h2 class="text-lg font-semibold text-slate-100 truncate">Tags</h2>
+                        <h2 class="text-lg font-semibold text-slate-100 truncate">{{ $t('libraryTopics') }}</h2>
                     </div>
                     <span class="badge badge-outline badge-primary truncate max-w-[8rem]">{{ selectedTopic?.name }}</span>
                 </div>
@@ -44,7 +44,7 @@ export const CatalogTagPanel = {
                         :class="btnClass(!selectedCatalogTagName)"
                         @click="onClear"
                     >
-                        All tags in topic
+                        {{ $t('libraryAllTags') }}
                     </button>
                     <div v-if="loading" class="space-y-2">
                         <div v-for="i in 5" :key="'tg'+i" class="h-14 bg-slate-800 rounded animate-pulse"></div>
@@ -63,7 +63,7 @@ export const CatalogTagPanel = {
                             </div>
                         </button>
                         <p v-if="tags.length === 0" class="text-center text-slate-500 text-sm py-6 px-2">
-                            No catalog tags in this topic.
+                            {{ $t('libraryNoCatalogTags') }}
                         </p>
                     </template>
                 </div>

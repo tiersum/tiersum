@@ -52,7 +52,7 @@ export const SettingsPage = {
             return Array.from(new Uint8Array(buf));
         },
         async registerPasskey() {
-            const name = window.prompt('Passkey label (optional)', 'passkey') || '';
+            const name = window.prompt(this.$t('settingsLabelOptional'), 'passkey') || '';
             try {
                 const begin = await apiClient.beginPasskeyRegistration(name);
                 const opts = begin && begin.publicKey ? begin.publicKey : null;
@@ -116,7 +116,7 @@ export const SettingsPage = {
             }
         },
         async revokePasskey(id) {
-            if (!confirm('Remove this passkey?')) return;
+            if (!confirm(this.$t('remove') + ' ' + this.$t('settingsPasskeys') + '?')) return;
             try {
                 await apiClient.deletePasskey(id);
                 await this.loadSecurity();
@@ -135,7 +135,7 @@ export const SettingsPage = {
             }
         },
         async revokeDeviceToken(id) {
-            if (!confirm('Revoke this device token?')) return;
+            if (!confirm(this.$t('revoke') + ' ' + this.$t('settingsDeviceTokens') + '?')) return;
             try {
                 await apiClient.revokeDeviceToken(id);
                 await this.loadSecurity();
@@ -144,7 +144,7 @@ export const SettingsPage = {
             }
         },
         async revokeAllDeviceTokens() {
-            if (!confirm('Revoke all device tokens for your account?')) return;
+            if (!confirm(this.$t('revokeAll') + ' ' + this.$t('settingsDeviceTokens') + '?')) return;
             try {
                 await apiClient.revokeAllDeviceTokens();
                 await this.loadSecurity();
@@ -162,7 +162,7 @@ export const SettingsPage = {
             }
         },
         async revoke(id) {
-            if (!confirm('Sign out this device?')) return;
+            if (!confirm(this.$t('settingsSignOut') + '?')) return;
             try {
                 await apiClient.deleteDevice(id);
                 await this.load();
@@ -172,8 +172,8 @@ export const SettingsPage = {
         },
         async revokeAll() {
             const msg = this.isAdmin
-                ? 'Sign out all devices registered to your account (other users are unchanged)?'
-                : 'Sign out all devices (including this browser)?';
+                ? this.$t('settingsSignOutAll') + ' (' + this.$t('adminUser') + ' unchanged)?'
+                : this.$t('settingsSignOutAll') + '?';
             if (!confirm(msg)) return;
             try {
                 await apiClient.revokeAllSessions();
@@ -185,25 +185,25 @@ export const SettingsPage = {
     },
     template: `
         <div class="max-w-3xl mx-auto px-4 py-8">
-            <h1 class="text-2xl font-bold text-slate-100 mb-4">Security</h1>
-            <p v-if="isAdmin && !loading && !err" class="text-slate-400 text-sm mb-2">Admin: all browser sessions for every user.</p>
-            <p v-if="loading" class="text-slate-400">Loading…</p>
+            <h1 class="text-2xl font-bold text-slate-100 mb-4">{{ $t('settingsTitle') }}</h1>
+            <p v-if="isAdmin && !loading && !err" class="text-slate-400 text-sm mb-2">{{ $t('settingsAdminNote') }}</p>
+            <p v-if="loading" class="text-slate-400">{{ $t('loading') }}</p>
             <p v-else-if="err" class="text-red-400">{{ err }}</p>
             <div v-else class="space-y-10">
                 <section class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
                     <div class="flex items-start justify-between gap-3">
                         <div>
-                            <h2 class="text-lg font-semibold text-slate-100">Passkeys</h2>
+                            <h2 class="text-lg font-semibold text-slate-100">{{ $t('settingsPasskeys') }}</h2>
                             <p class="text-slate-400 text-sm mt-1">
-                                Admins may need a fresh passkey verification before using admin APIs once passkeys exist.
+                                {{ $t('settingsPasskeysDesc') }}
                             </p>
                             <p v-if="passkeyStatus" class="text-slate-500 text-xs mt-2">
                                 has_any={{ passkeyStatus.has_any }} · verified={{ !!passkeyStatus.verified_at }} · admin_required={{ passkeyStatus.required_for_admin }}
                             </p>
                         </div>
                         <div class="flex flex-col gap-2">
-                            <button class="btn btn-sm btn-primary" @click="registerPasskey">Register passkey</button>
-                            <button class="btn btn-sm btn-outline border-slate-600" @click="verifyPasskey">Verify passkey</button>
+                            <button class="btn btn-sm btn-primary" @click="registerPasskey">{{ $t('settingsRegisterPasskey') }}</button>
+                            <button class="btn btn-sm btn-outline border-slate-600" @click="verifyPasskey">{{ $t('settingsVerifyPasskey') }}</button>
                         </div>
                     </div>
                     <div class="mt-4 space-y-2">
@@ -212,19 +212,19 @@ export const SettingsPage = {
                                 <div class="text-slate-200 text-sm">{{ p.device_name }}</div>
                                 <div class="text-slate-500 text-xs">id {{ p.id.slice(0, 8) }}…</div>
                             </div>
-                            <button class="btn btn-xs btn-outline border-slate-700" @click="revokePasskey(p.id)">Remove</button>
+                            <button class="btn btn-xs btn-outline border-slate-700" @click="revokePasskey(p.id)">{{ $t('remove') }}</button>
                         </div>
-                        <p v-if="!passkeys.length" class="text-slate-500 text-sm">No passkeys yet.</p>
+                        <p v-if="!passkeys.length" class="text-slate-500 text-sm">{{ $t('settingsNoPasskeys') }}</p>
                     </div>
                 </section>
 
                 <section class="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
-                    <h2 class="text-lg font-semibold text-slate-100 mb-2">Persistent device tokens</h2>
-                    <p class="text-slate-400 text-sm mb-3">Device tokens are HttpOnly cookies used for quick re-login (same fingerprint rules as sessions).</p>
+                    <h2 class="text-lg font-semibold text-slate-100 mb-2">{{ $t('settingsDeviceTokens') }}</h2>
+                    <p class="text-slate-400 text-sm mb-3">{{ $t('settingsDeviceTokensDesc') }}</p>
                     <div class="flex gap-2 items-center">
-                        <input v-model="newDeviceTokenName" class="input input-bordered input-sm bg-slate-950 border-slate-700 flex-1" placeholder="Label (optional)" />
-                        <button class="btn btn-sm btn-primary" @click="createDeviceToken">Create cookie</button>
-                        <button class="btn btn-sm btn-outline border-slate-600" @click="revokeAllDeviceTokens">Revoke all</button>
+                        <input v-model="newDeviceTokenName" class="input input-bordered input-sm bg-slate-950 border-slate-700 flex-1" :placeholder="$t('settingsLabelOptional')" />
+                        <button class="btn btn-sm btn-primary" @click="createDeviceToken">{{ $t('settingsCreateCookie') }}</button>
+                        <button class="btn btn-sm btn-outline border-slate-600" @click="revokeAllDeviceTokens">{{ $t('settingsRevokeAll') }}</button>
                     </div>
                     <div class="mt-4 space-y-2">
                         <div v-for="t in deviceTokens" :key="t.id" class="rounded-md border border-slate-800 bg-slate-950/40 p-3 flex items-center justify-between gap-3">
@@ -232,28 +232,28 @@ export const SettingsPage = {
                                 <div class="text-slate-200 text-sm">{{ t.device_name }}</div>
                                 <div class="text-slate-500 text-xs">expires {{ new Date(t.expires_at).toLocaleString() }}</div>
                             </div>
-                            <button class="btn btn-xs btn-outline border-slate-700" @click="revokeDeviceToken(t.id)">Revoke</button>
+                            <button class="btn btn-xs btn-outline border-slate-700" @click="revokeDeviceToken(t.id)">{{ $t('revoke') }}</button>
                         </div>
-                        <p v-if="!deviceTokens.length" class="text-slate-500 text-sm">No active device tokens.</p>
+                        <p v-if="!deviceTokens.length" class="text-slate-500 text-sm">{{ $t('settingsNoTokens') }}</p>
                     </div>
                 </section>
 
                 <section>
-                    <h2 class="text-xl font-bold text-slate-100 mb-4">Browser sessions</h2>
+                    <h2 class="text-xl font-bold text-slate-100 mb-4">{{ $t('settingsBrowserSessions') }}</h2>
                     <div class="flex justify-end">
-                        <button class="btn btn-outline btn-sm border-red-800 text-red-300" @click="revokeAll">Sign out all my devices</button>
+                        <button class="btn btn-outline btn-sm border-red-800 text-red-300" @click="revokeAll">{{ $t('settingsSignOutAll') }}</button>
                     </div>
                     <div v-for="d in devices" :key="d.session_id" class="rounded-lg border border-slate-800 bg-slate-900/50 p-4">
                         <div v-if="isAdmin" class="text-emerald-400/90 text-xs font-medium mb-1">{{ d.username }}</div>
-                        <div class="text-slate-300 text-sm">Session {{ d.session_id.slice(0, 8) }}…</div>
-                        <div class="text-slate-500 text-xs mt-1">IP prefix {{ d.ip_prefix }} · last seen {{ new Date(d.last_seen_at).toLocaleString() }}</div>
+                        <div class="text-slate-300 text-sm">{{ $t('settingsSession') }} {{ d.session_id.slice(0, 8) }}…</div>
+                        <div class="text-slate-500 text-xs mt-1">{{ $t('settingsIPPrefix') }} {{ d.ip_prefix }} · {{ $t('settingsLastSeen') }} {{ new Date(d.last_seen_at).toLocaleString() }}</div>
                         <div class="flex gap-2 mt-3 items-center">
-                            <input v-model="aliasEdits[d.session_id]" :placeholder="d.device_alias || 'Device alias'" class="input input-bordered input-sm bg-slate-950 border-slate-700 flex-1" />
-                            <button class="btn btn-sm btn-ghost" @click="saveAlias(d.session_id)">Save alias</button>
-                            <button class="btn btn-sm btn-outline border-slate-600" @click="revoke(d.session_id)">Sign out</button>
+                            <input v-model="aliasEdits[d.session_id]" :placeholder="d.device_alias || $t('settingsDeviceAlias')" class="input input-bordered input-sm bg-slate-950 border-slate-700 flex-1" />
+                            <button class="btn btn-sm btn-ghost" @click="saveAlias(d.session_id)">{{ $t('settingsSaveAlias') }}</button>
+                            <button class="btn btn-sm btn-outline border-slate-600" @click="revoke(d.session_id)">{{ $t('settingsSignOut') }}</button>
                         </div>
                     </div>
-                    <p v-if="!devices.length" class="text-slate-500">No active sessions.</p>
+                    <p v-if="!devices.length" class="text-slate-500">{{ $t('settingsNoSessions') }}</p>
                 </section>
             </div>
         </div>

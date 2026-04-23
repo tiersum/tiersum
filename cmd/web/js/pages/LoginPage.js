@@ -49,27 +49,27 @@ export const LoginPage = {
     },
     template: `
         <div class="max-w-lg mx-auto px-4 py-16">
-            <h1 class="text-2xl font-bold text-slate-100 mb-2">Sign in</h1>
-            <p class="text-slate-400 text-sm mb-6">Paste the access token issued by your administrator.</p>
+            <h1 class="text-2xl font-bold text-slate-100 mb-2">{{ $t('loginTitle') }}</h1>
+            <p class="text-slate-400 text-sm mb-6">{{ $t('loginDesc') }}</p>
             <label class="form-control w-full">
-                <span class="label-text text-slate-300">Access token</span>
-                <textarea v-model="accessToken" class="textarea textarea-bordered bg-slate-900 border-slate-700 text-slate-100 font-mono text-sm h-28" placeholder="ts_u_…"></textarea>
+                <span class="label-text text-slate-300">{{ $t('loginToken') }}</span>
+                <textarea v-model="accessToken" class="textarea textarea-bordered bg-slate-900 border-slate-700 text-slate-100 font-mono text-sm h-28" :placeholder="$t('loginTokenPlaceholder')"></textarea>
             </label>
             <label class="label cursor-pointer justify-start gap-3 mt-3">
                 <input type="checkbox" v-model="rememberMe" class="checkbox checkbox-sm" />
-                <span class="label-text text-slate-300">Keep me signed in on this browser (issues a device token cookie)</span>
+                <span class="label-text text-slate-300">{{ $t('loginRememberMe') }}</span>
             </label>
             <label v-if="rememberMe" class="form-control w-full mt-3">
-                <span class="label-text text-slate-300">Device label (optional)</span>
-                <input v-model="deviceName" class="input input-bordered bg-slate-900 border-slate-700 text-slate-100" placeholder="Work laptop" />
+                <span class="label-text text-slate-300">{{ $t('loginDeviceLabel') }}</span>
+                <input v-model="deviceName" class="input input-bordered bg-slate-900 border-slate-700 text-slate-100" :placeholder="$t('loginDevicePlaceholder')" />
             </label>
             <p v-if="err" class="text-sm text-red-400 mt-2">{{ err }}</p>
             <button class="btn btn-primary w-full mt-4" :disabled="loading || !accessToken.trim()" @click="submit">
-                {{ loading ? 'Verifying…' : 'Verify and bind device' }}
+                {{ loading ? $t('loginVerifying') : $t('loginVerify') }}
             </button>
-            <div class="divider text-slate-600">or</div>
+            <div class="divider text-slate-600">{{ $t('loginOr') }}</div>
             <button class="btn btn-outline w-full" :disabled="loading" @click="tryDeviceLogin">
-                Try device token sign-in
+                {{ $t('loginDeviceSignIn') }}
             </button>
         </div>
     `

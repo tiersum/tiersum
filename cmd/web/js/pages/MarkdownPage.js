@@ -1,6 +1,7 @@
 /** Markdown page component: loads and renders .md files from /site/ directory. */
 
 import { parseMarkdown } from '../markdown.js';
+import { getLocale } from '../i18n.js';
 
 export const MarkdownPage = {
     data() {
@@ -14,6 +15,9 @@ export const MarkdownPage = {
     computed: {
         path() {
             return this.$route.params.path || 'index';
+        },
+        locale() {
+            return getLocale();
         }
     },
     watch: {
@@ -22,6 +26,9 @@ export const MarkdownPage = {
             handler() {
                 this.loadMarkdown();
             }
+        },
+        locale() {
+            this.loadMarkdown();
         },
         '$route.hash'() {
             this.scrollToHash();
@@ -32,18 +39,21 @@ export const MarkdownPage = {
             this.loading = true;
             this.error = null;
             this.content = '';
-            
+
             try {
                 const path = this.path;
                 const safePath = path.replace(/[^a-zA-Z0-9-_/]/g, '');
-                const url = `/site/${safePath}.md`;
-                
+                const locale = getLocale();
+                const url = locale === 'zh'
+                    ? `/site/${safePath}.zh.md`
+                    : `/site/${safePath}.md`;
+
                 const response = await fetch(url);
                 if (!response.ok) {
                     if (response.status === 404) {
-                        throw new Error('Page not found');
+                        throw new Error(this.$t('mdPageNotFound'));
                     }
-                    throw new Error(`Failed to load: ${response.status}`);
+                    throw new Error(this.$t('mdLoadFailed', { status: response.status }));
                 }
                 
                 const text = await response.text();
@@ -58,7 +68,7 @@ export const MarkdownPage = {
                     document.title = this.title + ' — TierSum';
                 }
             } catch (e) {
-                this.error = e.message || 'Failed to load page';
+                this.error = e.message || this.$t('error');
                 console.error('Failed to load markdown:', e);
             } finally {
                 this.loading = false;
@@ -86,14 +96,14 @@ export const MarkdownPage = {
                     <aside class="lg:w-64 shrink-0">
                         <nav class="sticky top-24 space-y-6">
                             <div>
-                                <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Site</h3>
+                                <h3 class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">{{ $t('mdSiteNav') }}</h3>
                                 <ul class="space-y-1">
                                     <li>
                                         <router-link 
                                             to="/site/index" 
                                             :class="['block px-3 py-2 rounded-lg text-sm transition-colors', path === 'index' ? 'bg-blue-500/10 text-blue-300' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50']"
                                         >
-                                            Home
+                                            {{ $t('navHome') }}
                                         </router-link>
                                     </li>
                                     <li>
@@ -101,7 +111,7 @@ export const MarkdownPage = {
                                             to="/site/features" 
                                             :class="['block px-3 py-2 rounded-lg text-sm transition-colors', path === 'features' ? 'bg-blue-500/10 text-blue-300' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50']"
                                         >
-                                            Features
+                                            {{ $t('navFeatures') }}
                                         </router-link>
                                     </li>
                                     <li>
@@ -109,7 +119,7 @@ export const MarkdownPage = {
                                             to="/site/about" 
                                             :class="['block px-3 py-2 rounded-lg text-sm transition-colors', path === 'about' ? 'bg-blue-500/10 text-blue-300' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50']"
                                         >
-                                            About
+                                            {{ $t('navAbout') }}
                                         </router-link>
                                     </li>
                                     <li>
@@ -117,7 +127,7 @@ export const MarkdownPage = {
                                             to="/site/documentation" 
                                             :class="['block px-3 py-2 rounded-lg text-sm transition-colors', path === 'documentation' ? 'bg-blue-500/10 text-blue-300' : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/50']"
                                         >
-                                            Documentation
+                                            {{ $t('navDocs') }}
                                         </router-link>
                                     </li>
                                 </ul>
@@ -143,7 +153,7 @@ export const MarkdownPage = {
                                     <span>{{ error }}</span>
                                 </div>
                                 <router-link to="/site/index" class="btn btn-primary btn-sm mt-4">
-                                    Go Home
+                                    {{ $t('mdGoHome') }}
                                 </router-link>
                             </div>
                         </div>

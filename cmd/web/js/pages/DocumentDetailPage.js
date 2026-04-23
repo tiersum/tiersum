@@ -46,12 +46,12 @@ export const DocumentDetailPage = {
         summaryBodyMarkdown() {
             if (this.selectedNav === 'overview') {
                 if (this.hotAnalysisPending) {
-                    return '_Generating document summary and chapters. Please wait…_';
+                    return '_' + this.$t('docGeneratingSummary') + '_';
                 }
-                return this.docSummaryText || '_No document-level summary._';
+                return this.docSummaryText || '_' + this.$t('docNoSummary') + '_';
             }
             const ch = this.activeChapter;
-            return (ch?.summary || '').trim() || '_No content for this section._';
+            return (ch?.summary || '').trim() || '_' + this.$t('docNoContent') + '_';
         },
         chapterContentMarkdown() {
             if (this.selectedNav === 'overview') return '';
@@ -212,7 +212,7 @@ export const DocumentDetailPage = {
             }
         },
         renderMd(text) {
-            return parseMarkdownOrError(text, '<p class="text-red-400">Failed to render markdown.</p>');
+            return parseMarkdownOrError(text, '<p class="text-red-400">' + this.$t('error') + '</p>');
         },
         selectNav(key) {
             this.selectedNav = key;
@@ -231,7 +231,7 @@ export const DocumentDetailPage = {
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
                     </svg>
-                    Back to library
+                    {{ $t('docBackToLibrary') }}
                 </button>
 
                 <div v-if="loading" class="space-y-4">
@@ -240,7 +240,7 @@ export const DocumentDetailPage = {
                 </div>
 
                 <div v-else-if="loadError" class="alert alert-error bg-red-950/50 border-red-900 text-red-200">
-                    <span>Failed to load document: {{ loadError }}</span>
+                    <span>{{ $t('error') }}: {{ loadError }}</span>
                 </div>
 
                 <div v-else-if="doc">
@@ -257,12 +257,12 @@ export const DocumentDetailPage = {
                                     class="badge badge-sm border border-sky-500/40 bg-sky-950/50 text-sky-200 gap-1"
                                 >
                                     <span class="inline-block h-2.5 w-2.5 rounded-full bg-sky-400 animate-pulse shrink-0" aria-hidden="true"></span>
-                                    Generating…
+                                    {{ $t('docGenerating') }}
                                 </span>
                                 <span v-if="doc.tags?.length" class="text-slate-500">{{ doc.tags.join(', ') }}</span>
                             </div>
                             <p class="text-xs text-slate-500 font-mono break-all mt-2 max-w-3xl" :title="doc.id">
-                                <span class="text-slate-600">Document ID</span>
+                                <span class="text-slate-600">{{ $t('docDocumentId') }}</span>
                                 {{ doc.id }}
                             </p>
                         </div>
@@ -271,13 +271,13 @@ export const DocumentDetailPage = {
                                 class="btn btn-sm join-item"
                                 :class="viewMode === 'summary' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
                                 @click="setViewMode('summary')">
-                                Chapters
+                                {{ $t('docChapters') }}
                             </button>
                             <button type="button"
                                 class="btn btn-sm join-item"
                                 :class="viewMode === 'source' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
                                 @click="setViewMode('source')">
-                                Original
+                                {{ $t('docOriginal') }}
                             </button>
                         </div>
                     </div>
@@ -286,7 +286,7 @@ export const DocumentDetailPage = {
                         <aside v-if="hasChapterSidebar" class="lg:col-span-3">
                             <div class="card bg-slate-900/50 border border-slate-800 lg:sticky lg:top-24">
                                 <div class="card-body p-4">
-                                    <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">Sections</h2>
+                                    <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wide mb-3">{{ $t('docSections') }}</h2>
                                     <nav class="flex flex-col gap-1">
                                         <button
                                             v-if="docSummaryText"
@@ -294,7 +294,7 @@ export const DocumentDetailPage = {
                                             @click="selectNav('overview')"
                                             :class="['text-left px-3 py-2 rounded-lg text-sm transition-colors',
                                                 selectedNav === 'overview' ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40' : 'text-slate-300 hover:bg-slate-800 border border-transparent']">
-                                            Overview
+                                            {{ $t('docOverview') }}
                                         </button>
                                         <template v-if="chapterNavRoots.length">
                                             <ChapterNavTree
@@ -322,17 +322,17 @@ export const DocumentDetailPage = {
                             <div class="card bg-slate-900/50 border border-slate-800 min-h-[320px]">
                                 <div class="card-body">
                                     <h2 class="text-lg font-semibold text-slate-200 mb-2">
-                                        {{ selectedNav === 'overview' ? 'Document summary' : (activeChapter?.title || 'Section') }}
+                                        {{ selectedNav === 'overview' ? $t('docDocumentSummary') : (activeChapter?.title || $t('docSection')) }}
                                     </h2>
                                     <div class="border-t border-slate-800 pt-4">
                                         <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(summaryBodyMarkdown)"></div>
                                         <div v-if="selectedNav !== 'overview'" class="mt-6">
                                             <div class="flex items-center justify-between mb-2">
-                                                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide">Content</h3>
-                                                <span v-if="!chapterContentMarkdown" class="text-xs text-slate-500">No section content</span>
+                                                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide">{{ $t('docContent') }}</h3>
+                                                <span v-if="!chapterContentMarkdown" class="text-xs text-slate-500">{{ $t('docNoSectionContent') }}</span>
                                             </div>
                                             <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
-                                                <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(chapterContentMarkdown || '_No section content._')"></div>
+                                                <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(chapterContentMarkdown || '_'+$t('docNoSectionContent')+'_')"></div>
                                             </div>
                                         </div>
                                     </div>
@@ -343,7 +343,7 @@ export const DocumentDetailPage = {
 
                     <div v-else class="card bg-slate-900/50 border border-slate-800">
                         <div class="card-body">
-                            <h2 class="text-lg font-semibold text-slate-200 mb-4">Original</h2>
+                            <h2 class="text-lg font-semibold text-slate-200 mb-4">{{ $t('docOriginal') }}</h2>
                             <div class="border-t border-slate-800 pt-4">
                                 <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(doc.content || '')"></div>
                             </div>

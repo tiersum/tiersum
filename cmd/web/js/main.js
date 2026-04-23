@@ -1,5 +1,6 @@
 import { createApp } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
+import { t, setLocale, getLocale } from './i18n.js';
 
 import { AppHeader } from './components/AppHeader.js';
 import { SearchPage } from './pages/SearchPage.js';
@@ -98,6 +99,11 @@ const App = {
 };
 
 const app = createApp(App).use(router);
+app.config.globalProperties.$t = t;
+// Set initial html lang attribute
+if (typeof document !== 'undefined') {
+    document.documentElement.lang = getLocale() === 'zh' ? 'zh-CN' : 'en';
+}
 app.config.errorHandler = (err, instance, info) => {
     console.error(err, info);
     const root = document.getElementById('app');

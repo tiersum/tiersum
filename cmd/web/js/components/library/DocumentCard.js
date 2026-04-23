@@ -18,9 +18,9 @@ export const DocumentCard = {
             this.$emit('open', this.doc.id);
         },
         statusMeta(status) {
-            if (status === 'hot') return { dot: 'bg-amber-400', label: 'hot' };
-            if (status === 'cold') return { dot: 'bg-blue-400', label: 'cold' };
-            return { dot: 'bg-slate-400', label: 'warming' };
+            if (status === 'hot') return { dot: 'bg-amber-400', label: this.$t('monitoringHot') };
+            if (status === 'cold') return { dot: 'bg-blue-400', label: this.$t('monitoringCold') };
+            return { dot: 'bg-slate-400', label: this.$t('monitoringWarming') };
         }
     },
     template: `
@@ -49,7 +49,7 @@ export const DocumentCard = {
                             <icon name="tag" class-name="w-3.5 h-3.5 shrink-0" />
                             <span class="truncate">{{ doc.tags.join(', ') }}</span>
                         </span>
-                        <span v-else class="text-slate-600">No tags</span>
+                        <span v-else class="text-slate-600">{{ $t('libraryHintUntagged') }}</span>
                     </div>
                 </div>
                 <div class="text-right shrink-0 flex flex-col items-end gap-1" @click.stop>

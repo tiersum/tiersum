@@ -20,8 +20,8 @@ export const ObservabilityPage = {
             spanShowErrorsOnly: false,
             spanShowSlowOnly: false,
             spanSlowThresholdMs: 50,
-            spanSortBy: 'start', // start | duration
-            spanView: 'tree', // tree | table
+            spanSortBy: 'start',
+            spanView: 'tree',
             focusedSpanId: null,
             attrsModalOpen: false,
             attrsModalSpanName: '',
@@ -338,7 +338,7 @@ export const ObservabilityPage = {
         async runColdProbe() {
             const q = this.normalizeColdKeywords(this.coldQ);
             if (!q) {
-                this.coldError = 'Enter at least one keyword (spaces or commas).';
+                this.coldError = this.$t('observabilityKeywords') + ' (spaces or commas).';
                 this.coldItems = [];
                 this.coldRan = true;
                 return;
@@ -371,7 +371,6 @@ export const ObservabilityPage = {
             if (!Number.isFinite(n)) return '—';
             return n.toFixed(4);
         },
-        /** Global trace window (all persisted spans) for aligned Gantt bars. */
         traceTimeBounds() {
             const list = this.spans || [];
             if (!list.length) return { t0: 0, total: 1 };
@@ -413,18 +412,18 @@ export const ObservabilityPage = {
                 <div class="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-4xl max-h-[88vh] flex flex-col" @click.stop>
                     <div class="flex items-start justify-between gap-3 px-4 py-3 border-b border-slate-800 shrink-0">
                         <div class="min-w-0">
-                            <h3 id="attrs-modal-title" class="text-sm font-semibold text-slate-200">Span attributes</h3>
+                            <h3 id="attrs-modal-title" class="text-sm font-semibold text-slate-200">{{ $t('observabilitySpanAttributes') }}</h3>
                             <p v-if="attrsModalSpanName" class="text-xs font-mono text-cyan-300/90 truncate mt-0.5" :title="attrsModalSpanName">{{ attrsModalSpanName }}</p>
                         </div>
-                        <button type="button" class="btn btn-sm btn-ghost text-slate-400 shrink-0" @click="closeAttrsModal">Close</button>
+                        <button type="button" class="btn btn-sm btn-ghost text-slate-400 shrink-0" @click="closeAttrsModal">{{ $t('close') }}</button>
                     </div>
                     <div class="overflow-auto flex-1 min-h-0 p-3">
-                        <p v-if="!attrsModalRows.length" class="text-sm text-slate-500 px-1">No attributes on this span.</p>
+                        <p v-if="!attrsModalRows.length" class="text-sm text-slate-500 px-1">{{ $t('observabilityNoAttributes') }}</p>
                         <table v-else class="table table-sm w-full border border-slate-800 rounded-lg overflow-hidden">
                             <thead class="sticky top-0 z-10 bg-slate-800/95 text-slate-300 text-xs uppercase tracking-wide">
                                 <tr>
-                                    <th class="w-[28%] min-w-[8rem] align-top">Key</th>
-                                    <th class="align-top">Value</th>
+                                    <th class="w-[28%] min-w-[8rem] align-top">{{ $t('observabilityKey') }}</th>
+                                    <th class="align-top">{{ $t('observabilityValue') }}</th>
                                 </tr>
                             </thead>
                             <tbody class="text-xs">
@@ -441,13 +440,13 @@ export const ObservabilityPage = {
             </div>
             <main class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-16">
                 <div class="mb-6">
-                    <h1 class="text-2xl sm:text-3xl font-bold text-slate-100">Observability</h1>
-                    <p class="text-slate-500 text-sm mt-1">Monitoring, cold-index debugging, and persisted progressive-query traces (OpenTelemetry).</p>
+                    <h1 class="text-2xl sm:text-3xl font-bold text-slate-100">{{ $t('observabilityTitle') }}</h1>
+                    <p class="text-slate-500 text-sm mt-1">{{ $t('observabilityDescFull') }}</p>
                 </div>
                 <div role="tablist" class="tabs tabs-boxed bg-slate-900/80 border border-slate-800 mb-6 flex flex-wrap gap-y-1 w-full max-w-full sm:max-w-xl">
-                    <a role="tab" :class="['tab', tab === 'monitoring' ? 'tab-active' : '']" @click.prevent="setTab('monitoring')">Monitoring</a>
-                    <a role="tab" :class="['tab', tab === 'cold' ? 'tab-active' : '']" @click.prevent="setTab('cold')">Cold probe</a>
-                    <a role="tab" :class="['tab', tab === 'traces' ? 'tab-active' : '']" @click.prevent="setTab('traces')">Traces</a>
+                    <a role="tab" :class="['tab', tab === 'monitoring' ? 'tab-active' : '']" @click.prevent="setTab('monitoring')">{{ $t('observabilityTabMonitoring') }}</a>
+                    <a role="tab" :class="['tab', tab === 'cold' ? 'tab-active' : '']" @click.prevent="setTab('cold')">{{ $t('observabilityTabCold') }}</a>
+                    <a role="tab" :class="['tab', tab === 'traces' ? 'tab-active' : '']" @click.prevent="setTab('traces')">{{ $t('observabilityTabTraces') }}</a>
                 </div>
 
                 <div v-if="tab === 'monitoring'">
@@ -456,22 +455,20 @@ export const ObservabilityPage = {
 
                 <div v-if="tab === 'cold'" class="space-y-4">
                     <div>
-                        <h2 class="text-lg font-semibold text-slate-200">Cold chapter probe</h2>
+                        <h2 class="text-lg font-semibold text-slate-200">{{ $t('observabilityColdTitle') }}</h2>
                         <p class="text-[10px] font-mono text-slate-500 mt-0.5">GET /bff/v1/cold/chapter_hits</p>
                     </div>
                     <p class="text-sm text-slate-500 leading-relaxed max-w-3xl">
-                        Direct hybrid search (Bleve BM25 + HNSW vector) over <strong class="text-slate-400">cold</strong> document chapters.
-                        Same endpoint as <code class="text-cyan-600/90">/api/v1/cold/chapter_hits</code>. Use this to verify hits, scores, and
-                        <code class="text-cyan-600/90">source</code> (e.g. bm25 / vector / hybrid) without running progressive query.
+                        {{ $t('observabilityColdDesc') }}
                     </p>
                     <div class="flex flex-wrap items-end gap-2">
                         <label class="form-control min-w-[12rem] flex-1 max-w-xl">
-                            <span class="label py-0"><span class="label-text text-xs text-slate-400">Keywords</span></span>
+                            <span class="label py-0"><span class="label-text text-xs text-slate-400">{{ $t('observabilityKeywords') }}</span></span>
                             <input
                                 v-model="coldQ"
                                 type="text"
                                 class="input input-bordered input-sm bg-slate-950 border-slate-700 w-full"
-                                placeholder="scheduler, pods"
+                                :placeholder="$t('observabilityKeywords')"
                                 autocomplete="off"
                                 @keydown.enter.prevent="runColdProbe"
                             />
@@ -492,21 +489,21 @@ export const ObservabilityPage = {
                             :disabled="coldLoading"
                             @click="runColdProbe"
                         >
-                            {{ coldLoading ? 'Running…' : 'Run probe' }}
+                            {{ coldLoading ? $t('observabilityRunning') : $t('observabilityRunProbe') }}
                         </button>
                     </div>
                     <p v-if="coldError" class="text-sm text-red-400 whitespace-pre-wrap">{{ coldError }}</p>
-                    <p v-else-if="coldRan && !coldLoading && !coldItems.length" class="text-sm text-slate-500">No hits for these terms.</p>
+                    <p v-else-if="coldRan && !coldLoading && !coldItems.length" class="text-sm text-slate-500">{{ $t('observabilityNoHits') }}</p>
                     <div v-if="coldItems.length" class="overflow-x-auto rounded-lg border border-slate-800">
                         <table class="table table-sm">
                             <thead>
                                 <tr class="bg-slate-900/90 text-slate-400 text-xs">
-                                    <th>Title</th>
-                                    <th>Path</th>
-                                    <th>Source</th>
-                                    <th>Score</th>
-                                    <th>Document</th>
-                                    <th>Context</th>
+                                    <th>{{ $t('observabilityTitleCol') }}</th>
+                                    <th>{{ $t('observabilityPath') }}</th>
+                                    <th>{{ $t('observabilitySource') }}</th>
+                                    <th>{{ $t('observabilityScore') }}</th>
+                                    <th>{{ $t('observabilityDocument') }}</th>
+                                    <th>{{ $t('observabilityContext') }}</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -520,7 +517,7 @@ export const ObservabilityPage = {
                                             v-if="row.document_id"
                                             :to="'/docs/' + row.document_id"
                                             class="link link-primary"
-                                        >Open</router-link>
+                                        >{{ $t('open') }}</router-link>
                                         <span v-else class="text-slate-600">—</span>
                                     </td>
                                     <td class="max-w-md min-w-[8rem]">
@@ -533,7 +530,7 @@ export const ObservabilityPage = {
                                             class="btn btn-link btn-xs text-violet-300 px-0 min-h-0 h-auto"
                                             @click="toggleColdExpand(i)"
                                         >
-                                            {{ coldExpanded[i] ? 'Show less' : 'Show full chapter' }}
+                                            {{ coldExpanded[i] ? $t('observabilityShowLess') : $t('observabilityShowFull') }}
                                         </button>
                                     </td>
                                 </tr>
@@ -543,31 +540,31 @@ export const ObservabilityPage = {
                 </div>
 
                 <div v-if="tab === 'traces'" class="rounded-xl border border-slate-800 bg-slate-900/25 overflow-hidden min-h-[calc(100vh-11rem)] flex flex-col lg:flex-row">
-                    <!-- Left: trace search (Jaeger-style sidebar) -->
+                    <!-- Left: trace search -->
                     <aside class="w-full lg:w-[22rem] xl:w-[26rem] shrink-0 border-b lg:border-b-0 lg:border-r border-slate-800 flex flex-col min-h-0 max-h-[42vh] lg:max-h-none lg:min-h-[calc(100vh-12rem)]">
                         <div class="px-3 py-3 border-b border-slate-800 bg-slate-950/40 shrink-0">
-                            <h2 class="text-sm font-semibold text-slate-200 tracking-wide uppercase">Traces</h2>
-                            <p class="text-[11px] text-slate-500 mt-0.5">Search results · click a row to load detail</p>
+                            <h2 class="text-sm font-semibold text-slate-200 tracking-wide uppercase">{{ $t('observabilityTracesTitle') }}</h2>
+                            <p class="text-[11px] text-slate-500 mt-0.5">{{ $t('observabilityTracesDesc') }}</p>
                             <div class="flex gap-2 mt-2">
                                 <input
                                     v-model="traceListQuery"
                                     type="text"
                                     class="input input-bordered input-sm bg-slate-950 border-slate-700 flex-1 min-w-0"
-                                    placeholder="Trace id / root span…"
+                                    :placeholder="$t('observabilityTracePlaceholder')"
                                     autocomplete="off"
                                 />
-                                <button type="button" class="btn btn-sm btn-outline border-slate-600 shrink-0" :disabled="tracesLoading" @click="loadTraces">Refresh</button>
+                                <button type="button" class="btn btn-sm btn-outline border-slate-600 shrink-0" :disabled="tracesLoading" @click="loadTraces">{{ $t('refresh') }}</button>
                             </div>
                         </div>
                         <p v-if="tracesError" class="text-xs text-red-400 px-3 py-2 shrink-0">{{ tracesError }}</p>
-                        <div v-else-if="tracesLoading" class="text-slate-500 text-sm px-3 py-4 shrink-0">Loading…</div>
+                        <div v-else-if="tracesLoading" class="text-slate-500 text-sm px-3 py-4 shrink-0">{{ $t('loading') }}</div>
                         <div v-else class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
                             <table class="table table-sm w-full">
                                 <thead class="sticky top-0 z-[1] bg-slate-900/95 shadow-sm">
                                     <tr class="text-slate-400 text-[10px] uppercase tracking-wide">
-                                        <th class="py-2">Service / op</th>
-                                        <th class="py-2 w-14 text-right">Spans</th>
-                                        <th class="py-2 w-24 text-right">Duration</th>
+                                        <th class="py-2">{{ $t('observabilityService') }} / op</th>
+                                        <th class="py-2 w-14 text-right">{{ $t('observabilitySpans') }}</th>
+                                        <th class="py-2 w-24 text-right">{{ $t('observabilityDuration') }}</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -587,7 +584,7 @@ export const ObservabilityPage = {
                                         <td class="align-top py-2 text-right text-slate-400 text-[11px] font-mono whitespace-nowrap">{{ formatNanoRange(t.started_at_unix_nano, t.ended_at_unix_nano) }}</td>
                                     </tr>
                                     <tr v-if="!traces.length">
-                                        <td colspan="3" class="text-slate-500 text-sm py-6 px-3">No traces yet. Run progressive query with trace sampling enabled.</td>
+                                        <td colspan="3" class="text-slate-500 text-sm py-6 px-3">{{ $t('observabilityNoSpans') }}</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -597,75 +594,75 @@ export const ObservabilityPage = {
                     <!-- Right: trace timeline + span detail -->
                     <section class="flex-1 min-w-0 min-h-0 flex flex-col bg-slate-950/20">
                         <div v-if="!selectedTraceId" class="flex-1 flex flex-col items-center justify-center text-center px-6 py-16 text-slate-500">
-                            <p class="text-sm font-medium text-slate-400">No trace selected</p>
-                            <p class="text-xs mt-2 max-w-sm leading-relaxed">Pick a trace from the list on the left. Detail uses a single waterfall table (metadata + Gantt bar per row), similar to Jaeger / Zipkin.</p>
+                            <p class="text-sm font-medium text-slate-400">{{ $t('observabilityNoTraceSelected') }}</p>
+                            <p class="text-xs mt-2 max-w-sm leading-relaxed">{{ $t('observabilityNoTraceHint') }}</p>
                         </div>
                         <div v-else class="flex flex-col flex-1 min-h-0">
                             <header class="shrink-0 border-b border-slate-800 px-4 py-3 bg-slate-900/40">
                                 <div class="flex flex-wrap items-start justify-between gap-3">
                                     <div class="min-w-0 flex-1">
-                                        <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">Trace ID</div>
+                                        <div class="text-[10px] uppercase tracking-wide text-slate-500 font-semibold">{{ $t('observabilityTraceID') }}</div>
                                         <h3 class="text-sm font-mono text-cyan-300/90 break-all leading-snug mt-0.5">{{ selectedTraceId }}</h3>
                                         <p class="text-xs text-slate-500 mt-1.5">
-                                            <span class="text-slate-400">Root:</span>
+                                            <span class="text-slate-400">{{ $t('observabilityRoot') }}</span>
                                             <span class="text-slate-200">{{ traceRootSpan()?.name || '—' }}</span>
                                             <span v-if="spanServiceName(traceRootSpan())" class="ml-2 text-slate-600 font-mono text-[11px]">{{ spanServiceName(traceRootSpan()) }}</span>
                                         </p>
                                     </div>
                                     <div class="flex flex-wrap items-center gap-2 shrink-0">
-                                        <span class="badge badge-outline badge-sm text-slate-300">{{ spans.length }} spans</span>
-                                        <span v-if="traceErrorCount() > 0" class="badge badge-error badge-sm">{{ traceErrorCount() }} errors</span>
+                                        <span class="badge badge-outline badge-sm text-slate-300">{{ spans.length }} {{ $t('observabilitySpans') }}</span>
+                                        <span v-if="traceErrorCount() > 0" class="badge badge-error badge-sm">{{ traceErrorCount() }} {{ $t('observabilityErrors') }}</span>
                                         <span class="badge badge-ghost badge-sm text-slate-400 font-mono">{{ formatNanoRange(traceRootSpan()?.start_time_unix_nano || 0, traceRootSpan()?.end_time_unix_nano || 0) }}</span>
                                     </div>
                                 </div>
                                 <div class="mt-3 flex flex-wrap items-center gap-2">
-                                    <input v-model="spanQuery" type="text" class="input input-bordered input-xs bg-slate-950 border-slate-700 w-48 sm:w-56" placeholder="Filter spans…" />
+                                    <input v-model="spanQuery" type="text" class="input input-bordered input-xs bg-slate-950 border-slate-700 w-48 sm:w-56" :placeholder="$t('observabilityFilterSpans')" />
                                     <label class="flex items-center gap-1.5 text-[11px] text-slate-400 select-none">
                                         <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" v-model="spanShowErrorsOnly" />
-                                        Errors
+                                        {{ $t('observabilityErrorsOnly') }}
                                     </label>
                                     <label class="flex items-center gap-1.5 text-[11px] text-slate-400 select-none">
                                         <input type="checkbox" class="checkbox checkbox-xs checkbox-primary" v-model="spanShowSlowOnly" />
-                                        Slow ≥
+                                        {{ $t('observabilitySlowOnly') }}
                                     </label>
                                     <input v-if="spanShowSlowOnly" v-model.number="spanSlowThresholdMs" type="number" min="0" class="input input-bordered input-xs bg-slate-950 border-slate-700 w-16" />
                                     <select v-model="spanStatusFilter" class="select select-bordered select-xs bg-slate-950 border-slate-700">
-                                        <option value="all">status</option>
+                                        <option value="all">{{ $t('observabilityStatus') }}</option>
                                         <option value="ok">ok</option>
                                         <option value="error">error</option>
                                         <option value="unset">unset</option>
                                     </select>
                                     <select v-model="spanKindFilter" class="select select-bordered select-xs bg-slate-950 border-slate-700">
-                                        <option value="all">kind</option>
+                                        <option value="all">{{ $t('observabilityKind') }}</option>
                                         <option value="server">server</option>
                                         <option value="client">client</option>
                                         <option value="internal">internal</option>
                                     </select>
                                     <select v-model="spanSortBy" class="select select-bordered select-xs bg-slate-950 border-slate-700">
-                                        <option value="start">sort · start</option>
-                                        <option value="duration">sort · duration</option>
+                                        <option value="start">{{ $t('observabilitySortStart') }}</option>
+                                        <option value="duration">{{ $t('observabilitySortDuration') }}</option>
                                     </select>
                                     <select v-model="spanView" class="select select-bordered select-xs bg-slate-950 border-slate-700">
-                                        <option value="tree">view · tree</option>
-                                        <option value="table">view · table</option>
+                                        <option value="tree">{{ $t('observabilityViewTree') }}</option>
+                                        <option value="table">{{ $t('observabilityViewTable') }}</option>
                                     </select>
                                 </div>
                             </header>
 
                             <p v-if="spansError" class="text-sm text-red-400 px-4 py-2 shrink-0">{{ spansError }}</p>
-                            <div v-else-if="spansLoading" class="text-slate-500 text-sm px-4 py-6 shrink-0">Loading spans…</div>
+                            <div v-else-if="spansLoading" class="text-slate-500 text-sm px-4 py-6 shrink-0">{{ $t('observabilityLoadingSpans') }}</div>
                             <div v-else class="flex-1 min-h-0 flex flex-col gap-0 overflow-hidden">
                                 <div v-if="spanView === 'tree'" class="flex-1 min-h-0 flex flex-col mx-3 my-2 mb-3 rounded-lg border border-slate-800 bg-slate-950/30 overflow-hidden">
                                     <div
                                         class="sticky top-0 z-[2] shrink-0 grid gap-x-2 items-center border-b border-slate-800 bg-slate-900/98 px-2 py-2 text-[10px] uppercase tracking-wide text-slate-500 font-semibold min-w-[720px]"
                                         style="grid-template-columns: minmax(11rem, 30%) 3.25rem 4.75rem 4.25rem minmax(12rem, 1fr) 6.5rem;"
                                     >
-                                        <div>Span</div>
-                                        <div>Kind</div>
-                                        <div>Status</div>
-                                        <div class="whitespace-nowrap">Duration</div>
-                                        <div>Waterfall</div>
-                                        <div class="text-right pr-1">Service / Attrs</div>
+                                        <div>{{ $t('observabilitySpan') }}</div>
+                                        <div>{{ $t('observabilitySpanKind') }}</div>
+                                        <div>{{ $t('observabilitySpanStatus') }}</div>
+                                        <div class="whitespace-nowrap">{{ $t('observabilityDuration') }}</div>
+                                        <div>{{ $t('observabilityWaterfall') }}</div>
+                                        <div class="text-right pr-1">{{ $t('observabilityServiceAttrs') }}</div>
                                     </div>
                                     <div class="flex-1 min-h-0 overflow-auto">
                                         <div
@@ -702,11 +699,11 @@ export const ObservabilityPage = {
                                                 <span class="font-mono truncate max-w-full text-right" :title="spanServiceName(row.s)">{{ spanServiceName(row.s) || '—' }}</span>
                                                 <div class="flex items-center gap-1 shrink-0">
                                                     <span v-if="spanHTTPMethod(row.s) || spanHTTPRoute(row.s)" class="truncate max-w-[5.5rem] text-slate-600 text-right hidden sm:inline" :title="spanHTTPMethod(row.s) + ' ' + spanHTTPRoute(row.s)">{{ spanHTTPMethod(row.s) || '' }} {{ spanHTTPRoute(row.s) || '' }}</span>
-                                                    <button type="button" class="btn btn-ghost btn-xs min-h-0 h-6 px-1.5 text-violet-300/90 hover:text-violet-200" @click.stop="openAttrsModal(row.s)">Attrs</button>
+                                                    <button type="button" class="btn btn-ghost btn-xs min-h-0 h-6 px-1.5 text-violet-300/90 hover:text-violet-200" @click.stop="openAttrsModal(row.s)">{{ $t('observabilityAttributes') }}</button>
                                                 </div>
                                             </div>
                                         </div>
-                                        <p v-if="!buildSpanTreeRows().length" class="text-slate-500 text-sm px-3 py-6">No spans match the filters.</p>
+                                        <p v-if="!buildSpanTreeRows().length" class="text-slate-500 text-sm px-3 py-6">{{ $t('observabilityNoSpans') }}</p>
                                     </div>
                                 </div>
                                 <div v-else class="flex-1 min-h-0 overflow-hidden rounded-lg border border-slate-800 m-3 my-2 mb-3 bg-slate-950/30">
@@ -714,15 +711,15 @@ export const ObservabilityPage = {
                                         <table class="table table-xs w-full min-w-[900px]">
                                             <thead class="sticky top-0 z-[1] bg-slate-900/95 text-slate-400 text-[10px] uppercase tracking-wide">
                                                 <tr>
-                                                    <th>Name</th>
-                                                    <th>Kind</th>
-                                                    <th>Status</th>
-                                                    <th>Duration</th>
-                                                    <th class="min-w-[10rem]">Waterfall</th>
-                                                    <th>Service</th>
+                                                    <th>{{ $t('observabilitySpan') }}</th>
+                                                    <th>{{ $t('observabilitySpanKind') }}</th>
+                                                    <th>{{ $t('observabilitySpanStatus') }}</th>
+                                                    <th>{{ $t('observabilityDuration') }}</th>
+                                                    <th class="min-w-[10rem]">{{ $t('observabilityWaterfall') }}</th>
+                                                    <th>{{ $t('observabilityService') }}</th>
                                                     <th>HTTP</th>
-                                                    <th>Span</th>
-                                                    <th>Attributes</th>
+                                                    <th>{{ $t('observabilitySpanCol') }}</th>
+                                                    <th>{{ $t('observabilityAttributes') }}</th>
                                                 </tr>
                                             </thead>
                                             <tbody>
@@ -765,12 +762,12 @@ export const ObservabilityPage = {
                                                     <td class="max-w-[14rem] xl:max-w-md">
                                                         <div class="flex items-start gap-2 min-w-0">
                                                             <p class="text-[10px] text-slate-500 truncate flex-1 min-w-0 m-0" :title="spanAttrsPreview(sp.attributes_json)">{{ spanAttrsPreview(sp.attributes_json) || '—' }}</p>
-                                                            <button type="button" class="btn btn-ghost btn-xs shrink-0 text-violet-300/90 hover:text-violet-200" @click.stop="openAttrsModal(sp)">Table</button>
+                                                            <button type="button" class="btn btn-ghost btn-xs shrink-0 text-violet-300/90 hover:text-violet-200" @click.stop="openAttrsModal(sp)">{{ $t('observabilityTable') }}</button>
                                                         </div>
                                                     </td>
                                                 </tr>
                                                 <tr v-if="!filteredSpans().length">
-                                                    <td colspan="9" class="text-slate-500 text-sm">No spans match the filters.</td>
+                                                    <td colspan="9" class="text-slate-500 text-sm">{{ $t('observabilityNoSpans') }}</td>
                                                 </tr>
                                             </tbody>
                                         </table>
