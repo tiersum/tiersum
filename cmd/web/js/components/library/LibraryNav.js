@@ -1,12 +1,6 @@
 import { Icon } from '../Icon.js';
 import { BROWSE_ALL, BROWSE_COLD, BROWSE_UNTAGGED, BROWSE_TOPIC } from '../../utils/libraryFilters.js';
 
-const BROWSE_ITEMS = [
-    { key: BROWSE_ALL, label: 'All documents' },
-    { key: BROWSE_COLD, label: 'Cold' },
-    { key: BROWSE_UNTAGGED, label: 'Untagged' }
-];
-
 function tabClass(active) {
     return [
         'px-3 py-2 rounded-md text-sm font-medium transition-colors',
@@ -38,7 +32,11 @@ export const LibraryNav = {
     emits: ['set-browse-mode', 'select-topic', 'regroup'],
     data() {
         return {
-            browseItems: BROWSE_ITEMS
+            browseItems: [
+                { key: BROWSE_ALL, labelKey: 'libraryAllDocs' },
+                { key: BROWSE_COLD, labelKey: 'libraryCold' },
+                { key: BROWSE_UNTAGGED, labelKey: 'libraryUntagged' }
+            ]
         };
     },
     methods: {
@@ -59,7 +57,7 @@ export const LibraryNav = {
             <div class="p-4 border-b border-slate-800 shrink-0">
                 <h2 class="text-lg font-semibold text-slate-100 flex items-center gap-2">
                     <icon name="folder" class-name="w-5 h-5 text-blue-500" />
-                    Browse
+                    {{ $t('libraryBrowse') }}
                 </h2>
             </div>
             <div class="p-3 overflow-y-auto flex-1">
@@ -76,14 +74,14 @@ export const LibraryNav = {
                             :class="tabClass(browseMode === item.key)"
                             @click="onSetBrowseMode(item.key)"
                         >
-                            {{ item.label }}
+                            {{ $t(item.labelKey) }}
                         </button>
                     </div>
 
                     <!-- Topics -->
                     <div class="border-t border-slate-800 pt-3">
                         <div class="flex items-center justify-between px-1 mb-2">
-                            <p class="text-[10px] uppercase tracking-wider text-slate-500">Topics</p>
+                            <p class="text-[10px] uppercase tracking-wider text-slate-500">{{ $t('libraryTopics') }}</p>
                             <button
                                 v-if="!isViewer"
                                 type="button"
@@ -91,12 +89,12 @@ export const LibraryNav = {
                                 :disabled="regrouping"
                                 @click="onRegroup"
                             >
-                                {{ regrouping ? 'Regrouping...' : 'Regroup' }}
+                                {{ regrouping ? $t('libraryRegrouping') : $t('libraryRegroup') }}
                             </button>
                         </div>
                         <template v-if="topics.length === 0">
                             <div class="text-center py-6 text-slate-500 text-sm px-2">
-                                No topics yet. Ingest tagged documents or use Regroup.
+                                {{ $t('libraryNoTopics') }}
                             </div>
                         </template>
                         <template v-else>

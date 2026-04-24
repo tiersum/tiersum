@@ -86,15 +86,14 @@ export const SearchPage = {
         async generateAiAnswerFallback() {
             await new Promise(resolve => setTimeout(resolve, 300));
             if (this.results.length === 0) {
-                this.aiAnswer = 'No reference excerpts were found. Try different keywords or ingest more documents.';
+                this.aiAnswer = this.$t('searchNoRefExcerpts');
                 return;
             }
             const topResults = this.results.slice(0, 3);
-            this.aiAnswer = `No server-generated answer was returned (LLM may be unavailable). Showing a quick preview from the top references:
-
-${topResults.map((r) => `- **${r.title}** (relevance ${(r.relevance * 100).toFixed(0)}%)`).join('\n')}
-
-${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.length > 280 ? '…' : ''}`;
+            this.aiAnswer = this.$t('searchNoServerAnswer') + '\n\n' +
+                topResults.map((r) => `- **${r.title}** (${this.$t('searchBasedOnRefs', { count: (r.relevance * 100).toFixed(0) + '%' })})`).join('\n') +
+                '\n\n' +
+                `${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.length > 280 ? '…' : ''}`;
         },
 
         handleKeyDown(e) {
@@ -130,10 +129,10 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
 
         refTierLabel(docStatus) {
             const s = (docStatus || '').toLowerCase();
-            if (s === 'hot') return 'Hot';
-            if (s === 'cold') return 'Cold';
-            if (s === 'warming') return 'Warming';
-            return s ? s : 'Unknown';
+            if (s === 'hot') return this.$t('searchRefTierHot');
+            if (s === 'cold') return this.$t('searchRefTierCold');
+            if (s === 'warming') return this.$t('searchRefTierWarming');
+            return s ? s : this.$t('searchRefTierUnknown');
         },
 
         refTierBadgeClass(docStatus) {
@@ -147,11 +146,11 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
         /** Progressive query: where `content` text came from (API `content_source`). */
         contentSourceLabel(src) {
             const s = (src || '').toLowerCase();
-            if (s === 'hot_progressive') return 'Hot (LLM progressive)';
-            if (s === 'chapter_summary') return 'Summary';
-            if (s === 'bm25') return 'BM25';
-            if (s === 'vector') return 'Vector';
-            if (s === 'hybrid') return 'Hybrid (BM25+vector)';
+            if (s === 'hot_progressive') return this.$t('searchSourceHot');
+            if (s === 'chapter_summary') return this.$t('searchSourceSummary');
+            if (s === 'bm25') return this.$t('searchSourceBM25');
+            if (s === 'vector') return this.$t('searchSourceVector');
+            if (s === 'hybrid') return this.$t('searchSourceHybrid');
             return src || '—';
         },
 
@@ -170,18 +169,17 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                 <div :class="['transition-all duration-500', hasSearched ? 'mb-6' : 'mb-0 mt-32']">
                     <div v-if="!hasSearched" class="text-center mb-8">
                         <h1 class="text-4xl font-bold text-slate-100 mb-4">
-                            Search Your Knowledge Base
+                            {{ $t('searchTitle') }}
                         </h1>
                         <p class="text-slate-400 text-lg max-w-2xl mx-auto">
-                            AI-powered search with hierarchical summarization.
-                            Find exactly what you need across all your documents.
+                            {{ $t('searchSubtitle') }}
                         </p>
                         <p class="text-slate-500 text-sm mt-4">
                             <template v-if="!isViewer">
-                                <router-link to="/docs/new" class="link link-primary">Add a document</router-link>
+                                <router-link to="/docs/new" class="link link-primary">{{ $t('searchAddDoc') }}</router-link>
                                 <span class="text-slate-600 mx-2">·</span>
                             </template>
-                            <router-link to="/library" class="link link-hover text-slate-400">Browse library</router-link>
+                            <router-link to="/library" class="link link-hover text-slate-400">{{ $t('searchBrowseLibrary') }}</router-link>
                         </p>
                     </div>
 
@@ -193,7 +191,7 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                             <input
                                 v-model="query"
                                 @keydown="handleKeyDown"
-                                placeholder="Ask anything about your documents..."
+                                :placeholder="$t('searchPlaceholder')"
                                 class="w-full h-14 pl-12 pr-32 text-lg bg-slate-900/50 border border-slate-800 text-slate-100 placeholder:text-slate-500 focus:border-blue-500/50 focus:ring-2 focus:ring-blue-500/20 rounded-xl outline-none transition-all"
                             />
                             <button
@@ -206,17 +204,15 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
-                                    Searching...
+                                    {{ $t('searchSearching') }}
                                 </span>
-                                <span v-else>Search</span>
+                                <span v-else>{{ $t('searchButton') }}</span>
                             </button>
                         </div>
                         <div class="mt-3 flex flex-col items-center gap-2 text-sm text-slate-400">
                             <p v-if="traceSampleBlocked" class="text-amber-400/90 text-xs max-w-xl text-center">
-                                Trace sample is on, but the server is not exporting HTTP spans to the database.
-                                Set <code class="text-amber-200/90">telemetry.enabled: true</code> and
-                                <code class="text-amber-200/90">telemetry.persist_to_db: true</code> in config, then restart.
-                                <button type="button" class="link link-primary text-xs ml-1" @click="refreshTelemetryHint">Recheck</button>
+                                {{ $t('searchTraceBlocked', { enabled: 'telemetry.enabled: true', persist: 'telemetry.persist_to_db: true' }) }}
+                                <button type="button" class="link link-primary text-xs ml-1" @click="refreshTelemetryHint">{{ $t('searchRecheck') }}</button>
                             </p>
                             <div class="flex flex-wrap items-center justify-center gap-3">
                             <label class="flex items-center gap-2 cursor-pointer select-none">
@@ -224,13 +220,13 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                 <span
                                     class="text-sm"
                                     title="Appends ?debug_trace=1 to force-record this request. Requires telemetry.enabled and telemetry.persist_to_db (see GET /bff/v1/monitoring telemetry.http_tracing_active). Also requires query.allow_progressive_debug for detailed progressive spans."
-                                >Trace sample (OpenTelemetry)</span>
+                                >{{ $t('searchTraceSample') }}</span>
                             </label>
                             <router-link
                                 v-if="lastTraceID && hasSearched"
                                 :to="{ path: '/observability', query: { tab: 'traces', trace: lastTraceID } }"
                                 class="btn btn-ghost btn-xs text-cyan-400"
-                            >View trace in Observability</router-link>
+                            >{{ $t('searchViewTrace') }}</router-link>
                             </div>
                         </div>
                     </div>
@@ -245,10 +241,10 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                         <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/>
                                         </svg>
-                                        <h2 class="text-lg font-semibold text-slate-100">AI Answer</h2>
+                                        <h2 class="text-lg font-semibold text-slate-100">{{ $t('searchAiAnswer') }}</h2>
                                     </div>
                                     <span class="badge badge-outline badge-success">
-                                        Based on {{ results.length }} references
+                                        {{ $t('searchBasedOnRefs', { count: results.length }) }}
                                     </span>
                                 </div>
                                 <div class="p-6 overflow-y-auto h-[calc(100%-80px)]">
@@ -260,7 +256,7 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                     </div>
                                     <div v-else-if="aiAnswer" class="markdown-body max-w-none px-0 py-0 text-[15px] leading-relaxed" v-html="renderMarkdown(aiAnswer)"></div>
                                     <div v-else class="text-center py-12 text-slate-500">
-                                        <p>Generating AI answer...</p>
+                                        <p>{{ $t('searchGenerating') }}</p>
                                     </div>
                                 </div>
                             </div>
@@ -275,9 +271,9 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                         <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                                         </svg>
-                                        <h2 class="text-lg font-semibold text-slate-100">References</h2>
+                                        <h2 class="text-lg font-semibold text-slate-100">{{ $t('searchReferences') }}</h2>
                                     </div>
-                                    <span class="badge bg-slate-800 text-slate-300">{{ results.length }} items</span>
+                                    <span class="badge bg-slate-800 text-slate-300">{{ $t('searchRefItems', { count: results.length }) }}</span>
                                 </div>
                                 <div class="p-3 overflow-y-auto h-[calc(100%-72px)] flex flex-col gap-3">
                                     <div v-if="loading" class="space-y-4">
@@ -291,7 +287,7 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                         <svg class="w-12 h-12 mx-auto mb-4 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                                         </svg>
-                                        <p>No references found</p>
+                                        <p>{{ $t('searchNoRefs') }}</p>
                                     </div>
                                     <div v-else>
                                         <div v-for="(result, index) in results" :key="(result.path || result.id || '') + '-' + index"
@@ -311,16 +307,16 @@ ${topResults[0]?.content?.substring(0, 280) || ''}${topResults[0]?.content?.leng
                                                 </div>
                                                 <h3 class="font-semibold text-slate-200 line-clamp-2 text-sm leading-snug shrink-0">{{ result.title }}</h3>
                                                 <div class="text-[11px] text-slate-500 space-y-0.5 shrink-0 leading-tight">
-                                                    <p class="font-mono truncate" :title="result.id"><span class="text-slate-600">ID</span> {{ result.id }}</p>
-                                                    <p class="truncate"><span class="text-slate-600">Source</span> <span class="text-slate-400">{{ contentSourceLabel(result.content_source) }}</span></p>
-                                                    <p class="truncate" :title="extractChapterPath(result.path) || ''"><span class="text-slate-600">Path</span> {{ extractChapterPath(result.path) || '(whole doc)' }}</p>
+                                                    <p class="font-mono truncate" :title="result.id"><span class="text-slate-600">{{ $t('searchId') }}</span> {{ result.id }}</p>
+                                                    <p class="truncate"><span class="text-slate-600">{{ $t('searchSource') }}</span> <span class="text-slate-400">{{ contentSourceLabel(result.content_source) }}</span></p>
+                                                    <p class="truncate" :title="extractChapterPath(result.path) || ''"><span class="text-slate-600">{{ $t('searchPath') }}</span> {{ extractChapterPath(result.path) || $t('searchWholeDoc') }}</p>
                                                 </div>
                                                 <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain text-xs text-slate-400 leading-relaxed border border-slate-700/40 rounded-lg px-2 py-1.5 bg-slate-900/40">
                                                     {{ refSnippet(result) }}
                                                 </div>
                                                 <div class="flex justify-end items-center shrink-0 pt-1 border-t border-slate-700/50">
                                                     <button type="button" @click.stop="goToDocumentFromSearch(result)" class="text-xs font-medium text-blue-400 hover:text-blue-300 flex items-center gap-1">
-                                                        Open <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+                                                        {{ $t('open') }} <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
                                                     </button>
                                                 </div>
                                             </div>

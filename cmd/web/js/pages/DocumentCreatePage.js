@@ -68,7 +68,7 @@ export const DocumentCreatePage = {
             } catch (error) {
                 console.error('Failed to create document:', error);
                 this.errorMessage =
-                    (error && error.message) || 'Could not create the document. Check your connection and permissions.';
+                    (error && error.message) || this.$t('createSubmitError');
             } finally {
                 this.submitting = false;
             }
@@ -110,7 +110,7 @@ export const DocumentCreatePage = {
                 await this.applyMarkdownFromFile(file);
             } catch (err) {
                 console.error('Failed to read file:', err);
-                this.errorMessage = 'Could not read this file: ' + (err.message || String(err));
+                this.errorMessage = this.$t('createReadError', { error: err.message || String(err) });
             } finally {
                 input.value = '';
             }
@@ -133,7 +133,7 @@ export const DocumentCreatePage = {
             if (!this.transferHasFiles(event)) return;
             const file = this.pickMarkdownFromFileList(event.dataTransfer.files);
             if (!file) {
-                this.errorMessage = 'Please drop a Markdown file (.md, .markdown, …).';
+                this.errorMessage = this.$t('createDropMarkdown');
                 return;
             }
             try {
@@ -141,7 +141,7 @@ export const DocumentCreatePage = {
                 this.clearError();
             } catch (err) {
                 console.error('Failed to read dropped file:', err);
-                this.errorMessage = 'Could not read this file: ' + (err.message || String(err));
+                this.errorMessage = this.$t('createReadError', { error: err.message || String(err) });
             }
         }
     },
@@ -150,7 +150,7 @@ export const DocumentCreatePage = {
             <main class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-16">
                 <div v-if="errorMessage" role="alert" class="alert alert-error border border-red-900/60 bg-red-950/50 text-red-100 mb-4 flex flex-row items-start justify-between gap-3">
                     <span class="text-sm leading-snug pt-0.5">{{ errorMessage }}</span>
-                    <button type="button" class="btn btn-ghost btn-xs shrink-0 text-red-200" @click="clearError">Dismiss</button>
+                    <button type="button" class="btn btn-ghost btn-xs shrink-0 text-red-200" @click="clearError">{{ $t('dismiss') }}</button>
                 </div>
                 <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
                     <div class="flex items-center gap-3">
@@ -158,17 +158,17 @@ export const DocumentCreatePage = {
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
                             </svg>
-                            Back to list
+                            {{ $t('createBackToList') }}
                         </button>
-                        <h1 class="text-2xl sm:text-3xl font-bold text-slate-100">New document</h1>
+                        <h1 class="text-2xl sm:text-3xl font-bold text-slate-100">{{ $t('createTitle') }}</h1>
                     </div>
                     <div class="flex flex-wrap items-center gap-2">
                         <label class="label cursor-pointer gap-2 py-0 flex-nowrap">
-                            <span class="label-text text-slate-400 text-sm whitespace-nowrap">Ingest</span>
+                            <span class="label-text text-slate-400 text-sm whitespace-nowrap">{{ $t('createIngest') }}</span>
                             <select v-model="newDoc.ingest_mode" class="select select-bordered select-sm bg-slate-800/80 border-slate-700 text-slate-100 min-w-[11rem]">
-                                <option value="auto">Auto (platform)</option>
-                                <option value="hot">Hot (full analysis)</option>
-                                <option value="cold">Cold (minimal)</option>
+                                <option value="auto">{{ $t('createAuto') }}</option>
+                                <option value="hot">{{ $t('createHot') }}</option>
+                                <option value="cold">{{ $t('createCold') }}</option>
                             </select>
                         </label>
                         <button type="button"
@@ -176,7 +176,7 @@ export const DocumentCreatePage = {
                             :disabled="!canSubmit"
                             class="btn btn-primary">
                             <span v-if="submitting" class="loading loading-spinner loading-sm mr-2"></span>
-                            Create &amp; open
+                            {{ $t('createSubmit') }}
                         </button>
                     </div>
                 </div>
@@ -186,18 +186,18 @@ export const DocumentCreatePage = {
                         <div class="card bg-slate-900/50 border border-slate-800 flex-1 flex flex-col min-h-[520px] xl:min-h-[calc(100vh-14rem)]">
                             <div class="card-body flex flex-col flex-1 min-h-0 gap-4">
                                 <div>
-                                    <label class="label"><span class="label-text text-slate-300">Title</span></label>
-                                    <input v-model="newDoc.title" type="text" placeholder="Document title"
+                                    <label class="label"><span class="label-text text-slate-300">{{ $t('createTitleLabel') }}</span></label>
+                                    <input v-model="newDoc.title" type="text" :placeholder="$t('createTitlePlaceholder')"
                                         class="input input-bordered w-full bg-slate-800/80 border-slate-700 text-slate-100"
                                         @input="clearError" />
                                 </div>
                                 <div>
-                                    <label class="label"><span class="label-text text-slate-300">Tags</span></label>
+                                    <label class="label"><span class="label-text text-slate-300">{{ $t('createTags') }}</span></label>
                                     <div class="flex gap-2 mb-2">
                                         <input v-model="tagInput" @keydown.enter.prevent="addTag" type="text"
-                                            placeholder="Tag name, Enter to add"
+                                            :placeholder="$t('createTagPlaceholder')"
                                             class="input input-bordered flex-1 bg-slate-800/80 border-slate-700 text-slate-100" />
-                                        <button type="button" @click="addTag" class="btn btn-outline border-slate-600">Add</button>
+                                        <button type="button" @click="addTag" class="btn btn-outline border-slate-600">{{ $t('createAddTag') }}</button>
                                     </div>
                                     <div class="flex flex-wrap gap-2">
                                         <span v-for="(tag, index) in newDoc.tags" :key="index" class="badge badge-primary gap-1">
@@ -216,9 +216,9 @@ export const DocumentCreatePage = {
                                 >
                                     <div class="label py-0 flex flex-wrap items-start justify-between gap-x-4 gap-y-2 shrink-0">
                                         <div class="min-w-0 flex-1">
-                                            <span class="label-text text-slate-300">Content (Markdown)</span>
+                                            <span class="label-text text-slate-300">{{ $t('createContentLabel') }}</span>
                                             <p class="text-xs text-slate-500 mt-1 mb-0 max-w-xl leading-snug">
-                                                <strong class="text-slate-400 font-medium">Choose file</strong> or drag a <code class="text-slate-400">.md</code> onto the editor below — same as typing; preview updates on the right.
+                                                <strong class="text-slate-400 font-medium">{{ $t('createChooseFile') }}</strong> {{ $t('createContentHint') }}
                                             </p>
                                         </div>
                                         <div class="flex items-center gap-2 shrink-0">
@@ -233,15 +233,15 @@ export const DocumentCreatePage = {
                                                 <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
                                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
                                                 </svg>
-                                                Choose file
+                                                {{ $t('createChooseFile') }}
                                             </button>
                                         </div>
                                     </div>
                                     <div class="flex items-center justify-between gap-2 text-xs text-slate-500 shrink-0 -mt-1 mb-1">
-                                        <span>{{ contentChars }} characters</span>
+                                        <span>{{ $t('createChars', { count: contentChars }) }}</span>
                                     </div>
                                     <textarea v-model="newDoc.content"
-                                        placeholder="# Heading — write Markdown here…"
+                                        :placeholder="$t('createContentPlaceholder')"
                                         class="textarea textarea-bordered flex-1 min-h-[280px] w-full bg-slate-800/80 border-slate-700 text-slate-100 font-mono text-sm leading-relaxed resize-y"
                                         @input="clearError"></textarea>
                                 </div>
@@ -252,8 +252,8 @@ export const DocumentCreatePage = {
                     <div class="flex flex-col min-h-0 xl:sticky xl:top-20 xl:self-start xl:max-h-[calc(100vh-6rem)]">
                         <div class="card bg-slate-900/50 border border-slate-800 h-full min-h-[320px] xl:max-h-[calc(100vh-14rem)] flex flex-col">
                             <div class="px-4 py-3 border-b border-slate-800 flex items-center justify-between shrink-0">
-                                <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wide">Preview</h2>
-                                <span class="text-xs text-slate-600">Live</span>
+                                <h2 class="text-sm font-semibold text-slate-400 uppercase tracking-wide">{{ $t('createPreview') }}</h2>
+                                <span class="text-xs text-slate-600">{{ $t('createLive') }}</span>
                             </div>
                             <div class="card-body overflow-y-auto flex-1 min-h-0 pt-4">
                                 <article class="markdown-body max-w-none px-0 py-0 text-sm sm:text-[15px]">

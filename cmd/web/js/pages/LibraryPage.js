@@ -146,7 +146,7 @@ export const LibraryPage = {
                 await this.loadData();
             } catch (error) {
                 console.error('Failed to regroup:', error);
-                this.loadError = 'Regroup failed: ' + (error && error.message ? error.message : String(error));
+                this.loadError = this.$t('libraryRegroup') + ' failed: ' + (error && error.message ? error.message : String(error));
             } finally {
                 this.regrouping = false;
             }
@@ -161,15 +161,15 @@ export const LibraryPage = {
                 <!-- Header -->
                 <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
                     <div>
-                        <h1 class="text-3xl font-bold text-slate-100 mb-2">Library</h1>
+                        <h1 class="text-3xl font-bold text-slate-100 mb-2">{{ $t('libraryTitle') }}</h1>
                         <p class="text-slate-400">
-                            Browse by bucket or topic, pick a catalog tag to filter documents, or search by title and tags.
+                            {{ $t('librarySubtitle') }}
                         </p>
                     </div>
                     <div class="flex flex-wrap items-center gap-2 shrink-0">
                         <router-link v-if="!isViewer" to="/docs/new" class="btn btn-primary btn-sm">
                             <icon name="plus" class-name="w-5 h-5 mr-1" />
-                            Add document
+                            {{ $t('libraryAddDoc') }}
                         </router-link>
                     </div>
                 </div>
@@ -177,7 +177,7 @@ export const LibraryPage = {
                 <!-- Error banner -->
                 <div v-if="loadError && !loading" class="alert alert-error alert-soft mb-6">
                     <span>{{ loadError }}</span>
-                    <button type="button" class="btn btn-sm btn-ghost" @click="loadData">Retry</button>
+                    <button type="button" class="btn btn-sm btn-ghost" @click="loadData">{{ $t('retry') }}</button>
                 </div>
 
                 <!-- Main content: fixed two-column layout -->

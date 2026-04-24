@@ -30,19 +30,18 @@ export const AdminConfigPage = {
     },
     template: `
         <div class="max-w-5xl mx-auto px-4 py-8">
-            <h1 class="text-2xl font-bold text-slate-100 mb-2">Configuration</h1>
-            <p class="text-slate-500 text-sm mb-6">Redacted effective settings (read-only).</p>
+            <h1 class="text-2xl font-bold text-slate-100 mb-2">{{ $t('configTitle') }}</h1>
+            <p class="text-slate-500 text-sm mb-6">{{ $t('configDesc') }}</p>
             <p class="text-slate-400 text-sm mb-4">
-                Read-only effective configuration (merged <code class="text-cyan-600/90">viper</code> tree). Secrets and connection strings appear as
-                <code class="text-amber-200/90">[redacted]</code>. Not editable in this MVP.
+                {{ $t('configReadOnly') }}
             </p>
             <div class="flex gap-2 mb-4">
-                <button type="button" class="btn btn-sm btn-outline border-slate-600" :disabled="configLoading" @click="loadSnapshot">Refresh</button>
+                <button type="button" class="btn btn-sm btn-outline border-slate-600" :disabled="configLoading" @click="loadSnapshot">{{ $t('refresh') }}</button>
             </div>
             <p v-if="configErr" class="text-sm text-red-400">{{ configErr }}</p>
-            <p v-else-if="configLoading" class="text-slate-500 text-sm">Loading…</p>
+            <p v-else-if="configLoading" class="text-slate-500 text-sm">{{ $t('loading') }}</p>
             <div v-else-if="configMeta" class="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
-                <p class="text-xs text-slate-500 mb-2">Source: {{ configMeta.source }} · Generated: {{ configMeta.generated_at }}</p>
+                <p class="text-xs text-slate-500 mb-2">{{ $t('configSource') }}: {{ configMeta.source }} · {{ $t('configGenerated') }}: {{ configMeta.generated_at }}</p>
                 <pre class="text-[11px] leading-relaxed text-slate-300 overflow-x-auto max-h-[70vh] overflow-y-auto whitespace-pre-wrap break-words">{{ JSON.stringify(configSnapshot, null, 2) }}</pre>
             </div>
         </div>
