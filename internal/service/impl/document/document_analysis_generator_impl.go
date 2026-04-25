@@ -19,16 +19,17 @@ import (
 const llmInputMaxRunes = 50000
 
 // NewDocumentAnalysisGenerator constructs an IDocumentAnalysisGenerator implementation.
-func NewDocumentAnalysisGenerator(provider client.ILLMProvider, logger *zap.Logger) IDocumentAnalysisGenerator {
+func NewDocumentAnalysisGenerator(provider client.ILLMProvider, analyzePrompt string, logger *zap.Logger) IDocumentAnalysisGenerator {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &documentAnalyzer{provider: provider, logger: logger}
+	return &documentAnalyzer{provider: provider, analyzePrompt: analyzePrompt, logger: logger}
 }
 
 type documentAnalyzer struct {
-	provider client.ILLMProvider
-	logger   *zap.Logger
+	provider      client.ILLMProvider
+	analyzePrompt string
+	logger        *zap.Logger
 }
 
 // GenerateAnalysis runs a single LLM call, parses JSON into summary/tags/chapters.
@@ -56,36 +57,7 @@ func (a *documentAnalyzer) GenerateAnalysis(ctx context.Context, title string, c
 		maxTokens = 8000
 	}
 
-	prompt := fmt.Sprintf(`Analyze the following document and provide a JSON response.
-
-Title: %s
-
-Full Content:
-%s
-
-Please analyze this document and return a JSON object with the following structure:
-{
-  "summary": "document summary (max 300 chars)",
-  "tags": ["tag1", "tag2", ...],
-  "chapters": [
-    {
-      "title": "chapter title",
-      "summary": "chapter summary (max 150 chars, may be empty)",
-      "content": "chapter original content (verbatim or trimmed)"
-    }
-  ]
-}
-
-Guidelines:
-- Return ONLY the JSON object, no other text.
-- Do NOT wrap the JSON in markdown code fences.
-- Tags should be relevant keywords (lowercase, no spaces use-hyphens).
-- Include at most 12 objects in "chapters".
-- For EVERY chapter object you MUST include "title", "summary", and "content".
-- "summary" may be empty when no short summary is appropriate; otherwise keep it within 150 characters.
-- "content" should contain the chapter's original text. You may lightly trim trailing whitespace but preserve meaning.
-- If the document has no clear chapters, create a single chapter spanning the full content (summary may be empty).
-`, title, content)
+	prompt := fmt.Sprintf(a.analyzePrompt, title, content)
 
 	out, err := a.provider.Generate(ctx, prompt, maxTokens)
 	if err != nil {

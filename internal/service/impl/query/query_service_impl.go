@@ -192,41 +192,29 @@ func truncateUTF8ForPrompt(s string, maxBytes int) string {
 	return utf8SafePrefix(s, maxBytes) + "\n…(truncated)"
 }
 
-func buildProgressiveAnswerPrompt(question string, items []types.QueryItem) string {
+func buildProgressiveAnswerPrompt(answerTemplate, question string, items []types.QueryItem) string {
 	maxRefs := progressiveAnswerMaxReferences()
 	n := len(items)
 	if n > maxRefs {
 		n = maxRefs
 	}
-	var b strings.Builder
-	b.WriteString("Answer the user's question using ONLY the numbered reference excerpts below. ")
-	b.WriteString("If the excerpts do not contain enough information, say so briefly. ")
-	b.WriteString("Write in the same language as the user's question when possible.\n\n")
-	b.WriteString("Output format (required): Your entire reply MUST be valid GitHub-Flavored Markdown suitable for direct rendering. ")
-	b.WriteString("Use headings (##, ###), bullet or numbered lists, **bold**, and `inline code` where it improves clarity; use fenced code blocks only for actual code or verbatim snippets. ")
-	b.WriteString("You may use Markdown tables when comparing items. Do not wrap the whole answer in a single outer code fence. ")
-	b.WriteString("Do not output HTML unless it appears inside a fenced code block as an example.\n\n")
-	b.WriteString("Citations: when you refer to a reference, include the marker [^N^] where N is the reference index (1-based), e.g. [^1^].\n\n")
-	b.WriteString("--- References ---\n")
+	var refs strings.Builder
 	for i := 0; i < n; i++ {
 		it := items[i]
 		excerpt := truncateUTF8ForPrompt(it.Content, progressiveAnswerExcerptMaxBytes())
-		fmt.Fprintf(&b, "\n### Reference [^%d^]\n", i+1)
-		fmt.Fprintf(&b, "Title: %s\n", it.Title)
-		fmt.Fprintf(&b, "Document ID: %s\n", it.ID)
-		fmt.Fprintf(&b, "Path: %s\n", it.Path)
+		fmt.Fprintf(&refs, "\n### Reference [^%d^]\n", i+1)
+		fmt.Fprintf(&refs, "Title: %s\n", it.Title)
+		fmt.Fprintf(&refs, "Document ID: %s\n", it.ID)
+		fmt.Fprintf(&refs, "Path: %s\n", it.Path)
 		if it.Status != "" {
-			fmt.Fprintf(&b, "Document status: %s\n", it.Status)
+			fmt.Fprintf(&refs, "Document status: %s\n", it.Status)
 		}
-		fmt.Fprintf(&b, "Relevance (0-1): %.4f\n", it.Relevance)
-		b.WriteString("Excerpt:\n")
-		b.WriteString(excerpt)
-		b.WriteByte('\n')
+		fmt.Fprintf(&refs, "Relevance (0-1): %.4f\n", it.Relevance)
+		refs.WriteString("Excerpt:\n")
+		refs.WriteString(excerpt)
+		refs.WriteByte('\n')
 	}
-	b.WriteString("\n--- User question ---\n")
-	b.WriteString(strings.TrimSpace(question))
-	b.WriteByte('\n')
-	return b.String()
+	return fmt.Sprintf(answerTemplate, refs.String(), strings.TrimSpace(question))
 }
 
 // NewQueryService constructs the query service implementation.
@@ -234,12 +222,14 @@ func NewQueryService(
 	docRepo storage.IDocumentRepository,
 	chapterSearch service.IChapterHybridSearch,
 	llm client.ILLMProvider,
+	answerPrompt string,
 	logger *zap.Logger,
 ) service.IQueryService {
 	return &queryService{
 		docRepo:       docRepo,
 		chapterSearch: chapterSearch,
 		llm:           llm,
+		answerPrompt:  answerPrompt,
 		logger:        logger,
 	}
 }
@@ -248,6 +238,7 @@ type queryService struct {
 	docRepo       storage.IDocumentRepository
 	chapterSearch service.IChapterHybridSearch
 	llm           client.ILLMProvider
+	answerPrompt  string
 	logger        *zap.Logger
 }
 
@@ -404,7 +395,7 @@ func (s *queryService) generateProgressiveAnswer(ctx context.Context, question s
 	if s.llm == nil || len(items) == 0 {
 		return ""
 	}
-	prompt := buildProgressiveAnswerPrompt(question, items)
+	prompt := buildProgressiveAnswerPrompt(s.answerPrompt, question, items)
 	maxTok := progressiveAnswerCompletionMaxTokens()
 	ans, err := s.llm.Generate(ctx, prompt, maxTok)
 	if err != nil {

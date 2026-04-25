@@ -21,19 +21,31 @@ type hotProgressiveLLMConfig struct {
 
 // hotProgressiveLLMCore holds LLM prompts for progressive hot search (tags, topics, documents, chapters).
 type hotProgressiveLLMCore struct {
-	provider client.ILLMProvider
-	logger   *zap.Logger
-	config   hotProgressiveLLMConfig
+	provider           client.ILLMProvider
+	logger             *zap.Logger
+	config             hotProgressiveLLMConfig
+	filterDocsPrompt   string
+	filterChapsPrompt  string
+	filterTopicsPrompt string
+	filterTagsPrompt   string
 }
 
-func newHotProgressiveLLMCore(provider client.ILLMProvider, logger *zap.Logger) *hotProgressiveLLMCore {
+func newHotProgressiveLLMCore(provider client.ILLMProvider, logger *zap.Logger, filterDocs, filterChaps, filterTopics, filterTags string) *hotProgressiveLLMCore {
 	cfg := hotProgressiveLLMConfig{
 		ParagraphSummaryMax: viper.GetInt("summarization.paragraph_summary_max"),
 	}
 	if cfg.ParagraphSummaryMax == 0 {
 		cfg.ParagraphSummaryMax = 300
 	}
-	return &hotProgressiveLLMCore{provider: provider, logger: logger, config: cfg}
+	return &hotProgressiveLLMCore{
+		provider:           provider,
+		logger:             logger,
+		config:             cfg,
+		filterDocsPrompt:   filterDocs,
+		filterChapsPrompt:  filterChaps,
+		filterTopicsPrompt: filterTopics,
+		filterTagsPrompt:   filterTags,
+	}
 }
 
 func (c *hotProgressiveLLMCore) FilterDocuments(ctx context.Context, query string, docs []types.Document) ([]types.LLMFilterResult, error) {
@@ -45,19 +57,7 @@ func (c *hotProgressiveLLMCore) FilterDocuments(ctx context.Context, query strin
 		docList.WriteString(fmt.Sprintf("[%d] Title: %s\nTags: %v\nSummary: %s\n\n",
 			i, d.Title, d.Tags, truncateStringForHotLLM(d.Content, c.config.ParagraphSummaryMax)))
 	}
-	prompt := fmt.Sprintf(`Given the query: "%s"
-
-Evaluate the relevance of each document below. Return a JSON array of objects with fields "id" (document ID) and "relevance" (0.0-1.0 score).
-Only include documents with relevance >= 0.5. Sort by relevance descending.
-
-Documents:
-%s
-
-Response format (JSON only):
-[
-  {"id": "doc_id", "relevance": 0.95},
-  ...
-]`, query, docList.String())
+	prompt := fmt.Sprintf(c.filterDocsPrompt, query, docList.String())
 	metrics.RecordLLMCall(metrics.PathDocFilter, estimateTokensForHotLLM(prompt))
 	resp, err := c.provider.Generate(ctx, prompt, 1500)
 	if err != nil {
@@ -80,19 +80,7 @@ func (c *hotProgressiveLLMCore) FilterChapters(ctx context.Context, query string
 		chapterList.WriteString(fmt.Sprintf("[%d] Path: %s\nSummary: %s\n\n",
 			i, ch.Path, truncateStringForHotLLM(body, c.config.ParagraphSummaryMax)))
 	}
-	prompt := fmt.Sprintf(`Given the query: "%s"
-
-Evaluate the relevance of each chapter below. Return a JSON array of objects with fields "id" (the path) and "relevance" (0.0-1.0 score).
-Only include chapters with relevance >= 0.5. Sort by relevance descending.
-
-Chapters:
-%s
-
-Response format (JSON only):
-[
-  {"id": "doc_id/chapter_title", "relevance": 0.88},
-  ...
-]`, query, chapterList.String())
+	prompt := fmt.Sprintf(c.filterChapsPrompt, query, chapterList.String())
 	metrics.RecordLLMCall(metrics.PathChapterFilter, estimateTokensForHotLLM(prompt))
 	resp, err := c.provider.Generate(ctx, prompt, 1500)
 	if err != nil {
@@ -111,21 +99,7 @@ func (c *hotProgressiveLLMCore) FilterTopicsByQuery(ctx context.Context, query s
 		topicList.WriteString(fmt.Sprintf("[%d] ID: %s\nName: %s\nDescription: %s\nTag names: %v\n\n",
 			i, g.ID, g.Name, g.Description, g.TagNames))
 	}
-	prompt := fmt.Sprintf(`Given the user query: "%s"
-
-Select the 1-3 most relevant topics from the list below. These topics narrow the search for relevant documents.
-Return a JSON array of objects with fields "id" (topic ID) and "relevance" (0.0-1.0 score).
-Only include topics with relevance >= 0.5. Sort by relevance descending.
-Select at most 3 topics.
-
-Available topics:
-%s
-
-Response format (JSON only):
-[
-  {"id": "topic_id", "relevance": 0.95},
-  {"id": "another_topic_id", "relevance": 0.82}
-]`, query, topicList.String())
+	prompt := fmt.Sprintf(c.filterTopicsPrompt, query, topicList.String())
 	metrics.RecordLLMCall(metrics.PathTopicFilter, estimateTokensForHotLLM(prompt))
 	resp, err := c.provider.Generate(ctx, prompt, 1500)
 	if err != nil {
@@ -143,19 +117,7 @@ func (c *hotProgressiveLLMCore) FilterTagsByQuery(ctx context.Context, query str
 	for _, tag := range tags {
 		tagList.WriteString(fmt.Sprintf("- %s (used in %d documents)\n", tag.Name, tag.DocumentCount))
 	}
-	prompt := fmt.Sprintf(`Given the user query: "%s"
-
-Select the most relevant tags from the list below. Return a JSON array of objects with fields "tag" and "relevance" (0.0-1.0 score).
-Only include tags with relevance >= 0.5. Sort by relevance descending.
-
-Available tags:
-%s
-
-Response format (JSON only):
-[
-  {"tag": "tag-name", "relevance": 0.95},
-  {"tag": "another-tag", "relevance": 0.82}
-]`, query, tagList.String())
+	prompt := fmt.Sprintf(c.filterTagsPrompt, query, tagList.String())
 	metrics.RecordLLMCall(metrics.PathTagFilter, estimateTokensForHotLLM(prompt))
 	resp, err := c.provider.Generate(ctx, prompt, 1500)
 	if err != nil {

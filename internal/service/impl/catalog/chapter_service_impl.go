@@ -21,11 +21,15 @@ func NewChapterService(
 	topicRepo storage.ITopicRepository,
 	coldIndex storage.IColdIndex,
 	llm client.ILLMProvider,
+	filterDocsPrompt string,
+	filterChapsPrompt string,
+	filterTopicsPrompt string,
+	filterTagsPrompt string,
 	logger *zap.Logger,
 ) service.IChapterService {
 	var rel *hotProgressiveLLMCore
 	if llm != nil {
-		rel = newHotProgressiveLLMCore(llm, logger)
+		rel = newHotProgressiveLLMCore(llm, logger, filterDocsPrompt, filterChapsPrompt, filterTopicsPrompt, filterTagsPrompt)
 	}
 	return &chapterService{
 		chapterRepo: chapterRepo,

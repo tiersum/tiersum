@@ -4,6 +4,7 @@ package di
 
 import (
 	"database/sql"
+	"fmt"
 	"strings"
 	"time"
 
@@ -63,8 +64,46 @@ type Dependencies struct {
 	Logger *zap.Logger
 }
 
+// requirePrompt reads a required llm.prompts.* key or returns a fatal error at startup.
+func requirePrompt(key string) (string, error) {
+	v := viper.GetString("llm.prompts." + key)
+	if strings.TrimSpace(v) == "" {
+		return "", fmt.Errorf("config llm.prompts.%s is required (see configs/config.example.yaml)", key)
+	}
+	return v, nil
+}
+
 // NewDependencies creates application dependencies (composition root for service, API, and job wiring).
 func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, logger *zap.Logger, serverVersion string) (*Dependencies, error) {
+	// Validate all LLM prompt templates at startup.
+	if _, err := requirePrompt("system_message"); err != nil {
+		return nil, err
+	}
+	analyzeDocPrompt, err := requirePrompt("analyze_document")
+	if err != nil {
+		return nil, err
+	}
+	answerPrompt, err := requirePrompt("answer_synthesis")
+	if err != nil {
+		return nil, err
+	}
+	filterDocsPrompt, err := requirePrompt("filter_documents")
+	if err != nil {
+		return nil, err
+	}
+	filterChapsPrompt, err := requirePrompt("filter_chapters")
+	if err != nil {
+		return nil, err
+	}
+	filterTopicsPrompt, err := requirePrompt("filter_topics")
+	if err != nil {
+		return nil, err
+	}
+	filterTagsPrompt, err := requirePrompt("filter_tags")
+	if err != nil {
+		return nil, err
+	}
+
 	// Storage: cache + repositories (UnitOfWork)
 	cacheTTL := viper.GetDuration("storage.cache.ttl")
 	if cacheTTL <= 0 {
@@ -120,7 +159,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 
 	// Document analysis generator may be constructed with a nil ILLMProvider; GenerateAnalysis then returns
 	// an error so deferred hot ingest can persist a virtual failure chapter instead of inventing analysis.
-	analyzer := document.NewDocumentAnalysisGenerator(llmProv, logger)
+	analyzer := document.NewDocumentAnalysisGenerator(llmProv, analyzeDocPrompt, logger)
 	persister := document.NewDocumentAnalysisPersister(uow.Chapters, uow.Documents, logger)
 	hotIngestProc := document.NewHotIngestProcessor(uow.Documents, analyzer, persister, uow.Tags, logger)
 	hotIngestSink := NewHotIngestQueueSink(logger)
@@ -135,7 +174,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 	docSvc := document.NewDocumentService(uow.Documents, coldIndex, uow.Tags, uow.Chapters, quotaMgr, hotIngestSink, logger)
 
 	// Service: chapters (detail UI + cold probe + hot chapter search)
-	chapterSvc := catalog.NewChapterService(uow.Chapters, uow.Documents, uow.Tags, uow.Topics, coldIndex, llmProv, logger)
+	chapterSvc := catalog.NewChapterService(uow.Chapters, uow.Documents, uow.Tags, uow.Topics, coldIndex, llmProv, filterDocsPrompt, filterChapsPrompt, filterTopicsPrompt, filterTagsPrompt, logger)
 
 	var querySvc service.IQueryService
 	if llmProv == nil {
@@ -145,6 +184,7 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 			uow.Documents,
 			chapterSvc,
 			llmProv,
+			answerPrompt,
 			logger,
 		)
 	}

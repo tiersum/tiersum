@@ -105,11 +105,15 @@ var (
 
 // Generate implements ILLMProvider.Generate
 func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
+	sysMsg := viper.GetString("llm.prompts.system_message")
+	if strings.TrimSpace(sysMsg) == "" {
+		return "", fmt.Errorf("config llm.prompts.system_message is required")
+	}
 	temperature := p.resolveTemperature()
 	reqBody := openAIRequest{
 		Model: p.model,
 		Messages: []message{
-			{Role: "system", Content: "You are a concise assistant. Respond briefly and accurately."},
+			{Role: "system", Content: sysMsg},
 			{Role: "user", Content: prompt},
 		},
 		MaxTokens:          maxTokens,
