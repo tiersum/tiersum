@@ -364,7 +364,7 @@ Authorization: Bearer tsk_live_xxx</code></pre>
                                     <p class="text-slate-400 text-sm mb-4">Run a progressive query. Requires <code class="text-slate-300">read</code> scope.</p>
                                     <pre class="bg-slate-950 rounded-lg p-4 text-sm text-slate-300 overflow-x-auto font-mono"><code>{
   "question": "string",
-  "max_results": 100
+  "max_results": 15
 }</code></pre>
                                 </div>
                             </div>

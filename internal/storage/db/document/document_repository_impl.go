@@ -34,6 +34,10 @@ func NewDocumentRepo(db shared.SQLDB, driver string, cache storage.ICache) *Docu
 
 // Create implements IDocumentRepository.Create
 func (r *DocumentRepo) Create(ctx context.Context, doc *types.Document) error {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.Create")
+	if span != nil {
+		defer span.End()
+	}
 	if doc.ID == "" {
 		doc.ID = uuid.New().String()
 	}
@@ -55,6 +59,10 @@ func (r *DocumentRepo) Create(ctx context.Context, doc *types.Document) error {
 
 // GetByID implements IDocumentRepository.GetByID
 func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.GetByID")
+	if span != nil {
+		defer span.End()
+	}
 	if r.cache != nil {
 		if cached, ok := r.cache.Get("doc:" + id); ok {
 			if cached == nil {
@@ -95,6 +103,10 @@ func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document,
 
 // GetRecent implements IDocumentRepository.GetRecent
 func (r *DocumentRepo) GetRecent(ctx context.Context, limit int) ([]*types.Document, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.GetRecent")
+	if span != nil {
+		defer span.End()
+	}
 	if limit <= 0 {
 		limit = 100
 	}
@@ -130,6 +142,10 @@ func (r *DocumentRepo) GetRecent(ctx context.Context, limit int) ([]*types.Docum
 
 // ListByTags retrieves documents that match ANY of the given tags
 func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.ListByTags")
+	if span != nil {
+		defer span.End()
+	}
 	if len(tags) == 0 {
 		return []types.Document{}, nil
 	}
@@ -189,6 +205,10 @@ func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int)
 
 // ListMetaByTagsAndStatuses returns matching documents without loading content.
 func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []string, statuses []types.DocumentStatus, limit int) ([]types.Document, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.ListMetaByTagsAndStatuses")
+	if span != nil {
+		defer span.End()
+	}
 	if len(tags) == 0 {
 		return []types.Document{}, nil
 	}
@@ -256,6 +276,10 @@ func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []str
 
 // UpdateStatus updates the document's hot/cold status
 func (r *DocumentRepo) UpdateStatus(ctx context.Context, docID string, status types.DocumentStatus) error {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.UpdateStatus")
+	if span != nil {
+		defer span.End()
+	}
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
 	ph3 := shared.Placeholder(r.driver, 3, "")
@@ -275,6 +299,10 @@ func (r *DocumentRepo) UpdateStatus(ctx context.Context, docID string, status ty
 
 // IncrementQueryCount increments the query count for a document
 func (r *DocumentRepo) IncrementQueryCount(ctx context.Context, docID string) error {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.IncrementQueryCount")
+	if span != nil {
+		defer span.End()
+	}
 	now := time.Now()
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
@@ -295,6 +323,10 @@ func (r *DocumentRepo) IncrementQueryCount(ctx context.Context, docID string) er
 
 // UpdateHotScore updates the hot score for a document
 func (r *DocumentRepo) UpdateHotScore(ctx context.Context, docID string, score float64) error {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.UpdateHotScore")
+	if span != nil {
+		defer span.End()
+	}
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
 	ph3 := shared.Placeholder(r.driver, 3, "")
@@ -309,6 +341,10 @@ func (r *DocumentRepo) UpdateHotScore(ctx context.Context, docID string, score f
 
 // UpdateTags updates document tags and updated_at.
 func (r *DocumentRepo) UpdateTags(ctx context.Context, docID string, tags []string) error {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.UpdateTags")
+	if span != nil {
+		defer span.End()
+	}
 	now := time.Now()
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
@@ -328,6 +364,10 @@ func (r *DocumentRepo) UpdateTags(ctx context.Context, docID string, tags []stri
 
 // UpdateSummary updates the persisted document-level summary.
 func (r *DocumentRepo) UpdateSummary(ctx context.Context, docID string, summary string) error {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.UpdateSummary")
+	if span != nil {
+		defer span.End()
+	}
 	now := time.Now()
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
@@ -345,6 +385,10 @@ func (r *DocumentRepo) UpdateSummary(ctx context.Context, docID string, summary 
 
 // ListByStatus retrieves documents by status with optional limit
 func (r *DocumentRepo) ListByStatus(ctx context.Context, status types.DocumentStatus, limit int) ([]types.Document, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.ListByStatus")
+	if span != nil {
+		defer span.End()
+	}
 	if limit <= 0 {
 		limit = 100
 	}
@@ -381,6 +425,10 @@ func (r *DocumentRepo) ListByStatus(ctx context.Context, status types.DocumentSt
 
 // ListAll returns all documents for hot score calculation
 func (r *DocumentRepo) ListAll(ctx context.Context, limit int) ([]types.Document, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.ListAll")
+	if span != nil {
+		defer span.End()
+	}
 	if limit <= 0 {
 		limit = 1000
 	}
@@ -415,6 +463,10 @@ func (r *DocumentRepo) ListAll(ctx context.Context, limit int) ([]types.Document
 
 // CountDocumentsByStatus implements storage.IDocumentRepository.CountDocumentsByStatus.
 func (r *DocumentRepo) CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.CountDocumentsByStatus")
+	if span != nil {
+		defer span.End()
+	}
 	const q = `SELECT status, COUNT(*) FROM documents GROUP BY status`
 	rows, err := r.db.QueryContext(ctx, q)
 	if err != nil {

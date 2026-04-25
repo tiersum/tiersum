@@ -56,22 +56,22 @@ func (c *hotProgressiveLLMCore) FilterDocuments(ctx context.Context, query strin
 	ctx, span := tr.Start(ctx, "FilterDocuments", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(attribute.String("query", query))
-	span.SetAttributes(attribute.Int("input.doc_count", len(docs)))
+	span.SetAttributes(attribute.Int("input_doc_count", len(docs)))
 	if len(docs) > 0 {
 		ids := make([]string, 0, min(10, len(docs)))
 		for i := 0; i < min(10, len(docs)); i++ {
 			ids = append(ids, docs[i].ID)
 		}
-		span.SetAttributes(attribute.String("input.doc_ids", joinFirstN(ids, 10)))
+		span.SetAttributes(attribute.String("input_doc_ids", joinFirstN(ids, 10)))
 	}
 
 	if len(docs) == 0 {
 		return nil, nil
 	}
 	var docList strings.Builder
-	for i, d := range docs {
-		docList.WriteString(fmt.Sprintf("[%d] Title: %s\nTags: %v\nSummary: %s\n\n",
-			i, d.Title, d.Tags, truncateStringForHotLLM(d.Content, c.config.ParagraphSummaryMax)))
+	for _, d := range docs {
+		docList.WriteString(fmt.Sprintf("ID: %s\nTitle: %s\nTags: %v\nSummary: %s\n\n",
+			d.ID, d.Title, d.Tags, truncateStringForHotLLM(d.Content, c.config.ParagraphSummaryMax)))
 	}
 	dataContent := fmt.Sprintf("Query: %s\n\nDocuments:\n%s", query, docList.String())
 	msgs := []client.LLMMessage{
@@ -81,7 +81,7 @@ func (c *hotProgressiveLLMCore) FilterDocuments(ctx context.Context, query strin
 	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM filter failed", zap.Error(err))
-		return c.fallbackFilterDocuments(docs), nil
+		return nil, err
 	}
 	metrics.RecordLLMTokens(metrics.PathDocFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
 	results := c.parseFilterResults(resp)
@@ -90,8 +90,8 @@ func (c *hotProgressiveLLMCore) FilterDocuments(ctx context.Context, query strin
 		for i := 0; i < min(10, len(results)); i++ {
 			ids = append(ids, results[i].ID)
 		}
-		span.SetAttributes(attribute.Int("output.result_count", len(results)))
-		span.SetAttributes(attribute.String("output.result_ids", joinFirstN(ids, 10)))
+		span.SetAttributes(attribute.Int("output_result_count", len(results)))
+		span.SetAttributes(attribute.String("output_result_ids", joinFirstN(ids, 10)))
 	}
 	return results, nil
 }
@@ -101,26 +101,26 @@ func (c *hotProgressiveLLMCore) FilterChapters(ctx context.Context, query string
 	ctx, span := tr.Start(ctx, "FilterChapters", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(attribute.String("query", query))
-	span.SetAttributes(attribute.Int("input.chapter_count", len(chapters)))
+	span.SetAttributes(attribute.Int("input_chapter_count", len(chapters)))
 	if len(chapters) > 0 {
 		paths := make([]string, 0, min(10, len(chapters)))
 		for i := 0; i < min(10, len(chapters)); i++ {
 			paths = append(paths, chapters[i].Path)
 		}
-		span.SetAttributes(attribute.String("input.paths", joinFirstN(paths, 10)))
+		span.SetAttributes(attribute.String("input_paths", joinFirstN(paths, 10)))
 	}
 
 	if len(chapters) == 0 {
 		return nil, nil
 	}
 	var chapterList strings.Builder
-	for i, ch := range chapters {
+	for _, ch := range chapters {
 		body := ch.Summary
 		if strings.TrimSpace(body) == "" {
 			body = ch.Content
 		}
-		chapterList.WriteString(fmt.Sprintf("[%d] Path: %s\nSummary: %s\n\n",
-			i, ch.Path, truncateStringForHotLLM(body, c.config.ParagraphSummaryMax)))
+		chapterList.WriteString(fmt.Sprintf("Path: %s\nSummary: %s\n\n",
+			ch.Path, truncateStringForHotLLM(body, c.config.ParagraphSummaryMax)))
 	}
 	dataContent := fmt.Sprintf("Query: %s\n\nChapters:\n%s", query, chapterList.String())
 	msgs := []client.LLMMessage{
@@ -130,7 +130,7 @@ func (c *hotProgressiveLLMCore) FilterChapters(ctx context.Context, query string
 	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM chapter filter failed", zap.Error(err))
-		return c.fallbackFilterChapters(chapters), nil
+		return nil, err
 	}
 	metrics.RecordLLMTokens(metrics.PathChapterFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
 	results := c.parseFilterResults(resp)
@@ -139,8 +139,8 @@ func (c *hotProgressiveLLMCore) FilterChapters(ctx context.Context, query string
 		for i := 0; i < min(10, len(results)); i++ {
 			ids = append(ids, results[i].ID)
 		}
-		span.SetAttributes(attribute.Int("output.result_count", len(results)))
-		span.SetAttributes(attribute.String("output.result_ids", joinFirstN(ids, 10)))
+		span.SetAttributes(attribute.Int("output_result_count", len(results)))
+		span.SetAttributes(attribute.String("output_result_ids", joinFirstN(ids, 10)))
 	}
 	return results, nil
 }
@@ -150,13 +150,13 @@ func (c *hotProgressiveLLMCore) FilterTopicsByQuery(ctx context.Context, query s
 	ctx, span := tr.Start(ctx, "FilterTopicsByQuery", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(attribute.String("query", query))
-	span.SetAttributes(attribute.Int("input.topic_count", len(topics)))
+	span.SetAttributes(attribute.Int("input_topic_count", len(topics)))
 	if len(topics) > 0 {
 		ids := make([]string, 0, min(10, len(topics)))
 		for i := 0; i < min(10, len(topics)); i++ {
 			ids = append(ids, topics[i].ID)
 		}
-		span.SetAttributes(attribute.String("input.topic_ids", joinFirstN(ids, 10)))
+		span.SetAttributes(attribute.String("input_topic_ids", joinFirstN(ids, 10)))
 	}
 
 	if len(topics) == 0 {
@@ -175,7 +175,7 @@ func (c *hotProgressiveLLMCore) FilterTopicsByQuery(ctx context.Context, query s
 	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM topic filter failed", zap.Error(err))
-		return c.fallbackFilterTopics(topics), nil
+		return nil, err
 	}
 	metrics.RecordLLMTokens(metrics.PathTopicFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
 	results := c.parseFilterResults(resp)
@@ -184,8 +184,8 @@ func (c *hotProgressiveLLMCore) FilterTopicsByQuery(ctx context.Context, query s
 		for i := 0; i < min(10, len(results)); i++ {
 			ids = append(ids, results[i].ID)
 		}
-		span.SetAttributes(attribute.Int("output.result_count", len(results)))
-		span.SetAttributes(attribute.String("output.result_ids", joinFirstN(ids, 10)))
+		span.SetAttributes(attribute.Int("output_result_count", len(results)))
+		span.SetAttributes(attribute.String("output_result_ids", joinFirstN(ids, 10)))
 	}
 	return results, nil
 }
@@ -195,13 +195,13 @@ func (c *hotProgressiveLLMCore) FilterTagsByQuery(ctx context.Context, query str
 	ctx, span := tr.Start(ctx, "FilterTagsByQuery", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(attribute.String("query", query))
-	span.SetAttributes(attribute.Int("input.tag_count", len(tags)))
+	span.SetAttributes(attribute.Int("input_tag_count", len(tags)))
 	if len(tags) > 0 {
 		names := make([]string, 0, min(10, len(tags)))
 		for i := 0; i < min(10, len(tags)); i++ {
 			names = append(names, tags[i].Name)
 		}
-		span.SetAttributes(attribute.String("input.tags", joinFirstN(names, 10)))
+		span.SetAttributes(attribute.String("input_tags", joinFirstN(names, 10)))
 	}
 
 	if len(tags) == 0 {
@@ -219,7 +219,7 @@ func (c *hotProgressiveLLMCore) FilterTagsByQuery(ctx context.Context, query str
 	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM tag filter failed", zap.Error(err))
-		return c.fallbackTagFilter(tags), nil
+		return nil, err
 	}
 	metrics.RecordLLMTokens(metrics.PathTagFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
 	results := c.parseTagFilterResults(resp)
@@ -228,8 +228,8 @@ func (c *hotProgressiveLLMCore) FilterTagsByQuery(ctx context.Context, query str
 		for i := 0; i < min(10, len(results)); i++ {
 			names = append(names, results[i].Tag)
 		}
-		span.SetAttributes(attribute.Int("output.result_count", len(results)))
-		span.SetAttributes(attribute.String("output.tags", joinFirstN(names, 10)))
+		span.SetAttributes(attribute.Int("output_result_count", len(results)))
+		span.SetAttributes(attribute.String("output_tags", joinFirstN(names, 10)))
 	}
 	return results, nil
 }
@@ -249,30 +249,6 @@ func (c *hotProgressiveLLMCore) parseFilterResults(response string) []types.LLMF
 	return results
 }
 
-func (c *hotProgressiveLLMCore) fallbackFilterDocuments(docs []types.Document) []types.LLMFilterResult {
-	results := make([]types.LLMFilterResult, len(docs))
-	for i, doc := range docs {
-		results[i] = types.LLMFilterResult{ID: doc.ID, Relevance: 0.5}
-	}
-	return results
-}
-
-func (c *hotProgressiveLLMCore) fallbackFilterChapters(chapters []types.Chapter) []types.LLMFilterResult {
-	results := make([]types.LLMFilterResult, len(chapters))
-	for i, ch := range chapters {
-		results[i] = types.LLMFilterResult{ID: ch.Path, Relevance: 0.5}
-	}
-	return results
-}
-
-func (c *hotProgressiveLLMCore) fallbackFilterTopics(topics []types.Topic) []types.LLMFilterResult {
-	results := make([]types.LLMFilterResult, len(topics))
-	for i, g := range topics {
-		results[i] = types.LLMFilterResult{ID: g.ID, Relevance: 0.5}
-	}
-	return results
-}
-
 func (c *hotProgressiveLLMCore) parseTagFilterResults(response string) []types.TagFilterResult {
 	jsonStart := strings.Index(response, "[")
 	jsonEnd := strings.LastIndex(response, "]")
@@ -288,14 +264,6 @@ func (c *hotProgressiveLLMCore) parseTagFilterResults(response string) []types.T
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Relevance > results[j].Relevance
 	})
-	return results
-}
-
-func (c *hotProgressiveLLMCore) fallbackTagFilter(tags []types.Tag) []types.TagFilterResult {
-	results := make([]types.TagFilterResult, len(tags))
-	for i, tag := range tags {
-		results[i] = types.TagFilterResult{Tag: tag.Name, Relevance: 0.5}
-	}
 	return results
 }
 

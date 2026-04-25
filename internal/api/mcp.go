@@ -115,7 +115,7 @@ func (s *MCPServer) registerTools() {
 	s.mcp.AddTool(mcp.NewTool("api_v1_query_progressive_post",
 		mcp.WithDescription(descPrefix+"POST /api/v1/query/progressive — tracing matches REST: set traceparent / force-sample headers or ?debug_trace=1 on POST /mcp/message; optional tool args traceparent and force_sample when JSON-only clients cannot set HTTP"),
 		mcp.WithString("question", mcp.Required(), mcp.Description("User question")),
-		mcp.WithNumber("max_results", mcp.Description("1–100; omit or 0 for default 100")),
+		mcp.WithNumber("max_results", mcp.Description("1–100; omit or 0 for default 15")),
 		mcp.WithString("traceparent", mcp.Description("Optional W3C traceparent (same as HTTP traceparent header)")),
 		mcp.WithBoolean("force_sample", mcp.Description("Optional: same as REST telemetry.force_sample (e.g. debug_trace query on /mcp/message); used when there is no recording parent span from the HTTP request")),
 	), s.handleAPIv1QueryProgressivePost)

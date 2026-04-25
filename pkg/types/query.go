@@ -10,7 +10,7 @@ type LLMFilterResult struct {
 // ProgressiveQueryRequest is the body for POST /query/progressive (question + optional max_results cap).
 type ProgressiveQueryRequest struct {
 	Question   string `json:"question" binding:"required"`                   // User query
-	MaxResults int    `json:"max_results" binding:"omitempty,min=1,max=100"` // Max documents to consider, default 100
+	MaxResults int    `json:"max_results" binding:"omitempty,min=1,max=100"` // Max documents to consider, default 15
 }
 
 // ProgressiveQueryResponse is the JSON body returned by progressive query (answer, trace steps, merged hits).

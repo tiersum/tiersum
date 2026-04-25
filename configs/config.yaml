@@ -87,6 +87,7 @@ llm:
     filter_documents: |
       Evaluate the relevance of each document I will provide against the query. Return a JSON array of objects with fields "id" (document ID) and "relevance" (0.0-1.0 score).
       Only include documents with relevance >= 0.5. Sort by relevance descending.
+      CRITICAL: Use the exact "ID:" value from each document below. Do NOT use list indices or ordinal numbers as the id.
 
       Response format (JSON only):
       [
@@ -97,6 +98,7 @@ llm:
     filter_chapters: |
       Evaluate the relevance of each chapter I will provide against the query. Return a JSON array of objects with fields "id" (the path) and "relevance" (0.0-1.0 score).
       Only include chapters with relevance >= 0.5. Sort by relevance descending.
+      CRITICAL: Use the exact "Path:" value from each chapter below. Do NOT use list indices or ordinal numbers as the id.
 
       Response format (JSON only):
       [

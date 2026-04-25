@@ -31,6 +31,10 @@ func NewChapterRepo(db shared.SQLDB, driver string, cache storage.ICache) *Chapt
 
 // ReplaceByDocument deletes all chapters for document_id and inserts the given rows.
 func (r *ChapterRepo) ReplaceByDocument(ctx context.Context, documentID string, chapters []types.Chapter) error {
+	ctx, span := shared.WithRepoSpan(ctx, "ChapterRepo.ReplaceByDocument")
+	if span != nil {
+		defer span.End()
+	}
 	documentID = strings.TrimSpace(documentID)
 	if documentID == "" {
 		return fmt.Errorf("replace chapters: document id is required")
@@ -69,6 +73,10 @@ func (r *ChapterRepo) ReplaceByDocument(ctx context.Context, documentID string, 
 }
 
 func (r *ChapterRepo) ListByDocument(ctx context.Context, documentID string) ([]types.Chapter, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "ChapterRepo.ListByDocument")
+	if span != nil {
+		defer span.End()
+	}
 	cacheKey := "chapters:" + documentID
 	if r.cache != nil {
 		if cached, ok := r.cache.Get(cacheKey); ok {
@@ -104,6 +112,10 @@ func (r *ChapterRepo) ListByDocument(ctx context.Context, documentID string) ([]
 }
 
 func (r *ChapterRepo) ListByDocumentIDs(ctx context.Context, documentIDs []string) ([]types.Chapter, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "ChapterRepo.ListByDocumentIDs")
+	if span != nil {
+		defer span.End()
+	}
 	if len(documentIDs) == 0 {
 		return nil, nil
 	}
@@ -126,6 +138,10 @@ func (r *ChapterRepo) ListByDocumentIDs(ctx context.Context, documentIDs []strin
 }
 
 func (r *ChapterRepo) ListByIDs(ctx context.Context, chapterIDs []string) ([]types.Chapter, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "ChapterRepo.ListByIDs")
+	if span != nil {
+		defer span.End()
+	}
 	if len(chapterIDs) == 0 {
 		return nil, nil
 	}

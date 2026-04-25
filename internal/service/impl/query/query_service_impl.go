@@ -252,7 +252,7 @@ type queryService struct {
 // Runs IChapterHybridSearch.SearchHotChapters and SearchColdChapterHits in parallel, merges hits, then optional LLM answer.
 func (s *queryService) ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error) {
 	if req.MaxResults == 0 {
-		req.MaxResults = 100
+		req.MaxResults = 15
 	}
 
 	response := &types.ProgressiveQueryResponse{
@@ -287,7 +287,7 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 	if wantTrace {
 		tracer = otel.Tracer(ProgressiveTracerScope)
 		runCtx, rootSpan = tracer.Start(ctx, "progressive_query",
-			trace.WithAttributes(attribute.String("tier.request.question", TruncateTraceStr(req.Question, 512))))
+			trace.WithAttributes(attribute.String("tier_request_question", TruncateTraceStr(req.Question, 512))))
 		runCtx = WithProgressiveDebugTracer(runCtx, tracer)
 		defer rootSpan.End()
 	}
@@ -354,22 +354,22 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 
 	if wantTrace {
 		_, mergeSpan := tracer.Start(runCtx, "merge_results", trace.WithAttributes(
-			attribute.Int("tier.request.merge_inputs.hot_items", len(hotRes.results)),
-			attribute.Int("tier.request.merge_inputs.cold_items", len(coldRes.results)),
-			attribute.Int("tier.response.merged_items", len(mergedResults)),
+			attribute.Int("tier_request_merge_inputs_hot_items", len(hotRes.results)),
+			attribute.Int("tier_request_merge_inputs_cold_items", len(coldRes.results)),
+			attribute.Int("tier_response_merged_items", len(mergedResults)),
 		))
 		mergeSpan.SetStatus(codes.Ok, "")
 		mergeSpan.End()
 
 		ansCtx, ansSpan := tracer.Start(runCtx, "synthesize_answer", trace.WithAttributes(
-			attribute.String("tier.request.question", TruncateTraceStr(req.Question, TraceMaxReqBytes)),
-			attribute.Int("tier.request.reference_items", len(mergedResults)),
+			attribute.String("tier_request_question", TruncateTraceStr(req.Question, TraceMaxReqBytes)),
+			attribute.Int("tier_request_reference_items", len(mergedResults)),
 		))
 		ansCtx = trace.ContextWithSpan(ansCtx, ansSpan)
 		ansCtx = WithProgressiveDebugTracer(ansCtx, tracer)
 		response.Answer = s.generateProgressiveAnswer(ansCtx, req.Question, mergedResults)
 		if response.Answer != "" {
-			ansSpan.SetAttributes(attribute.String("tier.response.answer", TruncateTraceStr(response.Answer, TraceMaxRespBytes)))
+			ansSpan.SetAttributes(attribute.String("tier_response_answer", TruncateTraceStr(response.Answer, TraceMaxRespBytes)))
 		}
 		ansSpan.SetStatus(codes.Ok, "")
 		ansSpan.End()
@@ -426,8 +426,8 @@ func (s *queryService) queryHotPath(ctx context.Context, question string, half i
 		hits, e = s.chapterSearch.SearchHotChapters(c, question, half)
 		if sp != nil && e == nil {
 			sp.SetAttributes(
-				attribute.String("tier.request.question", TruncateTraceStr(question, TraceMaxReqBytes)),
-				attribute.Int("tier.response.hot_chapter_hits", len(hits)),
+				attribute.String("tier_request_question", TruncateTraceStr(question, TraceMaxReqBytes)),
+				attribute.Int("tier_response_hot_chapter_hits", len(hits)),
 			)
 		}
 		return e
@@ -541,8 +541,8 @@ func (s *queryService) queryColdPath(ctx context.Context, question string, half 
 	err := WithOptionalSpan(ctx, "cold_index_search", func(c context.Context, sp trace.Span) error {
 		if sp != nil {
 			sp.SetAttributes(
-				attribute.String("tier.request.question", TruncateTraceStr(question, TraceMaxReqBytes)),
-				attribute.Int("tier.request.cold_search_max_results", half),
+				attribute.String("tier_request_question", TruncateTraceStr(question, TraceMaxReqBytes)),
+				attribute.Int("tier_request_cold_search_max_results", half),
 			)
 		}
 		var e error
@@ -551,14 +551,14 @@ func (s *queryService) queryColdPath(ctx context.Context, question string, half 
 			if sp != nil {
 				sp.SetAttributes(
 					attribute.Bool("tier.response.cold_index_skipped", true),
-					attribute.String("tier.response.cold_index_skip_reason", "no_index"),
+					attribute.String("tier_response_cold_index_skip_reason", "no_index"),
 				)
 			}
 			searchResults = nil
 			return nil
 		}
 		if sp != nil && e == nil {
-			sp.SetAttributes(attribute.Int("tier.response.cold_index_hits", len(searchResults)))
+			sp.SetAttributes(attribute.Int("tier_response_cold_index_hits", len(searchResults)))
 		}
 		return e
 	})

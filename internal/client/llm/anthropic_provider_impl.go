@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/tiersum/tiersum/internal/client"
@@ -97,11 +98,17 @@ func (p *AnthropicProvider) Generate(ctx context.Context, messages []client.LLMM
 
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/v1/messages", bytes.NewBuffer(jsonBody))
 	if err != nil {
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 
@@ -111,6 +118,9 @@ func (p *AnthropicProvider) Generate(ctx context.Context, messages []client.LLMM
 
 	resp, err := p.client.Do(req)
 	if err != nil {
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -119,19 +129,26 @@ func (p *AnthropicProvider) Generate(ctx context.Context, messages []client.LLMM
 	if resp.StatusCode != http.StatusOK {
 		var errBody bytes.Buffer
 		_, _ = errBody.ReadFrom(resp.Body)
-		return "", fmt.Errorf("api error: status=%d, body=%s", resp.StatusCode, errBody.String())
+		err := fmt.Errorf("api error: status=%d, body=%s", resp.StatusCode, errBody.String())
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
 	}
 
 	var result anthropicResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 
 	if result.Usage != nil {
 		span.SetAttributes(
-			attribute.Int("llm.prompt_tokens", result.Usage.InputTokens),
-			attribute.Int("llm.completion_tokens", result.Usage.OutputTokens),
-			attribute.Int("llm.total_tokens", result.Usage.InputTokens+result.Usage.OutputTokens),
+			attribute.Int("llm_prompt_tokens", result.Usage.InputTokens),
+			attribute.Int("llm_completion_tokens", result.Usage.OutputTokens),
+			attribute.Int("llm_total_tokens", result.Usage.InputTokens+result.Usage.OutputTokens),
 		)
 	}
 
@@ -139,7 +156,11 @@ func (p *AnthropicProvider) Generate(ctx context.Context, messages []client.LLMM
 		return strings.TrimSpace(result.Content[0].Text), nil
 	}
 
-	return "", fmt.Errorf("no response from Anthropic")
+	err = fmt.Errorf("no response from Anthropic")
+	span.SetAttributes(attribute.String("error_message", err.Error()))
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+	return "", err
 }
 
 var _ client.ILLMProvider = (*AnthropicProvider)(nil)

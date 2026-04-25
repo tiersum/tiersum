@@ -8,13 +8,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/tiersum/tiersum/internal/client"
@@ -108,10 +107,6 @@ type openAIResponse struct {
 	} `json:"usage,omitempty"`
 }
 
-var (
-	onlyTemperatureRe = regexp.MustCompile(`(?i)invalid temperature:\s*only\s*([0-9]*\.?[0-9]+)\s*is allowed`)
-)
-
 // Generate implements ILLMProvider.Generate
 func (p *OpenAIProvider) Generate(ctx context.Context, messages []client.LLMMessage, maxTokens int) (string, error) {
 	tr := otel.Tracer("github.com/tiersum/tiersum/client/llm")
@@ -123,7 +118,11 @@ func (p *OpenAIProvider) Generate(ctx context.Context, messages []client.LLMMess
 
 	sysMsg := viper.GetString("llm.prompts.system_message")
 	if strings.TrimSpace(sysMsg) == "" {
-		return "", fmt.Errorf("config llm.prompts.system_message is required")
+		err := fmt.Errorf("config llm.prompts.system_message is required")
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
 	}
 	temperature := p.resolveTemperature()
 
@@ -144,28 +143,27 @@ func (p *OpenAIProvider) Generate(ctx context.Context, messages []client.LLMMess
 		ChatTemplateKwargs: openAIThinkOffChatTemplate(p.baseURL, p.model),
 		Thinking:           openAIThinkingField(p.baseURL, p.model),
 	}
-	// Retry once when the backend enforces a single temperature value for this model.
-	out, body, result, err := p.doChatCompletion(ctx, reqBody)
-	_ = body
+	out, _, result, err := p.doChatCompletion(ctx, reqBody)
 	if err != nil {
-		if onlyTemp, ok := parseOnlyTemperature(err.Error()); ok {
-			reqBody.Temperature = onlyTemp
-			out2, _, _, err2 := p.doChatCompletion(ctx, reqBody)
-			if err2 == nil {
-				return out2, nil
-			}
-			return "", err2
-		}
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
+	p.recordUsage(span, result)
+	return out, nil
+}
+
+func (p *OpenAIProvider) recordUsage(span trace.Span, result openAIResponse) {
 	if result.Usage != nil {
 		span.SetAttributes(
-			attribute.Int("llm.prompt_tokens", result.Usage.PromptTokens),
-			attribute.Int("llm.completion_tokens", result.Usage.CompletionTokens),
-			attribute.Int("llm.total_tokens", result.Usage.TotalTokens),
+			attribute.Int("llm_prompt_tokens", result.Usage.PromptTokens),
+			attribute.Int("llm_completion_tokens", result.Usage.CompletionTokens),
+			attribute.Int("llm_total_tokens", result.Usage.TotalTokens),
 		)
+	} else {
+		span.SetAttributes(attribute.Bool("usage_missing", true))
 	}
-	return out, nil
 }
 
 func (p *OpenAIProvider) resolveTemperature() float64 {
@@ -183,18 +181,6 @@ func (p *OpenAIProvider) resolveTemperature() float64 {
 		}
 	}
 	return t
-}
-
-func parseOnlyTemperature(errMsg string) (float64, bool) {
-	m := onlyTemperatureRe.FindStringSubmatch(errMsg)
-	if len(m) != 2 {
-		return 0, false
-	}
-	f, err := strconv.ParseFloat(m[1], 64)
-	if err != nil {
-		return 0, false
-	}
-	return f, true
 }
 
 func (p *OpenAIProvider) doChatCompletion(ctx context.Context, reqBody openAIRequest) (string, []byte, openAIResponse, error) {

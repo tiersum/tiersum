@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/tiersum/tiersum/internal/client"
@@ -88,11 +89,17 @@ func (p *OllamaProvider) Generate(ctx context.Context, messages []client.LLMMess
 
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/api/chat", bytes.NewBuffer(jsonBody))
 	if err != nil {
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 
@@ -100,6 +107,9 @@ func (p *OllamaProvider) Generate(ctx context.Context, messages []client.LLMMess
 
 	resp, err := p.client.Do(req)
 	if err != nil {
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 	defer resp.Body.Close()
@@ -108,19 +118,26 @@ func (p *OllamaProvider) Generate(ctx context.Context, messages []client.LLMMess
 	if resp.StatusCode != http.StatusOK {
 		var errBody bytes.Buffer
 		_, _ = errBody.ReadFrom(resp.Body)
-		return "", fmt.Errorf("ollama api error: status=%d, body=%s", resp.StatusCode, errBody.String())
+		err := fmt.Errorf("ollama api error: status=%d, body=%s", resp.StatusCode, errBody.String())
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
 	}
 
 	var result ollamaChatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
 
 	if result.PromptEvalCount > 0 && result.EvalCount > 0 {
 		span.SetAttributes(
-			attribute.Int("llm.prompt_tokens", result.PromptEvalCount),
-			attribute.Int("llm.completion_tokens", result.EvalCount),
-			attribute.Int("llm.total_tokens", result.PromptEvalCount+result.EvalCount),
+			attribute.Int("llm_prompt_tokens", result.PromptEvalCount),
+			attribute.Int("llm_completion_tokens", result.EvalCount),
+			attribute.Int("llm_total_tokens", result.PromptEvalCount+result.EvalCount),
 		)
 	} else {
 		inputText := ""
@@ -128,8 +145,8 @@ func (p *OllamaProvider) Generate(ctx context.Context, messages []client.LLMMess
 			inputText += m.Content
 		}
 		span.SetAttributes(
-			attribute.Int("llm.estimated_prompt_tokens", roughTokenCount(inputText)),
-			attribute.Int("llm.estimated_completion_tokens", roughTokenCount(result.Message.Content)),
+			attribute.Int("llm_estimated_prompt_tokens", roughTokenCount(inputText)),
+			attribute.Int("llm_estimated_completion_tokens", roughTokenCount(result.Message.Content)),
 		)
 	}
 
@@ -137,7 +154,11 @@ func (p *OllamaProvider) Generate(ctx context.Context, messages []client.LLMMess
 		return result.Message.Content, nil
 	}
 
-	return "", fmt.Errorf("no response from Ollama")
+	err = fmt.Errorf("no response from Ollama")
+	span.SetAttributes(attribute.String("error_message", err.Error()))
+	span.RecordError(err)
+	span.SetStatus(codes.Error, err.Error())
+	return "", err
 }
 
 func roughTokenCount(text string) int {

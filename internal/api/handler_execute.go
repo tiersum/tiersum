@@ -148,7 +148,7 @@ func (h *Handler) ExecuteProgressiveQuery(ctx context.Context, req types.Progres
 		return http.StatusServiceUnavailable, gin.H{"error": "query service not available"}
 	}
 	if req.MaxResults == 0 {
-		req.MaxResults = 100
+		req.MaxResults = 15
 	}
 	response, err := h.QueryService.ProgressiveQuery(ctx, req)
 	if telemetry.GlobalTracerActive() {

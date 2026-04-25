@@ -109,8 +109,8 @@ func (s *Scheduler) executeJob(job Job) {
 	if telemetry.GlobalTracerActive() {
 		tr := otel.Tracer("github.com/tiersum/tiersum/job")
 		ctx, span := tr.Start(ctx, "job."+job.Name(), trace.WithSpanKind(trace.SpanKindInternal))
-		span.SetAttributes(attribute.String("job.name", job.Name()))
-		span.SetAttributes(attribute.String("job.interval", job.Interval().String()))
+		span.SetAttributes(attribute.String("job_name", job.Name()))
+		span.SetAttributes(attribute.String("job_interval", job.Interval().String()))
 		err := job.Execute(ctx)
 		if err != nil {
 			span.RecordError(err)

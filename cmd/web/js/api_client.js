@@ -253,7 +253,7 @@ export const apiClient = {
     promoteDocument: (id) => apiClient.request(`/bff/v1/documents/${id}/promote`, { method: 'POST', body: '{}' }),
 
     progressiveQuery: (question, options = {}) => {
-        const max = options.max_results != null ? options.max_results : 100;
+        const max = options.max_results != null ? options.max_results : 15;
         const payload = { question, max_results: max };
         let path = '/bff/v1/query/progressive';
         if (options.trace) {
