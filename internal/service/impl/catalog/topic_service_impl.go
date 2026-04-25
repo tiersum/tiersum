@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
@@ -33,6 +36,10 @@ type topicService struct {
 }
 
 func (s *topicService) RegroupTagsIfNeeded(ctx context.Context) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "RegroupTagsIfNeeded", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	shouldRefresh, err := s.ShouldRefresh(ctx)
 	if err != nil {
 		return err
@@ -44,6 +51,10 @@ func (s *topicService) RegroupTagsIfNeeded(ctx context.Context) error {
 }
 
 func (s *topicService) RegroupTags(ctx context.Context) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "RegroupTags", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	tags, err := s.tagRepo.List(ctx)
 	if err != nil {
 		return fmt.Errorf("list catalog tags: %w", err)
@@ -85,6 +96,10 @@ func (s *topicService) RegroupTags(ctx context.Context) error {
 }
 
 func (s *topicService) ShouldRefresh(ctx context.Context) (bool, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "ShouldRefresh", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	currentCount, err := s.tagRepo.GetCount(ctx)
 	if err != nil {
 		return false, fmt.Errorf("get tag count: %w", err)
@@ -102,6 +117,10 @@ func (s *topicService) ShouldRefresh(ctx context.Context) (bool, error) {
 }
 
 func (s *topicService) ListTopics(ctx context.Context) ([]types.Topic, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "ListTopics", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	return s.topicRepo.List(ctx)
 }
 

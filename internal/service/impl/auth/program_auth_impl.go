@@ -7,6 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 )
@@ -31,6 +35,10 @@ type programAuth struct {
 }
 
 func (s *programAuth) IsSystemInitialized(ctx context.Context) (bool, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/auth")
+	ctx, span := tr.Start(ctx, "IsSystemInitialized", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	st, err := s.state.Get(ctx)
 	if err != nil {
 		return false, err
@@ -39,6 +47,10 @@ func (s *programAuth) IsSystemInitialized(ctx context.Context) (bool, error) {
 }
 
 func (s *programAuth) ValidateAPIKey(ctx context.Context, bearerToken string) (*service.APIKeyPrincipal, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/auth")
+	ctx, span := tr.Start(ctx, "ValidateAPIKey", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	bearerToken = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(bearerToken), "Bearer "))
 	if bearerToken == "" {
 		return nil, service.ErrAuthInvalidAPIKey
@@ -69,6 +81,12 @@ func (s *programAuth) APIKeyMeetsScope(principal *service.APIKeyPrincipal, requi
 }
 
 func (s *programAuth) RecordAPIKeyUse(ctx context.Context, keyID, method, path, clientIP string) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/auth")
+	ctx, span := tr.Start(ctx, "RecordAPIKeyUse", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("method", method))
+	span.SetAttributes(attribute.String("path", path))
+
 	now := time.Now().UTC()
 	if err := s.audit.Insert(ctx, keyID, method, path, clientIP, now); err != nil {
 		return err

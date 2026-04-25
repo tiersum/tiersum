@@ -1,7 +1,6 @@
 package types
 
 import (
-	"regexp"
 	"strings"
 	"time"
 )
@@ -50,12 +49,10 @@ type Chapter struct {
 
 // ChapterInfo represents a chapter/section in a document
 type ChapterInfo struct {
-	Title       string `json:"title"`        // Chapter title
-	Level       int    `json:"level"`        // Header level (1=#, 2=##, 3=###)
-	Summary     string `json:"summary"`      // Chapter summary
-	Content     string `json:"content"`      // Chapter original content
-	StartOffset int    `json:"start_offset"` // Start position in document
-	EndOffset   int    `json:"end_offset"`   // End position in document
+	Title   string `json:"title"`   // Chapter title
+	Level   int    `json:"level"`   // Header level (1=#, 2=##, 3=###)
+	Summary string `json:"summary"` // Chapter summary
+	Content string `json:"content"` // Chapter original content
 }
 
 // DocumentAnalysisResult holds LLM analysis results for a document
@@ -140,48 +137,6 @@ func (r CreateDocumentRequest) EffectiveIngestMode() string {
 		return DocumentIngestModeHot
 	}
 	return DocumentIngestModeHot
-}
-
-// ExtractKeywords extracts keywords from content using simple regex patterns
-// Returns lowercase words, limited to maxKeywords.
-// Supports English (ASCII letters, min 5 chars) and CJK (Han ideographs, min 2 chars).
-func ExtractKeywords(content string, maxKeywords int) []string {
-	re := regexp.MustCompile(`[a-zA-Z]{5,}|\p{Han}{2,}`)
-	matches := re.FindAllString(content, -1)
-
-	// Use map to deduplicate and count frequency
-	wordFreq := make(map[string]int)
-	for _, word := range matches {
-		word = strings.ToLower(word)
-		wordFreq[word]++
-	}
-
-	// Convert to slice and sort by frequency (simple approach)
-	type wordCount struct {
-		word  string
-		count int
-	}
-	counts := make([]wordCount, 0, len(wordFreq))
-	for word, count := range wordFreq {
-		counts = append(counts, wordCount{word, count})
-	}
-
-	// Sort by frequency (higher first) - simple bubble sort for small lists
-	for i := 0; i < len(counts); i++ {
-		for j := i + 1; j < len(counts); j++ {
-			if counts[j].count > counts[i].count {
-				counts[i], counts[j] = counts[j], counts[i]
-			}
-		}
-	}
-
-	// Take top keywords
-	result := make([]string, 0, maxKeywords)
-	for i := 0; i < len(counts) && i < maxKeywords; i++ {
-		result = append(result, counts[i].word)
-	}
-
-	return result
 }
 
 // DocumentStatusCounts aggregates document rows by hot/cold/warming status (full-table SQL aggregate).

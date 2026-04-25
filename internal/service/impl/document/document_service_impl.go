@@ -8,6 +8,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/config"
@@ -47,6 +50,14 @@ type documentService struct {
 }
 
 func (s *documentService) CreateDocument(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "CreateDocument", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("title", req.Title))
+	span.SetAttributes(attribute.String("ingest_mode", req.IngestMode))
+	span.SetAttributes(attribute.Bool("force_hot", req.ForceHot))
+	span.SetAttributes(attribute.Int("content_len", len(req.Content)))
+
 	if s.docs == nil {
 		return nil, errors.New("document repository not configured")
 	}
@@ -247,6 +258,11 @@ func (s *documentService) syncCatalogTags(ctx context.Context, tagNames []string
 }
 
 func (s *documentService) GetDocument(ctx context.Context, id string) (*types.Document, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "GetDocument", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", id))
+
 	if s.docs == nil {
 		return nil, errors.New("document repository not configured")
 	}
@@ -254,6 +270,10 @@ func (s *documentService) GetDocument(ctx context.Context, id string) (*types.Do
 }
 
 func (s *documentService) CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "CountDocumentsByStatus", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	if s.docs == nil {
 		return types.DocumentStatusCounts{}, errors.New("document repository not configured")
 	}
@@ -261,6 +281,11 @@ func (s *documentService) CountDocumentsByStatus(ctx context.Context) (types.Doc
 }
 
 func (s *documentService) ListDocuments(ctx context.Context, limit int) ([]types.Document, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "ListDocuments", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.Int("limit", limit))
+
 	if limit <= 0 {
 		limit = 200
 	}
@@ -281,6 +306,12 @@ func (s *documentService) ListDocuments(ctx context.Context, limit int) ([]types
 }
 
 func (s *documentService) ListHotDocumentsWithSummariesByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "ListHotDocumentsWithSummariesByTags", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.Int("tag_count", len(tags)))
+	span.SetAttributes(attribute.Int("limit", limit))
+
 	if s.docs == nil {
 		return nil, errors.New("document repository not configured")
 	}

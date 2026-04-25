@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/storage"
@@ -33,6 +36,12 @@ func (m *chapterMaterializer) PersistAnalysis(ctx context.Context, doc *types.Do
 	if doc == nil || analysis == nil {
 		return nil
 	}
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "PersistAnalysis", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", doc.ID))
+	span.SetAttributes(attribute.Int("chapter_count", len(analysis.Chapters)))
+	span.SetAttributes(attribute.Int("tag_count", len(analysis.Tags)))
 	if m.docRepo != nil {
 		if err := m.docRepo.UpdateSummary(ctx, doc.ID, analysis.Summary); err != nil {
 			return fmt.Errorf("update document summary: %w", err)

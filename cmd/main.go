@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -343,11 +342,6 @@ func staticContentType(path string) string {
 	default:
 		return "application/octet-stream"
 	}
-}
-
-// WebFS returns the embedded filesystem for the web UI assets.
-func WebFS() fs.FS {
-	return webFS
 }
 
 // startServer starts the HTTP server with graceful shutdown

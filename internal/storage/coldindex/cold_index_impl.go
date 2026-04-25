@@ -20,6 +20,9 @@ import (
 	"github.com/blevesearch/bleve/v2/registry"
 	"github.com/coder/hnsw"
 	"github.com/yanyiwu/gojieba"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/storage"
@@ -398,6 +401,12 @@ func createIndexMapping() (mapping.IndexMapping, error) {
 
 // AddDocument indexes a cold document (implementation splits body and assigns vectors internally).
 func (idx *Index) AddDocument(ctx context.Context, doc *types.Document) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/storage/coldindex")
+	ctx, span := tr.Start(ctx, "AddDocument", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", doc.ID))
+	span.SetAttributes(attribute.Int("content_len", len(doc.Content)))
+
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
@@ -491,6 +500,12 @@ func scoredToColdHits(rs []scoredChapter) []storage.ColdIndexHit {
 
 // Search ranks matches for the query string.
 func (idx *Index) Search(ctx context.Context, queryText string, topK int) ([]storage.ColdIndexHit, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/storage/coldindex")
+	ctx, span := tr.Start(ctx, "Search", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", queryText))
+	span.SetAttributes(attribute.Int("topK", topK))
+
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -505,11 +520,17 @@ func (idx *Index) Search(ctx context.Context, queryText string, topK int) ([]sto
 	if err != nil {
 		return nil, err
 	}
+	span.SetAttributes(attribute.Int("results", len(raw)))
 	return scoredToColdHits(raw), nil
 }
 
 // searchWithBleve runs the text index over indexed cold chapters.
 func (idx *Index) searchWithBleve(queryText string, topK int) ([]scoredChapter, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/storage/coldindex")
+	_, span := tr.Start(context.Background(), "searchWithBleve", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.Int("topK", topK))
+
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
@@ -540,6 +561,11 @@ func (idx *Index) searchWithBleve(queryText string, topK int) ([]scoredChapter, 
 
 // searchWithVector runs similarity search over chapter embeddings.
 func (idx *Index) searchWithVector(queryEmbedding []float32, topK int) ([]scoredChapter, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/storage/coldindex")
+	_, span := tr.Start(context.Background(), "searchWithVector", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.Int("topK", topK))
+
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
@@ -579,6 +605,11 @@ func (idx *Index) searchWithVector(queryEmbedding []float32, topK int) ([]scored
 
 // hybridSearch merges text-index and vector hits, deduplicated by chapter path.
 func (idx *Index) hybridSearch(queryText string, queryEmbedding []float32, topK int) ([]scoredChapter, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/storage/coldindex")
+	_, span := tr.Start(context.Background(), "hybridSearch", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.Int("topK", topK))
+
 	recall := idx.branchRecallSize(topK)
 
 	bm25Results, err := idx.searchWithBleve(queryText, recall)
@@ -675,6 +706,12 @@ func (idx *Index) MarkdownChapters(docID, title, markdown string) []types.Chapte
 // AddChapter indexes a single pre-split cold chapter (embedding, Bleve, HNSW).
 // The caller must hold no lock and must call RemoveDocument first when replacing a document's chapters.
 func (idx *Index) AddChapter(ctx context.Context, docID, path, title, content string) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/storage/coldindex")
+	ctx, span := tr.Start(ctx, "AddChapter", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", docID))
+	span.SetAttributes(attribute.String("path", path))
+
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
@@ -704,6 +741,11 @@ func (idx *Index) AddChapter(ctx context.Context, docID, path, title, content st
 
 // RemoveDocument removes all chapters for a cold document from the index.
 func (idx *Index) RemoveDocument(docID string) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/storage/coldindex")
+	_, span := tr.Start(context.Background(), "RemoveDocument", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", docID))
+
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	return idx.removeChaptersForDocLocked(docID)

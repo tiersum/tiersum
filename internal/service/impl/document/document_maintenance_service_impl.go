@@ -6,6 +6,9 @@ import (
 	"math"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/config"
@@ -51,6 +54,10 @@ type documentMaintenanceService struct {
 }
 
 func (s *documentMaintenanceService) RunColdPromotionSweep(ctx context.Context) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "RunColdPromotionSweep", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	start := time.Now()
 	s.logger.Info("running document promotion job")
 
@@ -83,6 +90,11 @@ func (s *documentMaintenanceService) RunColdPromotionSweep(ctx context.Context) 
 }
 
 func (s *documentMaintenanceService) PromoteColdDocumentByID(ctx context.Context, docID string) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "PromoteColdDocumentByID", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", docID))
+
 	doc, err := s.docRepo.GetByID(ctx, docID)
 	if err != nil {
 		return err
@@ -98,6 +110,11 @@ func (s *documentMaintenanceService) PromoteColdDocumentByID(ctx context.Context
 }
 
 func (s *documentMaintenanceService) ManualPromoteColdDocument(ctx context.Context, docID string) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "ManualPromoteColdDocument", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", docID))
+
 	doc, err := s.docRepo.GetByID(ctx, docID)
 	if err != nil {
 		return fmt.Errorf("get document: %w", err)
@@ -112,6 +129,12 @@ func (s *documentMaintenanceService) ManualPromoteColdDocument(ctx context.Conte
 }
 
 func (s *documentMaintenanceService) promoteDocument(ctx context.Context, doc *types.Document) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "promoteDocument", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", doc.ID))
+	span.SetAttributes(attribute.String("title", doc.Title))
+
 	s.logger.Info("promoting document to hot", zap.String("doc_id", doc.ID), zap.String("title", doc.Title))
 
 	if err := s.docRepo.UpdateStatus(ctx, doc.ID, types.DocStatusWarming); err != nil {
@@ -143,6 +166,10 @@ func (s *documentMaintenanceService) promoteDocument(ctx context.Context, doc *t
 }
 
 func (s *documentMaintenanceService) RecalculateDocumentHotScores(ctx context.Context) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "RecalculateDocumentHotScores", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	s.logger.Info("running hot score update job")
 	docs, err := s.docRepo.ListAll(ctx, 10000)
 	if err != nil {
@@ -166,6 +193,10 @@ func (s *documentMaintenanceService) RecalculateDocumentHotScores(ctx context.Co
 }
 
 func (s *documentMaintenanceService) RefreshColdIndex(ctx context.Context) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "RefreshColdIndex", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	if s.coldIndex == nil || s.chapterRepo == nil {
 		return nil
 	}

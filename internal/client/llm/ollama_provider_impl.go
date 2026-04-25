@@ -10,6 +10,9 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/tiersum/tiersum/internal/client"
 )
@@ -60,6 +63,13 @@ type ollamaChatResponse struct {
 
 // Generate implements ILLMProvider.Generate using Ollama's /api/chat endpoint.
 func (p *OllamaProvider) Generate(ctx context.Context, messages []client.LLMMessage, maxTokens int) (string, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/client/llm")
+	ctx, span := tr.Start(ctx, "OllamaProvider.Generate", trace.WithSpanKind(trace.SpanKindClient))
+	defer span.End()
+	span.SetAttributes(attribute.String("model", p.model))
+	span.SetAttributes(attribute.Int("max_tokens", maxTokens))
+	span.SetAttributes(attribute.Int("messages", len(messages)))
+
 	msgs := make([]ollamaChatMessage, len(messages))
 	for i, m := range messages {
 		msgs[i] = ollamaChatMessage{Role: string(m.Role), Content: m.Content}

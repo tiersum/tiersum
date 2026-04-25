@@ -8,6 +8,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
@@ -38,6 +41,12 @@ type documentAnalyzer struct {
 // If the content exceeds the LLM input limit, it returns an error so callers can
 // fall back to cold-index handling.
 func (a *documentAnalyzer) GenerateAnalysis(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "GenerateAnalysis", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("title", title))
+	span.SetAttributes(attribute.Int("content_len", len(content)))
+
 	if a.provider == nil {
 		return nil, fmt.Errorf("llm provider not configured")
 	}

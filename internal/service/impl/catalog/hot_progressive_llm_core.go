@@ -8,6 +8,9 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
@@ -49,6 +52,12 @@ func newHotProgressiveLLMCore(provider client.ILLMProvider, logger *zap.Logger, 
 }
 
 func (c *hotProgressiveLLMCore) FilterDocuments(ctx context.Context, query string, docs []types.Document) ([]types.LLMFilterResult, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "FilterDocuments", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", query))
+	span.SetAttributes(attribute.Int("doc_count", len(docs)))
+
 	if len(docs) == 0 {
 		return nil, nil
 	}
@@ -72,6 +81,12 @@ func (c *hotProgressiveLLMCore) FilterDocuments(ctx context.Context, query strin
 }
 
 func (c *hotProgressiveLLMCore) FilterChapters(ctx context.Context, query string, chapters []types.Chapter) ([]types.LLMFilterResult, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "FilterChapters", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", query))
+	span.SetAttributes(attribute.Int("chapter_count", len(chapters)))
+
 	if len(chapters) == 0 {
 		return nil, nil
 	}
@@ -99,6 +114,12 @@ func (c *hotProgressiveLLMCore) FilterChapters(ctx context.Context, query string
 }
 
 func (c *hotProgressiveLLMCore) FilterTopicsByQuery(ctx context.Context, query string, topics []types.Topic) ([]types.LLMFilterResult, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "FilterTopicsByQuery", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", query))
+	span.SetAttributes(attribute.Int("topic_count", len(topics)))
+
 	if len(topics) == 0 {
 		return nil, nil
 	}
@@ -122,6 +143,12 @@ func (c *hotProgressiveLLMCore) FilterTopicsByQuery(ctx context.Context, query s
 }
 
 func (c *hotProgressiveLLMCore) FilterTagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "FilterTagsByQuery", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", query))
+	span.SetAttributes(attribute.Int("tag_count", len(tags)))
+
 	if len(tags) == 0 {
 		return nil, nil
 	}

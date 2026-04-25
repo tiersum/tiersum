@@ -6,6 +6,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/tiersum/tiersum/internal/telemetry"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -101,6 +105,23 @@ func (s *Scheduler) executeJob(job Job) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	if telemetry.GlobalTracerActive() {
+		tr := otel.Tracer("github.com/tiersum/tiersum/job")
+		ctx, span := tr.Start(ctx, "job."+job.Name(), trace.WithSpanKind(trace.SpanKindInternal))
+		span.SetAttributes(attribute.String("job.name", job.Name()))
+		span.SetAttributes(attribute.String("job.interval", job.Interval().String()))
+		err := job.Execute(ctx)
+		if err != nil {
+			span.RecordError(err)
+			span.SetAttributes(attribute.Bool("error", true))
+			s.logger.Error("job execution failed", zap.String("name", job.Name()), zap.Error(err))
+		} else {
+			s.logger.Debug("job completed", zap.String("name", job.Name()))
+		}
+		span.End()
+		return
+	}
 
 	if err := job.Execute(ctx); err != nil {
 		s.logger.Error("job execution failed", zap.String("name", job.Name()), zap.Error(err))

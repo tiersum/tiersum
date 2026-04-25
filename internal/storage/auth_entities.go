@@ -91,12 +91,4 @@ type APIKey struct {
 	CreatedAt       time.Time
 }
 
-// APIKeyAuditRow is one programmatic API call audit entry.
-type APIKeyAuditRow struct {
-	ID       int64
-	APIKeyID string
-	Method   string
-	Path     string
-	ClientIP string
-	CalledAt time.Time
-}
+

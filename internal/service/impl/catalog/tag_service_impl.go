@@ -3,6 +3,10 @@ package catalog
 import (
 	"context"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/tiersum/tiersum/internal/service"
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/pkg/types"
@@ -18,6 +22,12 @@ type tagService struct {
 }
 
 func (s *tagService) ListTags(ctx context.Context, topicIDs []string, byTopicLimit int, listAllCap int) ([]types.Tag, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "ListTags", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.Int("topic_ids", len(topicIDs)))
+	span.SetAttributes(attribute.Int("limit", byTopicLimit))
+
 	if len(topicIDs) > 0 {
 		if byTopicLimit <= 0 {
 			byTopicLimit = 100
