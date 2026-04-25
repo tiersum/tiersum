@@ -90,5 +90,3 @@ type APIKey struct {
 	LastUsedIP      string
 	CreatedAt       time.Time
 }
-
-

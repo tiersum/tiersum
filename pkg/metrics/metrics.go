@@ -117,9 +117,9 @@ const (
 
 // Path constants for queries
 const (
-	QueryPathHot     = "hot"
-	QueryPathCold    = "cold"
-	PathAnswerGen    = "answer_gen"
+	QueryPathHot  = "hot"
+	QueryPathCold = "cold"
+	PathAnswerGen = "answer_gen"
 )
 
 // RecordLLMTokens records an LLM call with input and output token counts
