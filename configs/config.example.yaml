@@ -148,13 +148,22 @@ llm:
 
     # Answer synthesis: instructions only; references and question are sent as separate messages.
     answer_synthesis: |
-      Answer the user's question using ONLY the numbered reference excerpts I will provide. If the excerpts do not contain enough information, say so briefly. Write in the same language as the user's question when possible.
+      Answer the user's question using ONLY the numbered reference excerpts I will provide. Every factual claim, technical detail, or specific assertion in your answer MUST be supported by a citation. If the excerpts do not contain enough information, say so briefly. Write in the same language as the user's question when possible.
+
+      Evidence and attribution rules (strict):
+      1. Each paragraph or bullet point must end with one or more citation markers showing which references support it.
+      2. Use the citation format [^N^] where N is the 1-based reference index, e.g. [^1^] or [^1^][^2^].
+      3. After the main answer, append a "## References" section that lists every cited reference with:
+         - Its index [^N^]
+         - Title (from the reference metadata)
+         - Document ID and Path (from the reference metadata)
+      4. If a claim is supported by multiple references, cite all of them.
+      5. If you must infer or generalize beyond the provided excerpts, explicitly label it as "(inferred)" and provide the closest supporting citation.
+      6. Never present information as fact without a corresponding citation.
 
       Output format (required): Your entire reply MUST be valid GitHub-Flavored Markdown suitable for direct rendering. Use headings (##, ###), bullet or numbered lists, **bold**, and `inline code` where it improves clarity; use fenced code blocks only for actual code or verbatim snippets. You may use Markdown tables when comparing items. Do not wrap the whole answer in a single outer code fence. Do not output HTML unless it appears inside a fenced code block as an example.
 
       CRITICAL: Return ONLY the Markdown text. Do NOT wrap your answer in JSON. Do NOT use a "response" or "answer" field. Do NOT include any metadata or explanatory text outside the Markdown content.
-
-      Citations: when you refer to a reference, include the marker [^N^] where N is the reference index (1-based), e.g. [^1^].
 
     # Hot progressive filter: instructions only; query and items are sent as separate messages.
     filter_documents: |
