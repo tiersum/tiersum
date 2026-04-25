@@ -44,7 +44,7 @@ const (
 
 	defaultProgressiveAnswerMaxReferences = 12
 	defaultProgressiveAnswerExcerptBytes  = 3500
-	defaultProgressiveAnswerOutTokens     = 900
+	defaultProgressiveAnswerOutTokens     = 4096
 )
 
 // Progressive-query span attributes use a consistent prefix:

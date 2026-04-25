@@ -238,7 +238,7 @@ query:
   # When false, progressive query does not create extra in-process child spans even if the HTTP trace is sampled. Use in locked-down prod to avoid persisting prompts in traces.
   allow_progressive_debug: true
   # Max completion tokens for the answer (unset: min(llm.*.max_tokens, 900)). Set higher for longer answers.
-  progressive_answer_max_tokens: 0
+  progressive_answer_max_tokens: 4096
   # How many top references (by relevance) to include in the answer prompt (unset: 12, max 30).
   progressive_answer_max_references: 0
   # Max bytes per reference excerpt in that prompt (unset: 3500, max 6000).
