@@ -143,10 +143,10 @@ func (r CreateDocumentRequest) EffectiveIngestMode() string {
 }
 
 // ExtractKeywords extracts keywords from content using simple regex patterns
-// Returns lowercase words with length > 4, limited to maxKeywords
+// Returns lowercase words, limited to maxKeywords.
+// Supports English (ASCII letters, min 5 chars) and CJK (Han ideographs, min 2 chars).
 func ExtractKeywords(content string, maxKeywords int) []string {
-	// Regex to match words with length > 4 (letters only)
-	re := regexp.MustCompile(`[a-zA-Z]{5,}`)
+	re := regexp.MustCompile(`[a-zA-Z]{5,}|\p{Han}{2,}`)
 	matches := re.FindAllString(content, -1)
 
 	// Use map to deduplicate and count frequency

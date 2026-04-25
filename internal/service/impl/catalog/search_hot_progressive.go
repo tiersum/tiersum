@@ -279,34 +279,25 @@ func (s *chapterService) queryAndFilterDocumentsForHotSearch(ctx context.Context
 		return nil, nil
 	}
 
-	var hotDocs, coldDocs []types.Document
+	var hotDocs []types.Document
 	for _, doc := range docs {
 		if doc.Status == types.DocStatusHot || doc.Status == types.DocStatusWarming {
 			hotDocs = append(hotDocs, doc)
-		} else {
-			coldDocs = append(coldDocs, doc)
 		}
 	}
 
-	var filteredDocs []types.Document
+	if len(hotDocs) == 0 {
+		return nil, nil
+	}
 
-	if len(hotDocs) > 0 {
-		hotFiltered, err := s.filterHotDocumentsForHotSearch(ctx, query, hotDocs)
-		if err != nil {
-			if s.logger != nil {
-				s.logger.Warn("LLM document filter failed for hot docs", zap.Error(err))
-			}
-			filteredDocs = append(filteredDocs, hotDocs...)
-		} else {
-			filteredDocs = append(filteredDocs, hotFiltered...)
+	filtered, err := s.filterHotDocumentsForHotSearch(ctx, query, hotDocs)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("LLM document filter failed for hot docs", zap.Error(err))
 		}
+		return hotDocs, nil
 	}
-
-	if len(coldDocs) > 0 {
-		filteredDocs = append(filteredDocs, filterColdDocumentsByKeywords(query, coldDocs)...)
-	}
-
-	return filteredDocs, nil
+	return filtered, nil
 }
 
 func (s *chapterService) filterHotDocumentsForHotSearch(ctx context.Context, query string, docs []types.Document) ([]types.Document, error) {
@@ -332,37 +323,6 @@ func (s *chapterService) filterHotDocumentsForHotSearch(ctx context.Context, que
 	return filteredDocs, nil
 }
 
-func filterColdDocumentsByKeywords(query string, docs []types.Document) []types.Document {
-	keywords := types.ExtractKeywords(query, 10)
-	var filteredDocs []types.Document
-	for _, doc := range docs {
-		if matchesColdDocumentKeywords(doc, keywords) {
-			filteredDocs = append(filteredDocs, doc)
-		}
-	}
-	return filteredDocs
-}
-
-func matchesColdDocumentKeywords(doc types.Document, keywords []string) bool {
-	contentLower := strings.ToLower(doc.Content)
-	titleLower := strings.ToLower(doc.Title)
-	for _, keyword := range keywords {
-		keywordLower := strings.ToLower(keyword)
-		if strings.Contains(titleLower, keywordLower) || strings.Contains(contentLower, keywordLower) {
-			return true
-		}
-	}
-	for _, tag := range doc.Tags {
-		tagLower := strings.ToLower(tag)
-		for _, keyword := range keywords {
-			if strings.Contains(tagLower, strings.ToLower(keyword)) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func (s *chapterService) queryAndFilterChaptersForHotSearch(ctx context.Context, query string, docs []types.Document) ([]types.Chapter, map[string]float64, error) {
 	if len(docs) == 0 {
 		return nil, nil, nil
@@ -370,11 +330,6 @@ func (s *chapterService) queryAndFilterChaptersForHotSearch(ctx context.Context,
 
 	var allChapters []types.Chapter
 	for _, doc := range docs {
-		if doc.Status != types.DocStatusHot && doc.Status != types.DocStatusWarming {
-			ch := createColdPseudoChapter(doc)
-			allChapters = append(allChapters, *ch)
-			continue
-		}
 		chapters, err := s.chapterRepo.ListByDocument(ctx, doc.ID)
 		if err != nil {
 			if s.logger != nil {
@@ -422,17 +377,4 @@ func (s *chapterService) queryAndFilterChaptersForHotSearch(ctx context.Context,
 		}
 	}
 	return filtered, relByPath, nil
-}
-
-func createColdPseudoChapter(doc types.Document) *types.Chapter {
-	return &types.Chapter{
-		ID:         doc.ID + "_cold",
-		DocumentID: doc.ID,
-		Path:       doc.ID + "/full",
-		Title:      doc.Title,
-		Summary:    doc.Content,
-		Content:    doc.Content,
-		CreatedAt:  doc.CreatedAt,
-		UpdatedAt:  doc.UpdatedAt,
-	}
 }

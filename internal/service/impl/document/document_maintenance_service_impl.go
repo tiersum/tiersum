@@ -169,15 +169,20 @@ func (s *documentMaintenanceService) RefreshColdIndex(ctx context.Context) error
 	if s.coldIndex == nil || s.chapterRepo == nil {
 		return nil
 	}
+	start := time.Now()
+	firstRun := s.lastColdRefresh.IsZero()
 	now := time.Now()
 	since := s.lastColdRefresh
-	if since.IsZero() {
-		since = now // first run: skip, startup loads from chapters table
-	}
 	s.lastColdRefresh = now
+
+	s.logger.Info("cold index refresh started",
+		zap.Bool("first_run", firstRun),
+		zap.Time("since", since),
+		zap.Int("chapter_count_before", s.coldIndex.ApproxEntries()))
 
 	// Phase 1: Process tombstone entries — remove deleted documents from the cold index.
 	// s.lastColdRefresh advances on each run, so the same tombstone is never processed twice.
+	tombstoneCount := 0
 	if s.deletedDocRepo != nil {
 		tombstones, err := s.deletedDocRepo.ListSince(ctx, since, 5000)
 		if err != nil {
@@ -189,6 +194,7 @@ func (s *documentMaintenanceService) RefreshColdIndex(ctx context.Context) error
 				s.logger.Warn("remove deleted doc from cold index", zap.String("doc_id", t.DocumentID), zap.Error(err))
 			}
 		}
+		tombstoneCount = len(tombstones)
 	}
 
 	// Phase 2: Index new/updated cold documents from the chapters table.
@@ -197,10 +203,18 @@ func (s *documentMaintenanceService) RefreshColdIndex(ctx context.Context) error
 		return fmt.Errorf("list cold docs: %w", err)
 	}
 
+	s.logger.Info("cold index refresh phase 2",
+		zap.Int("cold_docs_total", len(coldDocs)),
+		zap.Int("tombstones", tombstoneCount))
+
+	skipped := 0
+	indexed := 0
+	chapterCount := 0
 	for i := range coldDocs {
 		doc := &coldDocs[i]
 
 		if doc.CreatedAt.Before(since) && doc.UpdatedAt.Before(since) {
+			skipped++
 			continue
 		}
 		if err := s.coldIndex.RemoveDocument(doc.ID); err != nil {
@@ -211,6 +225,10 @@ func (s *documentMaintenanceService) RefreshColdIndex(ctx context.Context) error
 		if err != nil {
 			return fmt.Errorf("list chapters for %s: %w", doc.ID, err)
 		}
+		if len(chapters) == 0 {
+			s.logger.Warn("cold document has no chapters", zap.String("doc_id", doc.ID),
+				zap.Time("created_at", doc.CreatedAt), zap.Time("updated_at", doc.UpdatedAt))
+		}
 		for _, ch := range chapters {
 			if err := s.coldIndex.AddChapter(ctx, doc.ID, ch.Path, ch.Title, ch.Content); err != nil {
 				s.logger.Error("add chapter to cold index",
@@ -219,7 +237,16 @@ func (s *documentMaintenanceService) RefreshColdIndex(ctx context.Context) error
 					zap.Error(err))
 			}
 		}
+		indexed++
+		chapterCount += len(chapters)
 	}
+
+	s.logger.Info("cold index refresh completed",
+		zap.Int("processed", indexed),
+		zap.Int("skipped", skipped),
+		zap.Int("chapters_added", chapterCount),
+		zap.Int("chapter_count_after", s.coldIndex.ApproxEntries()),
+		zap.Duration("duration", time.Since(start)))
 
 	return nil
 }
