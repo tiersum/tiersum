@@ -406,7 +406,7 @@ func (s *queryService) generateProgressiveAnswer(ctx context.Context, question s
 	ans, err := s.llm.Generate(ctx, msgs, maxTok)
 	if err != nil {
 		s.logger.Warn("progressive query: answer generation failed", zap.Error(err))
-		return ""
+		return "AI 应答生成失败，请参考右侧召回的章节。"
 	}
 	ans = strings.TrimSpace(ans)
 	var inputText strings.Builder
