@@ -47,6 +47,10 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 | **Modern Web UI** | Vue 3 CDN frontend with Tailwind + DaisyUI |
 | **Markdown-Native** | Optimized for `.md`; extensible to other formats |
 
+## Search Interface Preview
+
+![TierSum Search Page](assets/page_search_01.png)
+
 ---
 
 ## Quick Start

@@ -47,6 +47,10 @@
 | **Web 界面** | Vue 3 CDN + Tailwind + DaisyUI 暗色主题 |
 | **Markdown 优先** | 针对 `.md` 优化；可扩展其它格式 |
 
+## 搜索界面预览
+
+![TierSum 搜索页](assets/page_search_01.png)
+
 ---
 
 ## 快速开始
