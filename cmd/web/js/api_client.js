@@ -19,10 +19,11 @@ export function canAccessObservabilityBFF(role) {
     return isBrowserAdminRole(role);
 }
 
+/** Redirect helper: never force a page reload (avoids races with Vue Router guards).
+ *  Auth flow is driven by router.beforeEach in main.js; this helper only logs. */
 function redirectAuth(endpoint, status, errBody) {
-    const path = typeof window !== 'undefined' ? window.location.pathname : '';
     if (status === 403 && errBody && errBody.code === 'SYSTEM_NOT_INITIALIZED') {
-        if (!path.startsWith('/init')) window.location.assign('/init');
+        console.warn('System not initialized; router guard will redirect to /init');
         return;
     }
     if (status === 401 && endpoint.startsWith('/bff/v1')) {
@@ -34,7 +35,7 @@ function redirectAuth(endpoint, status, errBody) {
             '/bff/v1/auth/logout'
         ];
         if (open.some((p) => endpoint.startsWith(p))) return;
-        if (!path.startsWith('/login') && !path.startsWith('/init') && !path.startsWith('/site/')) window.location.assign('/login');
+        console.warn('Unauthorized BFF request; router guard will redirect to /login');
     }
 }
 

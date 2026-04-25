@@ -8,7 +8,6 @@ import { DocumentCreatePage } from './pages/DocumentCreatePage.js';
 import { DocumentDetailPage } from './pages/DocumentDetailPage.js';
 import { LibraryPage } from './pages/LibraryPage.js';
 import { ObservabilityPage } from './pages/ObservabilityPage.js';
-import { MarkdownPage } from './pages/MarkdownPage.js';
 import { InitPage } from './pages/InitPage.js';
 import { LoginPage } from './pages/LoginPage.js';
 import { SettingsPage } from './pages/SettingsPage.js';
@@ -22,19 +21,18 @@ const routes = [
     { path: '/settings', component: SettingsPage },
     { path: '/admin/config', component: AdminConfigPage },
     { path: '/admin', component: AdminPage },
-    { path: '/', redirect: '/site/index' },
+    { path: '/', redirect: '/search' },
     { path: '/search', component: SearchPage },
     { path: '/library', component: LibraryPage },
     { path: '/tags', redirect: '/library' },
     { path: '/docs/new', component: DocumentCreatePage },
     { path: '/docs/:id([a-zA-Z0-9-]+)', component: DocumentDetailPage, props: true },
-    { path: '/site/:path(index|about|features|documentation)', component: MarkdownPage, props: true },
     { path: '/observability', component: ObservabilityPage },
     { path: '/monitoring', redirect: '/observability' }
 ];
 
 const router = createRouter({
-    history: createWebHistory(),
+    history: createWebHistory('/ui/'),
     routes
 });
 
@@ -55,26 +53,22 @@ router.beforeEach(async (to, _from, next) => {
         return;
     }
     if (to.path === '/init') {
-        next('/');
+        next('/search');
         return;
     }
     if (to.path === '/login') {
         next();
         return;
     }
-    // Public site pages (no session) once the system is initialized.
-    if (to.path.startsWith('/site/')) {
-        next();
-        return;
-    }
+    // All management UI pages require login.
     try {
         const me = await apiClient.getProfile();
         if (to.path.startsWith('/admin') && !isBrowserAdminRole(me.role)) {
-            next('/');
+            next('/search');
             return;
         }
         if ((to.path === '/observability' || to.path.startsWith('/monitoring')) && !isBrowserAdminRole(me.role)) {
-            next('/');
+            next('/search');
             return;
         }
         if (to.path === '/docs/new' && isBrowserViewerRole(me.role)) {
