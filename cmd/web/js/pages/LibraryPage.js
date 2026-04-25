@@ -5,8 +5,7 @@ import { DocumentList } from '../components/library/DocumentList.js';
 import {
     BROWSE_ALL,
     BROWSE_TOPIC,
-    filterDocuments,
-    buildCatalogTagNameSet
+    filterDocuments
 } from '../utils/libraryFilters.js';
 
 export const LibraryPage = {
@@ -31,16 +30,12 @@ export const LibraryPage = {
         isViewer() {
             return isBrowserViewerRole(this.profile?.role);
         },
-        catalogTagNameSet() {
-            return buildCatalogTagNameSet(this.tags);
-        },
         filteredDocs() {
             return filterDocuments(this.documents, {
                 browseMode: this.browseMode,
                 searchQuery: this.searchQuery,
                 selectedTopic: this.selectedTopic,
-                selectedCatalogTagName: this.selectedCatalogTagName,
-                catalogTagNameSet: this.catalogTagNameSet
+                selectedCatalogTagName: this.selectedCatalogTagName
             });
         }
     },
@@ -115,15 +110,17 @@ export const LibraryPage = {
         },
         setBrowseMode(mode) {
             this.browseMode = mode;
+            this.searchQuery = '';
+            this.selectedCatalogTagName = null;
             if (mode !== BROWSE_TOPIC) {
                 this.selectedTopic = null;
-                this.selectedCatalogTagName = null;
                 this.tags = [];
             }
         },
         async selectTopic(topic) {
             this.browseMode = BROWSE_TOPIC;
             this.selectedTopic = topic;
+            this.searchQuery = '';
             this.selectedCatalogTagName = null;
             await this.loadTagsForSelectedTopic();
         },
@@ -180,10 +177,10 @@ export const LibraryPage = {
                     <button type="button" class="btn btn-sm btn-ghost" @click="loadData">{{ $t('retry') }}</button>
                 </div>
 
-                <!-- Main content: fixed two-column layout -->
-                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:h-[calc(100vh-260px)]">
+                <!-- Main content: two-column layout with sticky sidebar -->
+                <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
                     <!-- Left: navigation -->
-                    <div class="col-span-12 lg:col-span-3 h-full">
+                    <div class="col-span-12 lg:col-span-3 lg:sticky lg:top-24 lg:self-start">
                         <library-nav
                             :loading="loading"
                             :browse-mode="browseMode"
@@ -198,7 +195,7 @@ export const LibraryPage = {
                     </div>
 
                     <!-- Right: documents -->
-                    <div class="col-span-12 lg:col-span-9 h-full">
+                    <div class="col-span-12 lg:col-span-9">
                         <document-list
                             :loading="loading"
                             :docs="filteredDocs"

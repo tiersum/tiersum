@@ -3,7 +3,7 @@ const BROWSE_COLD = 'cold';
 const BROWSE_UNTAGGED = 'untagged';
 const BROWSE_TOPIC = 'topic';
 
-export function filterDocuments(docs, { browseMode, searchQuery, selectedTopic, selectedCatalogTagName, catalogTagNameSet }) {
+export function filterDocuments(docs, { browseMode, searchQuery, selectedTopic, selectedCatalogTagName }) {
     let list = Array.isArray(docs) ? [...docs] : [];
     const q = (searchQuery || '').trim().toLowerCase();
     if (q) {
@@ -18,13 +18,14 @@ export function filterDocuments(docs, { browseMode, searchQuery, selectedTopic, 
     } else if (browseMode === BROWSE_UNTAGGED) {
         list = list.filter((d) => !d.tags || d.tags.length === 0);
     } else if (browseMode === BROWSE_TOPIC && selectedTopic) {
-        const set = catalogTagNameSet;
+        const tagNames = selectedTopic.tag_names || [];
+        const set = new Set(tagNames.map(String));
         if (selectedCatalogTagName) {
             list = list.filter((d) => d.tags?.includes(selectedCatalogTagName));
         } else if (set.size === 0) {
             list = [];
         } else {
-            list = list.filter((d) => d.tags?.some((dt) => set.has(dt)));
+            list = list.filter((d) => d.tags?.some((dt) => set.has(String(dt))));
         }
     }
     return list;

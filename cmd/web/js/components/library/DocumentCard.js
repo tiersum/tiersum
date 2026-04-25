@@ -14,6 +14,15 @@ export const DocumentCard = {
                 day: 'numeric'
             });
         },
+        stripMarkdown(text) {
+            if (!text) return '';
+            return text
+                .replace(/!\[.*?\]\(.*?\)/g, '')
+                .replace(/\[(.*?)\]\(.*?\)/g, '$1')
+                .replace(/[#*`~>_\-|]/g, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+        },
         onOpen() {
             this.$emit('open', this.doc.id);
         },
@@ -39,7 +48,7 @@ export const DocumentCard = {
                             {{ statusMeta(doc.status).label }}
                         </span>
                     </div>
-                    <p class="text-slate-500 text-sm mb-3 line-clamp-2">{{ doc.content?.substring(0, 120) }}...</p>
+                    <p class="text-slate-500 text-sm mb-3 line-clamp-2">{{ stripMarkdown(doc.content).substring(0, 120) }}...</p>
                     <div class="flex flex-wrap items-center gap-3 text-xs text-slate-500">
                         <span class="inline-flex items-center gap-1">
                             <icon name="calendar" class-name="w-3.5 h-3.5" />
