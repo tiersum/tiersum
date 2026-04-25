@@ -367,14 +367,19 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 		))
 		ansCtx = trace.ContextWithSpan(ansCtx, ansSpan)
 		ansCtx = WithProgressiveDebugTracer(ansCtx, tracer)
-		response.Answer = s.generateProgressiveAnswer(ansCtx, req.Question, mergedResults)
-		if response.Answer != "" {
-			ansSpan.SetAttributes(attribute.String("tier_response_answer", TruncateTraceStr(response.Answer, TraceMaxRespBytes)))
+		response.AnswerFromReferences, response.AnswerFromKnowledge = s.generateProgressiveAnswer(ansCtx, req.Question, mergedResults)
+		response.Answer = response.AnswerFromReferences // backward compatibility
+		if response.AnswerFromReferences != "" {
+			ansSpan.SetAttributes(attribute.String("tier_response_answer", TruncateTraceStr(response.AnswerFromReferences, TraceMaxRespBytes)))
+		}
+		if response.AnswerFromKnowledge != "" {
+			ansSpan.SetAttributes(attribute.String("tier_response_knowledge", TruncateTraceStr(response.AnswerFromKnowledge, 200)))
 		}
 		ansSpan.SetStatus(codes.Ok, "")
 		ansSpan.End()
 	} else {
-		response.Answer = s.generateProgressiveAnswer(ctx, req.Question, mergedResults)
+		response.AnswerFromReferences, response.AnswerFromKnowledge = s.generateProgressiveAnswer(ctx, req.Question, mergedResults)
+		response.Answer = response.AnswerFromReferences // backward compatibility
 	}
 
 	if traceIDStr != "" {
@@ -386,7 +391,7 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 		zap.Int("hot_results", len(hotRes.results)),
 		zap.Int("cold_results", len(coldRes.results)),
 		zap.Int("total_results", len(mergedResults)),
-		zap.Bool("has_answer", response.Answer != ""),
+		zap.Bool("has_answer", response.AnswerFromReferences != ""),
 		zap.String("otel_trace_id", traceIDStr),
 	)
 
@@ -397,16 +402,16 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 	return response, nil
 }
 
-func (s *queryService) generateProgressiveAnswer(ctx context.Context, question string, items []types.QueryItem) string {
+func (s *queryService) generateProgressiveAnswer(ctx context.Context, question string, items []types.QueryItem) (refsAnswer, knowledgeAnswer string) {
 	if s.llm == nil || len(items) == 0 {
-		return ""
+		return "", ""
 	}
 	msgs := buildProgressiveAnswerMessages(s.answerPrompt, question, items)
 	maxTok := progressiveAnswerCompletionMaxTokens()
 	ans, err := s.llm.Generate(ctx, msgs, maxTok)
 	if err != nil {
 		s.logger.Warn("progressive query: answer generation failed", zap.Error(err))
-		return "AI 应答生成失败，请参考右侧召回的章节。"
+		return "AI 应答生成失败，请参考右侧召回的章节。", ""
 	}
 	ans = strings.TrimSpace(ans)
 	var inputText strings.Builder
@@ -414,7 +419,21 @@ func (s *queryService) generateProgressiveAnswer(ctx context.Context, question s
 		inputText.WriteString(m.Content)
 	}
 	metrics.RecordLLMTokens(metrics.PathAnswerGen, estimateQueryTokens(inputText.String()), estimateQueryTokens(ans))
-	return ans
+	return parseDualPartAnswer(ans)
+}
+
+// parseDualPartAnswer splits the LLM output into the evidence-based part and the knowledge supplement.
+// It expects the separator "---PART:KNOWLEDGE---" between the two sections.
+func parseDualPartAnswer(raw string) (refsAnswer, knowledgeAnswer string) {
+	const sep = "---PART:KNOWLEDGE---"
+	idx := strings.Index(raw, sep)
+	if idx == -1 {
+		// No separator found: treat everything as the reference-based answer.
+		return raw, ""
+	}
+	refsAnswer = strings.TrimSpace(raw[:idx])
+	knowledgeAnswer = strings.TrimSpace(raw[idx+len(sep):])
+	return refsAnswer, knowledgeAnswer
 }
 
 func (s *queryService) queryHotPath(ctx context.Context, question string, half int) ([]types.QueryItem, []types.ProgressiveQueryStep, error) {

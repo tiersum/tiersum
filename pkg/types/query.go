@@ -17,9 +17,14 @@ type ProgressiveQueryRequest struct {
 type ProgressiveQueryResponse struct {
 	Question string `json:"question"`
 	// Answer is GitHub-Flavored Markdown from the LLM (prompt requires full reply as renderable Markdown; citations [^N^]).
-	Answer  string                 `json:"answer,omitempty"`
-	Steps   []ProgressiveQueryStep `json:"steps"`
-	Results []QueryItem            `json:"results"`
+	// Deprecated: kept for backward compatibility; use AnswerFromReferences and AnswerFromKnowledge.
+	Answer string `json:"answer,omitempty"`
+	// AnswerFromReferences is the evidence-based answer derived solely from the provided reference excerpts.
+	AnswerFromReferences string `json:"answer_from_references,omitempty"`
+	// AnswerFromKnowledge is the concise supplementary answer from the LLM's own knowledge (≤200 chars).
+	AnswerFromKnowledge string                 `json:"answer_from_knowledge,omitempty"`
+	Steps               []ProgressiveQueryStep `json:"steps"`
+	Results             []QueryItem            `json:"results"`
 	// TraceID is the OpenTelemetry trace id (hex) when the incoming request context carries a recording span (same trace as HTTP middleware when sampled).
 	TraceID string `json:"trace_id,omitempty"`
 }

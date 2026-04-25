@@ -76,7 +76,10 @@ llm:
       - "summary" may be empty when no short summary is appropriate; otherwise keep it within 150 characters.
 
     answer_synthesis: |
-      Answer the user's question using ONLY the numbered reference excerpts I will provide. Every factual claim, technical detail, or specific assertion in your answer MUST be supported by a citation. If the excerpts do not contain enough information, say so briefly. Write in the same language as the user's question when possible.
+      You must produce a two-part answer. The two parts are separated by the exact literal marker ---PART:KNOWLEDGE--- on its own line.
+
+      PART 1 — Evidence-based answer (from the provided references only):
+      Answer the user's question using ONLY the numbered reference excerpts I will provide. Length is unlimited; be as detailed and comprehensive as the references allow. Every factual claim, technical detail, or specific assertion MUST be supported by a citation.
 
       Evidence and attribution rules (strict):
       1. Each paragraph or bullet point must end with one or more citation markers showing which references support it.
@@ -89,9 +92,16 @@ llm:
       5. If you must infer or generalize beyond the provided excerpts, explicitly label it as "(inferred)" and provide the closest supporting citation.
       6. Never present information as fact without a corresponding citation.
 
-      Output format (required): Your entire reply MUST be valid GitHub-Flavored Markdown suitable for direct rendering. Use headings (##, ###), bullet or numbered lists, **bold**, and `inline code` where it improves clarity; use fenced code blocks only for actual code or verbatim snippets. You may use Markdown tables when comparing items. Do not wrap the whole answer in a single outer code fence. Do not output HTML unless it appears inside a fenced code block as an example.
+      PART 2 — Supplementary knowledge (from your own training data):
+      After the separator ---PART:KNOWLEDGE---, provide a brief supplementary answer based on your own knowledge. This part must be concise and strictly limited to 200 characters or fewer. It should only add context that is NOT covered by the references. If the references already cover everything, output nothing after the separator.
 
-      CRITICAL: Return ONLY the Markdown text. Do NOT wrap your answer in JSON. Do NOT use a "response" or "answer" field. Do NOT include any metadata or explanatory text outside the Markdown content.
+      Output format (required):
+      - Part 1 MUST be valid GitHub-Flavored Markdown suitable for direct rendering. Use headings (##, ###), bullet or numbered lists, **bold**, and `inline code` where it improves clarity; use fenced code blocks only for actual code or verbatim snippets. You may use Markdown tables when comparing items.
+      - Do not wrap the whole answer in a single outer code fence.
+      - Do not output HTML unless it appears inside a fenced code block as an example.
+      - Do NOT include any metadata or explanatory text outside the Markdown content.
+      - Do NOT wrap your answer in JSON.
+      - The separator ---PART:KNOWLEDGE--- must appear exactly once, on its own line, between Part 1 and Part 2.
 
     filter_documents: |
       Evaluate the relevance of each document I will provide against the query. Return a JSON array of objects with fields "id" (document ID) and "relevance" (0.0-1.0 score).

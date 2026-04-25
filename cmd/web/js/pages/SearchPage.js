@@ -9,6 +9,8 @@ export const SearchPage = {
             results: [],
             hasSearched: false,
             aiAnswer: '',
+            aiAnswerFromRefs: '',
+            aiAnswerFromKnowledge: '',
             aiLoading: false,
             highlightedRef: null,
             traceDebug: false,
@@ -57,6 +59,8 @@ export const SearchPage = {
             this.aiLoading = true;
             this.hasSearched = true;
             this.aiAnswer = '';
+            this.aiAnswerFromRefs = '';
+            this.aiAnswerFromKnowledge = '';
             this.results = [];
             this.lastTraceID = null;
 
@@ -66,9 +70,11 @@ export const SearchPage = {
                     ...r,
                     docStatus: (r.status && String(r.status).trim()) || 'hot'
                 }));
-                const serverAnswer = (response.answer || '').trim();
-                if (serverAnswer) {
-                    this.aiAnswer = serverAnswer;
+                const refsAnswer = (response.answer_from_references || '').trim();
+                const knowledgeAnswer = (response.answer_from_knowledge || '').trim();
+                if (refsAnswer) {
+                    this.aiAnswerFromRefs = refsAnswer;
+                    this.aiAnswerFromKnowledge = knowledgeAnswer;
                 } else {
                     await this.generateAiAnswerFallback();
                 }
@@ -247,17 +253,32 @@ export const SearchPage = {
                                         {{ $t('searchBasedOnRefs', { count: results.length }) }}
                                     </span>
                                 </div>
-                                <div class="p-6 overflow-y-auto h-[calc(100%-80px)]">
+                                <div class="p-6 overflow-y-auto h-[calc(100%-80px)] space-y-6">
                                     <div v-if="aiLoading" class="space-y-4">
                                         <div class="h-4 bg-slate-800 rounded animate-pulse w-full"></div>
                                         <div class="h-4 bg-slate-800 rounded animate-pulse w-5/6"></div>
                                         <div class="h-4 bg-slate-800 rounded animate-pulse w-4/6"></div>
                                         <div class="h-20 bg-slate-800 rounded animate-pulse w-full mt-4"></div>
                                     </div>
-                                    <div v-else-if="aiAnswer" class="markdown-body max-w-none px-0 py-0 text-[15px] leading-relaxed" v-html="renderMarkdown(aiAnswer)"></div>
-                                    <div v-else class="text-center py-12 text-slate-500">
-                                        <p>{{ $t('searchGenerating') }}</p>
-                                    </div>
+                                    <template v-else>
+                                        <!-- Part 1: Evidence-based answer from references -->
+                                        <div v-if="aiAnswerFromRefs">
+                                            <div class="flex items-center gap-2 mb-3">
+                                                <span class="badge badge-sm badge-primary">{{ $t('searchAnswerFromRefs') }}</span>
+                                            </div>
+                                            <div class="markdown-body max-w-none px-0 py-0 text-[15px] leading-relaxed" v-html="renderMarkdown(aiAnswerFromRefs)"></div>
+                                        </div>
+                                        <!-- Part 2: Supplementary knowledge from LLM -->
+                                        <div v-if="aiAnswerFromKnowledge" class="border-t border-slate-800 pt-4">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <span class="badge badge-sm badge-secondary">{{ $t('searchAnswerFromKnowledge') }}</span>
+                                            </div>
+                                            <div class="text-slate-400 text-sm leading-relaxed">{{ aiAnswerFromKnowledge }}</div>
+                                        </div>
+                                        <div v-if="!aiAnswerFromRefs && !aiAnswerFromKnowledge" class="text-center py-12 text-slate-500">
+                                            <p>{{ $t('searchGenerating') }}</p>
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
                         </div>
