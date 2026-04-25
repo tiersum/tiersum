@@ -250,6 +250,7 @@ export const apiClient = {
     getDocument: (id) => apiClient.request(`/bff/v1/documents/${id}`),
     getDocumentChapters: (id) => apiClient.request(`/bff/v1/documents/${id}/chapters`).then((r) => r.chapters || []),
     createDocument: (data) => apiClient.request('/bff/v1/documents', { method: 'POST', body: JSON.stringify(data) }),
+    promoteDocument: (id) => apiClient.request(`/bff/v1/documents/${id}/promote`, { method: 'POST', body: '{}' }),
 
     progressiveQuery: (question, options = {}) => {
         const max = options.max_results != null ? options.max_results : 100;

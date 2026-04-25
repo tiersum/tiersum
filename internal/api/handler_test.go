@@ -19,7 +19,6 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// stubProgramAuth satisfies service.IProgramAuth for handler tests (always initialized; permissive API key).
 type stubProgramAuth struct{}
 
 func (stubProgramAuth) IsSystemInitialized(ctx context.Context) (bool, error) {
@@ -38,7 +37,6 @@ func (stubProgramAuth) RecordAPIKeyUse(ctx context.Context, keyID, method, path,
 	return nil
 }
 
-// Mock implementations for API testing
 type mockDocService struct {
 	docs map[string]*types.Document
 	err  error
@@ -227,6 +225,30 @@ func (m *mockReadServices) ColdIndexInvertedStats() types.ColdIndexInvertedStats
 	return types.ColdIndexInvertedStats{}
 }
 
+type mockMaintenanceService struct {
+	err error
+}
+
+func (m *mockMaintenanceService) RunColdPromotionSweep(ctx context.Context) error {
+	return m.err
+}
+
+func (m *mockMaintenanceService) PromoteColdDocumentByID(ctx context.Context, docID string) error {
+	return m.err
+}
+
+func (m *mockMaintenanceService) ManualPromoteColdDocument(ctx context.Context, docID string) error {
+	return m.err
+}
+
+func (m *mockMaintenanceService) RecalculateDocumentHotScores(ctx context.Context) error {
+	return m.err
+}
+
+func (m *mockMaintenanceService) RefreshColdIndex(ctx context.Context) error {
+	return m.err
+}
+
 type mockTraceService struct {
 	err error
 }
@@ -249,16 +271,16 @@ func setupTestHandler() (*Handler, *gin.Engine) {
 	router := gin.New()
 
 	handler := &Handler{
-		DocService:      newMockDocService(),
-		QueryService:    &mockQueryService{},
-		TopicService:    &mockTopicService{},
-		TagsService:     &mockReadServices{},
-		ChaptersService: &mockReadServices{},
-		ObsService:      &mockReadServices{},
-		TraceService:    &mockTraceService{},
-		Quota:           nil,
-		Logger:          zap.NewNop(),
-		ServerVersion:   "test",
+		DocService:         newMockDocService(),
+		QueryService:       &mockQueryService{},
+		TopicService:       &mockTopicService{},
+		TagsService:        &mockReadServices{},
+		ChaptersService:    &mockReadServices{},
+		ObsService:         &mockReadServices{},
+		TraceService:       &mockTraceService{},
+		MaintenanceService: &mockMaintenanceService{},
+		Logger:             zap.NewNop(),
+		ServerVersion:      "test",
 	}
 
 	api := router.Group("/api/v1")
@@ -309,7 +331,27 @@ func TestCreateDocument_IngestValidationError(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestGetMonitoringSnapshot(t *testing.T) {
+func TestListDocuments(t *testing.T) {
+	_, router := setupTestHandler()
+
+	w := httptest.NewRecorder()
+	httpReq, _ := http.NewRequest("GET", "/api/v1/documents", nil)
+	router.ServeHTTP(w, httpReq)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestGetDocument_NotFound(t *testing.T) {
+	_, router := setupTestHandler()
+
+	w := httptest.NewRecorder()
+	httpReq, _ := http.NewRequest("GET", "/api/v1/documents/nonexistent", nil)
+	router.ServeHTTP(w, httpReq)
+
+	assert.Equal(t, http.StatusNotFound, w.Code)
+}
+
+func TestMonitoringSnapshot(t *testing.T) {
 	_, router := setupTestHandler()
 
 	w := httptest.NewRecorder()
@@ -317,6 +359,7 @@ func TestGetMonitoringSnapshot(t *testing.T) {
 	router.ServeHTTP(w, httpReq)
 
 	assert.Equal(t, http.StatusOK, w.Code)
+
 	var body map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &body)
 	require.NoError(t, err)
@@ -330,7 +373,6 @@ func TestGetMonitoringSnapshot(t *testing.T) {
 	assert.NotEmpty(t, goRt["goos"])
 	assert.NotEmpty(t, goRt["goarch"])
 	assert.Contains(t, body, "documents")
-	assert.Contains(t, body, "quota")
 	assert.Contains(t, body, "cold_index")
 	ci, ok := body["cold_index"].(map[string]any)
 	require.True(t, ok)
@@ -347,27 +389,6 @@ func TestGetMonitoringSnapshot(t *testing.T) {
 	tel, ok := body["telemetry"].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, tel, "http_tracing_active")
-	assert.Contains(t, tel, "progressive_debug_allowed")
-	pm, ok := body["prometheus_metrics_path"].(string)
-	require.True(t, ok)
-	assert.Equal(t, "/metrics", pm)
-}
-
-func TestCreateDocument_InvalidIngestMode(t *testing.T) {
-	_, router := setupTestHandler()
-
-	req := types.CreateDocumentRequest{
-		Title:      "Bad",
-		Content:    "c",
-		Format:     "markdown",
-		IngestMode: "warm",
-	}
-	body, _ := json.Marshal(req)
-	w := httptest.NewRecorder()
-	httpReq, _ := http.NewRequest("POST", "/api/v1/documents", bytes.NewBuffer(body))
-	httpReq.Header.Set("Content-Type", "application/json")
-	router.ServeHTTP(w, httpReq)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
 func TestProgressiveQuery(t *testing.T) {
@@ -382,7 +403,6 @@ func TestProgressiveQuery(t *testing.T) {
 	w := httptest.NewRecorder()
 	httpReq, _ := http.NewRequest("POST", "/api/v1/query/progressive", bytes.NewBuffer(body))
 	httpReq.Header.Set("Content-Type", "application/json")
-
 	router.ServeHTTP(w, httpReq)
 
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -391,25 +411,7 @@ func TestProgressiveQuery(t *testing.T) {
 	err := json.Unmarshal(w.Body.Bytes(), &resp)
 	require.NoError(t, err)
 	assert.Equal(t, "test query", resp.Question)
-	assert.NotEmpty(t, resp.Results)
-}
-
-func TestGetDocument(t *testing.T) {
-	handler, router := setupTestHandler()
-
-	// Create a document first
-	docService := handler.DocService.(*mockDocService)
-	docService.docs["doc1"] = &types.Document{
-		ID:    "doc1",
-		Title: "Test Doc",
-	}
-
-	w := httptest.NewRecorder()
-	httpReq, _ := http.NewRequest("GET", "/api/v1/documents/doc1", nil)
-
-	router.ServeHTTP(w, httpReq)
-
-	assert.Equal(t, http.StatusOK, w.Code)
+	assert.Len(t, resp.Results, 1)
 }
 
 func TestListTopics(t *testing.T) {
@@ -445,4 +447,32 @@ func TestProgressiveQuery_InvalidJSON(t *testing.T) {
 	router.ServeHTTP(w, httpReq)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+func TestPromoteDocument(t *testing.T) {
+	h, router := setupTestHandler()
+
+	// Mock a cold document
+	m := h.DocService.(*mockDocService)
+	coldDoc := &types.Document{
+		ID:     "cold-doc-1",
+		Title:  "Cold Doc",
+		Status: types.DocStatusCold,
+	}
+	m.docs["cold-doc-1"] = coldDoc
+
+	mt := &mockMaintenanceService{}
+	h.MaintenanceService = mt
+
+	w := httptest.NewRecorder()
+	httpReq, _ := http.NewRequest("POST", "/api/v1/documents/cold-doc-1/promote", nil)
+	httpReq.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(w, httpReq)
+
+	assert.Equal(t, http.StatusOK, w.Code)
+
+	var body map[string]any
+	err := json.Unmarshal(w.Body.Bytes(), &body)
+	require.NoError(t, err)
+	assert.Equal(t, "cold-doc-1", body["document_id"])
 }

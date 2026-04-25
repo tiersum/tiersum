@@ -35,4 +35,3 @@ func (s *tagService) ListTags(ctx context.Context, topicIDs []string, byTopicLim
 }
 
 var _ service.ITagService = (*tagService)(nil)
-

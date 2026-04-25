@@ -172,10 +172,10 @@ Handler.CreateDocument (internal/api/handler.go:106)
       │  ├─ config.DocumentMaxBodyBytes (internal/config/documents_ingest.go)
       │  ├─ config.DocumentFormatAllowed
       │  └─ config.DocumentChunkingMaxChars
-      ├─ resolveHotIngest (internal/service/impl/document/document_service_impl.go:166)
+      ├─ resolveHotIngest (internal/service/impl/document/document_service_impl.go:165)
       │  ├─ req.EffectiveIngestMode
       │  ├─ [conditional: mode == auto && no prebuilt summary+chapters]
-      │  │  └─ quota.CheckAndConsume (internal/service/impl/document/hot_ingest_quota_impl.go)
+      │  │  └─ content length > config.HotContentThreshold
       │  └─ config.HotContentThreshold (internal/config/tiering.go)
       ├─ [conditional: hot == true] ───────── HOT PATH ─────────
       │  ├─ docs.Create (internal/storage/db/document/document_repository_impl.go)
@@ -218,7 +218,7 @@ Handler.CreateDocument (internal/api/handler.go:106)
 ```
 
 **Key decisions:**
-- `resolveHotIngest` decides the path: `hot` always, `cold` always, `auto` uses prebuilt analysis → quota + content length threshold.
+- `resolveHotIngest` decides the path: `hot` always, `cold` always, `auto` uses prebuilt analysis → content length threshold.
 - **Cold path order:** index first, then DB; if DB fails, index is rolled back via `RemoveDocument`.
 - **Hot ingest queue:** bounded capacity (100); when full, work is dropped with a warning (manual retry needed).
 

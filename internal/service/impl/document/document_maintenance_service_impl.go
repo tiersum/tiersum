@@ -40,14 +40,14 @@ func NewDocumentMaintenanceService(
 }
 
 type documentMaintenanceService struct {
-	docRepo          storage.IDocumentRepository
-	chapterRepo      storage.IChapterRepository
-	coldIndex        storage.IColdIndex
-	deletedDocRepo   storage.IDeletedDocumentRepository
-	persister        IDocumentAnalysisPersister
-	analyzer         IDocumentAnalysisGenerator
-	logger           *zap.Logger
-	lastColdRefresh  time.Time
+	docRepo         storage.IDocumentRepository
+	chapterRepo     storage.IChapterRepository
+	coldIndex       storage.IColdIndex
+	deletedDocRepo  storage.IDeletedDocumentRepository
+	persister       IDocumentAnalysisPersister
+	analyzer        IDocumentAnalysisGenerator
+	logger          *zap.Logger
+	lastColdRefresh time.Time
 }
 
 func (s *documentMaintenanceService) RunColdPromotionSweep(ctx context.Context) error {
@@ -97,8 +97,22 @@ func (s *documentMaintenanceService) PromoteColdDocumentByID(ctx context.Context
 	return s.promoteDocument(ctx, doc)
 }
 
+func (s *documentMaintenanceService) ManualPromoteColdDocument(ctx context.Context, docID string) error {
+	doc, err := s.docRepo.GetByID(ctx, docID)
+	if err != nil {
+		return fmt.Errorf("get document: %w", err)
+	}
+	if doc == nil {
+		return fmt.Errorf("document %s not found", docID)
+	}
+	if doc.Status != types.DocStatusCold {
+		return fmt.Errorf("document %s is not cold (status=%s)", docID, doc.Status)
+	}
+	return s.promoteDocument(ctx, doc)
+}
+
 func (s *documentMaintenanceService) promoteDocument(ctx context.Context, doc *types.Document) error {
-	s.logger.Info("promoting document to hot", zap.String("doc_id", doc.ID), zap.String("title", doc.Title), zap.Int("query_count", doc.QueryCount))
+	s.logger.Info("promoting document to hot", zap.String("doc_id", doc.ID), zap.String("title", doc.Title))
 
 	if err := s.docRepo.UpdateStatus(ctx, doc.ID, types.DocStatusWarming); err != nil {
 		return err
@@ -226,4 +240,3 @@ func calculateHotScore(queryCount int, lastQueryAt *time.Time, now time.Time) fl
 }
 
 var _ service.IDocumentMaintenanceService = (*documentMaintenanceService)(nil)
-

@@ -39,7 +39,7 @@ Traditional RAG systems chop documents into arbitrary chunks, losing hierarchica
 
 | Feature | Description |
 |---------|-------------|
-| **Hot/Cold Tiering** | Smart storage: Hot (full LLM analysis) vs Cold (BM25 + vector search) |
+| **Hot/Cold Tiering** | Hot: LLM semantic chapter extraction → progressive query with pre-shaped summaries; Cold: Markdown heading-based chapter extraction → BM25 inverted + vector hybrid search. Both preserve chapter-level semantic integrity (no blind chunking) |
 | **3-Tier Summarization** | Document → Chapter → Source, auto-generated via LLM |
 | **Progressive Query** | LLM filters tags → documents → chapters with relevance scoring |
 | **BM25 + Vector Hybrid** | Keyword + semantic search over cold markdown chapters |

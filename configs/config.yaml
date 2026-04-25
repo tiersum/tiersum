@@ -179,9 +179,6 @@ storage:
     max_connections: 20
     min_connections: 5
 
-quota:
-  per_hour: 100
-
 cold_index:
   markdown:
     chapter_max_tokens: 512

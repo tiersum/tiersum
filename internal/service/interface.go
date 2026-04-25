@@ -35,8 +35,11 @@ type IQueryService interface {
 type IDocumentMaintenanceService interface {
 	// RunColdPromotionSweep scans cold documents and promotes those meeting the query-count threshold.
 	RunColdPromotionSweep(ctx context.Context) error
-	// PromoteColdDocumentByID promotes a single cold document when it meets the threshold (no-op otherwise).
+	// PromoteColdDocumentByID promotes a single cold document that meets the query-count threshold (no-op otherwise).
 	PromoteColdDocumentByID(ctx context.Context, docID string) error
+	// ManualPromoteColdDocument promotes a single cold document immediately, bypassing the query-count threshold.
+	// Used for manual promotion from the UI. Returns an error if the document is not cold.
+	ManualPromoteColdDocument(ctx context.Context, docID string) error
 	// RecalculateDocumentHotScores refreshes persisted hot_score for all documents.
 	RecalculateDocumentHotScores(ctx context.Context) error
 	// RefreshColdIndex reads updated cold chapters from the database and rebuilds the in-memory cold index.

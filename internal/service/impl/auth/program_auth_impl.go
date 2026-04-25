@@ -77,4 +77,3 @@ func (s *programAuth) RecordAPIKeyUse(ctx context.Context, keyID, method, path, 
 }
 
 var _ service.IProgramAuth = (*programAuth)(nil)
-

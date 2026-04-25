@@ -410,17 +410,17 @@ Persisted chapter rows for hot/warming documents (path from heading tree or mate
 
 ### Document Status
 
-- `**hot**` - Full LLM analysis, tagged, persisted with document-level summary + chapter rows (requires quota)
-- `**cold**` - Minimal processing, indexed in cold index (BM25 + vector search)
-- `**warming**` - Being promoted from cold to hot (async process)
+- `**hot**` - LLM semantic chapter extraction; full LLM analysis (chapter summaries, document summary, catalog tags); persisted with document-level summary + chapter rows; powers progressive query with pre-shaped semantic layer
+- `**cold**` - Markdown syntax chapter extraction; content split by headings into chapters; indexed in cold index via BM25 inverted index + HNSW vector hybrid search; no LLM on ingest; both tiers use chapter-level granularity (not arbitrary fixed-size chunks)
+- `**warming**` - Being promoted from cold to hot (async LLM processing)
 
 ### Hot vs cold on ingest (`ingest_mode`)
 
 Request body `ingest_mode` (default **auto** when omitted; legacy `force_hot=true` equals **hot**):
 
-- **`hot`** — always use the hot ingest path (async LLM + summaries when needed).
-- **`cold`** — always use the cold ingest path (no internal LLM on ingest).
-- **`auto`** — hot if pre-built summary+chapters exist, else if hourly quota allows and content length > threshold (default 5000 chars), else cold.
+- **`hot`** — LLM semantic chapter extraction: sends content to LLM for chapter-level analysis, generating document summary, per-chapter summaries, and catalog tags. The pre-built summaries enable progressive query's multi-stage LLM ranking (tags → documents → chapters). Best for frequently queried documents.
+- **`cold`** — Markdown syntax chapter extraction: splits content by Markdown headings into natural chapters using `IColdChapterSplitter`; each chapter is indexed in BM25 (Bleve inverted index) + HNSW vector index for hybrid search. No LLM calls on ingest. Both tiers share the same chapter-level granularity — no fixed-size chunking.
+- **`auto`** — hot if pre-built summary+chapters exist, else content length > threshold (default 5000 chars); else cold.
 
 ### Cold Document Flow
 

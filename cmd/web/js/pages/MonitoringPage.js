@@ -170,17 +170,6 @@ export const MonitoringPage = {
 
                     <div class="card bg-slate-900/50 border border-slate-800">
                         <div class="card-body">
-                            <h2 class="card-title text-slate-200 text-base">{{ $t('monitoringQuota') }}</h2>
-                            <p class="text-sm text-slate-500 mt-1">{{ $t('monitoringQuotaDesc') }}</p>
-                            <dl class="text-sm space-y-2 mt-4">
-                                <div class="flex justify-between gap-4"><dt class="text-slate-500">{{ $t('monitoringUsedTotal') }}</dt><dd class="text-slate-200">{{ monitoring?.quota?.used ?? 0 }} / {{ monitoring?.quota?.total ?? '—' }}</dd></div>
-                                <div class="flex justify-between gap-4"><dt class="text-slate-500">{{ $t('monitoringResetAt') }}</dt><dd class="text-slate-200">{{ formatTime(monitoring?.quota?.reset_at) }}</dd></div>
-                            </dl>
-                        </div>
-                    </div>
-
-                    <div class="card bg-slate-900/50 border border-slate-800">
-                        <div class="card-body">
                             <div class="flex flex-wrap items-center justify-between gap-2">
                                 <h2 class="card-title text-slate-200 text-base">{{ $t('monitoringPrometheus') }}</h2>
                                 <div class="flex gap-2">

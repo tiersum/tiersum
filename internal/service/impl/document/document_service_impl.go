@@ -16,13 +16,11 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// NewDocumentService constructs service.IDocumentService with ingest dependencies.
 func NewDocumentService(
 	docRepo storage.IDocumentRepository,
 	cold storage.IColdIndex,
 	tagRepo storage.ITagRepository,
 	chapterRepo storage.IChapterRepository,
-	quota interface{ CheckAndConsume() bool },
 	hotIngestSink service.IHotIngestWorkSink,
 	logger *zap.Logger,
 ) service.IDocumentService {
@@ -34,7 +32,6 @@ func NewDocumentService(
 		cold:          cold,
 		tags:          tagRepo,
 		chapters:      chapterRepo,
-		quota:         quota,
 		hotIngestSink: hotIngestSink,
 		logger:        logger,
 	}
@@ -45,7 +42,6 @@ type documentService struct {
 	cold          storage.IColdIndex
 	tags          storage.ITagRepository
 	chapters      storage.IChapterRepository
-	quota         interface{ CheckAndConsume() bool }
 	hotIngestSink service.IHotIngestWorkSink
 	logger        *zap.Logger
 }
@@ -63,7 +59,7 @@ func (s *documentService) CreateDocument(ctx context.Context, req types.CreateDo
 		return nil, fmt.Errorf("%w: format is required", service.ErrIngestValidation)
 	}
 
-	hot := resolveHotIngest(req, s.quota)
+	hot := resolveHotIngest(req)
 	tags := dedupeTagNames(req.Tags)
 	if !hot {
 		tags = nil
@@ -102,8 +98,6 @@ func (s *documentService) CreateDocument(ctx context.Context, req types.CreateDo
 			return nil, err
 		}
 	} else if s.cold != nil {
-		// Persist document first, then split chapters into the chapters table.
-		// The in-memory cold index is refreshed asynchronously by ColdIndexRefreshJob.
 		if err := s.docs.Create(ctx, doc); err != nil {
 			return nil, fmt.Errorf("persist document: %w", err)
 		}
@@ -168,9 +162,7 @@ func validateCreateIngest(req types.CreateDocumentRequest) error {
 	return nil
 }
 
-// resolveHotIngest decides hot vs cold from ingest mode. Auto uses prebuilt summary+chapters, then content length vs hot threshold.
-// For auto hot (no prebuilt chapters), a successful quota CheckAndConsume is required when quota is non-nil.
-func resolveHotIngest(req types.CreateDocumentRequest, quota interface{ CheckAndConsume() bool }) bool {
+func resolveHotIngest(req types.CreateDocumentRequest) bool {
 	mode := req.EffectiveIngestMode()
 	switch strings.ToLower(mode) {
 	case types.DocumentIngestModeHot:
@@ -178,20 +170,13 @@ func resolveHotIngest(req types.CreateDocumentRequest, quota interface{ CheckAnd
 	case types.DocumentIngestModeCold:
 		return false
 	default:
-		// Prebuilt analysis implies no ingest-time LLM cost; allow hot without consuming quota.
 		if strings.TrimSpace(req.Summary) != "" && len(req.Chapters) > 0 {
 			return true
-		}
-		// Auto hot (LLM path) requires quota; without it, degrade to cold.
-		if quota == nil || !quota.CheckAndConsume() {
-			return false
 		}
 		return len(req.Content) > config.HotContentThreshold()
 	}
 }
 
-// mergeOrderedTagLists merges tag lists in order (first list, then second), deduplicating case-insensitively;
-// the first spelling encountered for a logical tag is kept (sync ingest and async hot ingest stay aligned).
 func mergeOrderedTagLists(first, second []string) []string {
 	seen := make(map[string]struct{}, len(first)+len(second))
 	out := make([]string, 0, len(first)+len(second))
@@ -248,7 +233,6 @@ func materializePrebuiltChapters(docID string, infos []types.ChapterInfo) []type
 }
 
 func chapterPathForPrebuilt(docID string, idx int, _ string) string {
-	// Stable unique path per ingest slot (avoids collisions when titles repeat).
 	return fmt.Sprintf("%s/__ingest/%d", docID, idx+1)
 }
 

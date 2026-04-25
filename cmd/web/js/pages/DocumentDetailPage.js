@@ -15,6 +15,8 @@ export const DocumentDetailPage = {
             loadError: null,
             viewMode: 'summary',
             selectedNav: 'overview',
+            promoting: false,
+            promoteError: null,
             /** Poll while hot ingest has not written document.summary yet. */
             hotPollTimer: null,
             hotPollBusy: false
@@ -222,6 +224,19 @@ export const DocumentDetailPage = {
         },
         goBack() {
             this.$router.push('/library');
+        },
+        async promoteToHot() {
+            if (this.promoting) return;
+            this.promoting = true;
+            this.promoteError = null;
+            try {
+                await apiClient.promoteDocument(this.id);
+                this.promoting = false;
+                await this.load();
+            } catch (e) {
+                this.promoteError = e.message || String(e);
+                this.promoting = false;
+            }
         }
     },
     template: `
@@ -244,6 +259,9 @@ export const DocumentDetailPage = {
                 </div>
 
                 <div v-else-if="doc">
+                    <div v-if="promoteError" role="alert" class="alert alert-error border border-red-900/60 bg-red-950/50 text-red-100 mb-4">
+                        <span class="text-sm">{{ promoteError }}</span>
+                    </div>
                     <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
                         <div class="min-w-0">
                             <h1 class="text-2xl sm:text-3xl font-bold text-slate-100 mb-2 break-words">{{ doc.title }}</h1>
@@ -266,19 +284,29 @@ export const DocumentDetailPage = {
                                 {{ doc.id }}
                             </p>
                         </div>
-                        <div class="shrink-0 join">
-                            <button type="button"
-                                class="btn btn-sm join-item"
-                                :class="viewMode === 'summary' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
-                                @click="setViewMode('summary')">
-                                {{ $t('docChapters') }}
+                        <div class="flex items-center gap-2 shrink-0">
+                            <button v-if="doc.status === 'cold'"
+                                type="button"
+                                @click="promoteToHot"
+                                :disabled="promoting"
+                                class="btn btn-sm btn-outline border-amber-600 text-amber-400 hover:bg-amber-950/30">
+                                <span v-if="promoting" class="loading loading-spinner loading-sm"></span>
+                                {{ $t('docPromoteToHot') }}
                             </button>
-                            <button type="button"
-                                class="btn btn-sm join-item"
-                                :class="viewMode === 'source' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
-                                @click="setViewMode('source')">
-                                {{ $t('docOriginal') }}
-                            </button>
+                            <div class="join">
+                                <button type="button"
+                                    class="btn btn-sm join-item"
+                                    :class="viewMode === 'summary' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
+                                    @click="setViewMode('summary')">
+                                    {{ $t('docChapters') }}
+                                </button>
+                                <button type="button"
+                                    class="btn btn-sm join-item"
+                                    :class="viewMode === 'source' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
+                                    @click="setViewMode('source')">
+                                    {{ $t('docOriginal') }}
+                                </button>
+                            </div>
                         </div>
                     </div>
 

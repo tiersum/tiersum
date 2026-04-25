@@ -87,4 +87,3 @@ func sanitizePath(s string) string {
 }
 
 var _ IDocumentAnalysisPersister = (*chapterMaterializer)(nil)
-

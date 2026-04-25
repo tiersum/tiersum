@@ -59,14 +59,14 @@ type DeviceToken struct {
 // PasskeyCredential is one WebAuthn credential registered for a user.
 // Stored fields are base64url strings for portability (no driver-specific blobs).
 type PasskeyCredential struct {
-	ID             string
-	UserID         string
+	ID              string
+	UserID          string
 	CredentialIDB64 string
 	PublicKeyB64    string
-	SignCount      int64
-	DeviceName     string
-	LastUsedAt     *time.Time
-	CreatedAt      time.Time
+	SignCount       int64
+	DeviceName      string
+	LastUsedAt      *time.Time
+	CreatedAt       time.Time
 }
 
 // PasskeySessionVerification records that a browser session recently completed a passkey assertion.

@@ -154,10 +154,6 @@ func (s *MCPServer) registerTools() {
 		mcp.WithNumber("max_results", mcp.Description("Default 100, max 500")),
 	), s.handleAPIv1ColdDocSourceGet)
 
-	s.mcp.AddTool(mcp.NewTool("api_v1_quota_get",
-		mcp.WithDescription(descPrefix+"GET /api/v1/quota"),
-	), s.handleAPIv1QuotaGet)
-
 	s.mcp.AddTool(mcp.NewTool("api_v1_metrics_get",
 		mcp.WithDescription("Same as GET /metrics — Prometheus text exposition at the root path (no API key); format in the tool response body."),
 	), s.handleAPIv1MetricsGet)
@@ -474,15 +470,6 @@ func (s *MCPServer) handleAPIv1ColdDocSourceGet(ctx context.Context, request mcp
 	terms := argStringList(args, "q")
 	maxRaw := optionalMaxResultsQueryString(args, "max_results")
 	status, body := s.api.ExecuteSearchColdChapterHits(ctx, terms, maxRaw)
-	return mcpJSONResult(status, body)
-}
-
-func (s *MCPServer) handleAPIv1QuotaGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if res, err := s.mcpReadGate(ctx, "GET /api/v1/quota"); res != nil {
-		return res, err
-	}
-	_ = toolArgs(request)
-	status, body := s.api.ExecuteGetQuotaSnapshot()
 	return mcpJSONResult(status, body)
 }
 

@@ -276,12 +276,6 @@ storage:
     max_connections: 20
     min_connections: 5
 
-# Quota configuration for hot/cold document processing
-quota:
-  # Maximum number of hot documents to process per hour
-  # Documents exceeding this quota will be processed as cold (no LLM, BM25+vector only)
-  per_hour: 100
-
 # Cold document index: chapter split, Bleve BM25 + HNSW, cold text embeddings (see internal/storage/coldindex).
 cold_index:
   markdown:

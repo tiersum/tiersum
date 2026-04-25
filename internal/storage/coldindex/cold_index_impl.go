@@ -79,7 +79,7 @@ type Index struct {
 	inverted               *invertedBleve
 	vector                 *vectorHNSW
 	documents              map[string]*ChapterIndex // key: chapter path (docID/...)
-	docChapterPaths        map[string][]string       // docID -> chapter paths (same keys as DocumentIndex.Path)
+	docChapterPaths        map[string][]string      // docID -> chapter paths (same keys as DocumentIndex.Path)
 	coldChapterMaxTokens   int
 	branchRecallMultiplier int // per-branch fetch size = clamp(limit*multiplier, floor, ceiling)
 	branchRecallFloor      int
