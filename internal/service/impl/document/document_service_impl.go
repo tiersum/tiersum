@@ -163,18 +163,7 @@ func validateCreateIngest(req types.CreateDocumentRequest) error {
 }
 
 func resolveHotIngest(req types.CreateDocumentRequest) bool {
-	mode := req.EffectiveIngestMode()
-	switch strings.ToLower(mode) {
-	case types.DocumentIngestModeHot:
-		return true
-	case types.DocumentIngestModeCold:
-		return false
-	default:
-		if strings.TrimSpace(req.Summary) != "" && len(req.Chapters) > 0 {
-			return true
-		}
-		return len(req.Content) > config.HotContentThreshold()
-	}
+	return req.EffectiveIngestMode() == types.DocumentIngestModeHot
 }
 
 func mergeOrderedTagLists(first, second []string) []string {

@@ -88,18 +88,19 @@ type Tag struct {
 
 // DocumentIngestMode selects how the platform chooses hot vs cold on ingest.
 const (
-	DocumentIngestModeAuto = "auto"
 	DocumentIngestModeHot  = "hot"
 	DocumentIngestModeCold = "cold"
 )
 
-// NormalizeDocumentIngestMode returns auto, hot, or cold (unknown values become auto).
+// NormalizeDocumentIngestMode returns hot or cold (unknown values become hot).
 func NormalizeDocumentIngestMode(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case DocumentIngestModeHot, DocumentIngestModeCold:
-		return strings.ToLower(strings.TrimSpace(s))
+	case DocumentIngestModeHot:
+		return DocumentIngestModeHot
+	case DocumentIngestModeCold:
+		return DocumentIngestModeCold
 	default:
-		return DocumentIngestModeAuto
+		return DocumentIngestModeHot
 	}
 }
 
@@ -118,8 +119,8 @@ type CreateDocumentRequest struct {
 	Content string   `json:"content" binding:"required"`
 	Format  string   `json:"format" binding:"required,oneof=markdown md"`
 	Tags    []string `json:"tags,omitempty"`
-	// IngestMode: auto = platform rules (length, quota, prebuilt summary); hot = always hot; cold = always cold.
-	IngestMode string `json:"ingest_mode,omitempty" binding:"omitempty,oneof=auto hot cold AUTO HOT COLD"`
+	// IngestMode: hot = LLM semantic chapter extraction & summary; cold = Markdown syntax chapter extraction.
+	IngestMode string `json:"ingest_mode,omitempty" binding:"omitempty,oneof=hot cold HOT COLD"`
 	// ForceHot is deprecated: use ingest_mode "hot". When ingest_mode is empty and ForceHot is true, behavior is hot.
 	ForceHot bool `json:"force_hot,omitempty"`
 	// Summary is pre-generated document summary (from external agent)
@@ -130,7 +131,7 @@ type CreateDocumentRequest struct {
 	Embedding []float32 `json:"embedding,omitempty"`
 }
 
-// EffectiveIngestMode resolves ingest tier: non-empty ingest_mode wins (case-insensitive); else legacy force_hot; else auto.
+// EffectiveIngestMode resolves ingest tier: non-empty ingest_mode wins (case-insensitive); else legacy force_hot; else hot.
 func (r CreateDocumentRequest) EffectiveIngestMode() string {
 	if strings.TrimSpace(r.IngestMode) != "" {
 		return NormalizeDocumentIngestMode(r.IngestMode)
@@ -138,7 +139,7 @@ func (r CreateDocumentRequest) EffectiveIngestMode() string {
 	if r.ForceHot {
 		return DocumentIngestModeHot
 	}
-	return DocumentIngestModeAuto
+	return DocumentIngestModeHot
 }
 
 // ExtractKeywords extracts keywords from content using simple regex patterns
