@@ -115,12 +115,15 @@ func (c *hotProgressiveLLMCore) FilterChapters(ctx context.Context, query string
 	}
 	var chapterList strings.Builder
 	for _, ch := range chapters {
-		body := ch.Summary
-		if strings.TrimSpace(body) == "" {
-			body = ch.Content
+		body := strings.TrimSpace(ch.Summary)
+		if body == "" {
+			continue
 		}
 		chapterList.WriteString(fmt.Sprintf("Path: %s\nSummary: %s\n\n",
 			ch.Path, truncateStringForHotLLM(body, c.config.ParagraphSummaryMax)))
+	}
+	if chapterList.Len() == 0 {
+		return nil, nil
 	}
 	dataContent := fmt.Sprintf("Query: %s\n\nChapters:\n%s", query, chapterList.String())
 	msgs := []client.LLMMessage{
