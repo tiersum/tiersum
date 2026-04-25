@@ -483,15 +483,12 @@ func initSchema(sqlDB *sql.DB, driver string) error {
 func loadColdDocuments(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, logger *zap.Logger) error {
 	start := time.Now()
 
-	// Create a simple cache for repository
-	cacheStore := &noopCache{}
-
-	// Create document repository
-	docRepo := document.NewDocumentRepo(sqlDB, driver, cacheStore)
-
-	// Query all cold documents
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	cacheStore := &noopCache{}
+	docRepo := document.NewDocumentRepo(sqlDB, driver, cacheStore)
+	chapterRepo := document.NewChapterRepo(sqlDB, driver, cacheStore)
 
 	coldDocs, err := docRepo.ListByStatus(ctx, types.DocStatusCold, 0)
 	if err != nil {
@@ -503,10 +500,23 @@ func loadColdDocuments(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index,
 		return nil
 	}
 
-	logger.Info("Loading cold documents into cold index", zap.Int("count", len(coldDocs)))
+	logger.Info("Loading cold documents into cold index from chapters table", zap.Int("count", len(coldDocs)))
 
-	if err := coldIndex.RebuildFromDocuments(ctx, coldDocs); err != nil {
-		return fmt.Errorf("failed to rebuild index: %w", err)
+	for i := range coldDocs {
+		doc := &coldDocs[i]
+		chapters, err := chapterRepo.ListByDocument(ctx, doc.ID)
+		if err != nil {
+			return fmt.Errorf("list chapters for %s: %w", doc.ID, err)
+		}
+		if len(chapters) == 0 {
+			logger.Warn("cold document has no chapters in DB, skipping", zap.String("doc_id", doc.ID))
+			continue
+		}
+		for _, ch := range chapters {
+			if err := coldIndex.AddChapter(ctx, doc.ID, ch.Path, ch.Title, ch.Content); err != nil {
+				logger.Error("add chapter to cold index", zap.String("doc_id", doc.ID), zap.String("path", ch.Path), zap.Error(err))
+			}
+		}
 	}
 
 	logger.Info("Cold documents loaded successfully",

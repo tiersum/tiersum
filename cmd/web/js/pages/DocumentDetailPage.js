@@ -53,7 +53,7 @@ export const DocumentDetailPage = {
                 return this.docSummaryText || '_' + this.$t('docNoSummary') + '_';
             }
             const ch = this.activeChapter;
-            return (ch?.summary || '').trim() || '_' + this.$t('docNoContent') + '_';
+            return (ch?.summary || '').trim() || '_' + this.$t('docNoChapterSummary') + '_';
         },
         chapterContentMarkdown() {
             if (this.selectedNav === 'overview') return '';
@@ -277,7 +277,9 @@ export const DocumentDetailPage = {
                                     <span class="inline-block h-2.5 w-2.5 rounded-full bg-sky-400 animate-pulse shrink-0" aria-hidden="true"></span>
                                     {{ $t('docGenerating') }}
                                 </span>
-                                <span v-if="doc.tags?.length" class="text-slate-500">{{ doc.tags.join(', ') }}</span>
+                                <span v-if="doc.tags?.length" class="flex flex-wrap gap-1.5 mt-1 sm:mt-0">
+                                    <span v-for="t in doc.tags" :key="t" class="badge badge-sm badge-primary badge-outline">{{ t }}</span>
+                                </span>
                             </div>
                             <p class="text-xs text-slate-500 font-mono break-all mt-2 max-w-3xl" :title="doc.id">
                                 <span class="text-slate-600">{{ $t('docDocumentId') }}</span>
@@ -353,7 +355,18 @@ export const DocumentDetailPage = {
                                         {{ selectedNav === 'overview' ? $t('docDocumentSummary') : (activeChapter?.title || $t('docSection')) }}
                                     </h2>
                                     <div class="border-t border-slate-800 pt-4">
-                                        <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(summaryBodyMarkdown)"></div>
+                                        <div v-if="selectedNav !== 'overview'" class="mb-6">
+                                            <div class="flex items-center justify-between mb-2">
+                                                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide">{{ $t('docChapterSummary') }}</h3>
+                                                <span v-if="!docSummaryText" class="text-xs text-slate-500">{{ $t('docNoChapterSummary') }}</span>
+                                            </div>
+                                            <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                                                <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(summaryBodyMarkdown)"></div>
+                                            </div>
+                                        </div>
+                                        <div v-else>
+                                            <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(summaryBodyMarkdown)"></div>
+                                        </div>
                                         <div v-if="selectedNav !== 'overview'" class="mt-6">
                                             <div class="flex items-center justify-between mb-2">
                                                 <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide">{{ $t('docContent') }}</h3>

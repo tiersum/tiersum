@@ -172,7 +172,7 @@ func (s *documentMaintenanceService) RefreshColdIndex(ctx context.Context) error
 	now := time.Now()
 	since := s.lastColdRefresh
 	if since.IsZero() {
-		since = now // first run after startup/build: skip, RebuildFromDocuments is authoritative
+		since = now // first run: skip, startup loads from chapters table
 	}
 	s.lastColdRefresh = now
 
