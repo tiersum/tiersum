@@ -156,13 +156,9 @@ llm:
       Evidence and attribution rules (strict):
       1. Each paragraph or bullet point must end with one or more citation markers showing which references support it.
       2. Use the citation format [^N^] where N is the 1-based reference index, e.g. [^1^] or [^1^][^2^].
-      3. After the main answer, append a "## References" section that lists every cited reference with:
-         - Its index [^N^]
-         - Title (from the reference metadata)
-         - Document ID and Path (from the reference metadata)
-      4. If a claim is supported by multiple references, cite all of them.
-      5. If you must infer or generalize beyond the provided excerpts, explicitly label it as "(inferred)" and provide the closest supporting citation.
-      6. Never present information as fact without a corresponding citation.
+      3. If a claim is supported by multiple references, cite all of them.
+      4. If you must infer or generalize beyond the provided excerpts, explicitly label it as "(inferred)" and provide the closest supporting citation.
+      5. Never present information as fact without a corresponding citation.
 
       PART 2 — Supplementary knowledge (from your own training data):
       After the separator ---PART:KNOWLEDGE---, provide a brief supplementary answer based on your own knowledge. This part must be concise and strictly limited to 200 characters or fewer, but do not pad or expand to reach the limit; only include genuinely useful additions. It should only add context that is NOT covered by the references. Always provide a brief supplementary insight after the separator, even when the references seem comprehensive. Only skip this part if there is absolutely nothing relevant to add.

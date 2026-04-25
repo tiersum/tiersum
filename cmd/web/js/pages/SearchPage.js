@@ -314,7 +314,7 @@ export const SearchPage = {
                                      <div v-else class="flex flex-col gap-3">
                                          <div v-for="(result, index) in results" :key="(result.path || result.id || '') + '-' + index"
                                              :id="'ref-' + index"
-                                             :class="['rounded-xl border bg-slate-800/30 transition-all cursor-pointer flex flex-col max-h-[248px] overflow-hidden shrink-0',
+                                             :class="['rounded-xl border bg-slate-800/30 transition-all cursor-pointer flex flex-col shrink-0',
                                                       highlightedRef === index ? 'border-blue-500 ring-2 ring-blue-500/50' : 'border-slate-700 hover:border-slate-600']"
                                              @click="highlightedRef = index">
                                             <div class="p-3 flex flex-col min-h-0 flex-1 gap-2">
@@ -333,7 +333,7 @@ export const SearchPage = {
                                                     <p class="truncate"><span class="text-slate-600">{{ $t('searchSource') }}</span> <span class="text-slate-400">{{ contentSourceLabel(result.content_source) }}</span></p>
                                                     <p class="truncate" :title="extractChapterPath(result.path) || ''"><span class="text-slate-600">{{ $t('searchPath') }}</span> {{ extractChapterPath(result.path) || $t('searchWholeDoc') }}</p>
                                                 </div>
-                                                <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain text-xs text-slate-400 leading-relaxed border border-slate-700/40 rounded-lg px-2 py-1.5 bg-slate-900/40">
+                                                <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain text-xs text-slate-400 leading-relaxed border border-slate-700/40 rounded-lg px-2 py-1.5 bg-slate-900/40 max-h-[160px]">
                                                     {{ refSnippet(result) }}
                                                 </div>
                                                 <div class="flex justify-end items-center shrink-0 pt-1 border-t border-slate-700/50">
