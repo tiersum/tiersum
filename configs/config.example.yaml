@@ -34,6 +34,8 @@ llm:
     # Max tokens for summary generation
     max_tokens: 2000
     temperature: 0.3
+    # HTTP request timeout (e.g. 120s). Zero = use context deadline only.
+    timeout: 120s
 
   # OpenAI-compatible providers (use 'openai' provider with custom base_url):
   #
@@ -93,6 +95,8 @@ llm:
     model: claude-3-haiku-20240307
     max_tokens: 2000
     temperature: 0.3
+    # HTTP request timeout (e.g. 120s). Zero = use context deadline only.
+    timeout: 120s
 
   # Local/Ollama specific
   local:

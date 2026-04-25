@@ -59,6 +59,9 @@ type ollamaChatRequest struct {
 type ollamaChatResponse struct {
 	Message ollamaChatMessage `json:"message"`
 	Done    bool              `json:"done"`
+	// Ollama may return these counters on newer versions.
+	PromptEvalCount int `json:"prompt_eval_count,omitempty"`
+	EvalCount       int `json:"eval_count,omitempty"`
 }
 
 // Generate implements ILLMProvider.Generate using Ollama's /api/chat endpoint.
@@ -113,11 +116,41 @@ func (p *OllamaProvider) Generate(ctx context.Context, messages []client.LLMMess
 		return "", err
 	}
 
+	if result.PromptEvalCount > 0 && result.EvalCount > 0 {
+		span.SetAttributes(
+			attribute.Int("llm.prompt_tokens", result.PromptEvalCount),
+			attribute.Int("llm.completion_tokens", result.EvalCount),
+			attribute.Int("llm.total_tokens", result.PromptEvalCount+result.EvalCount),
+		)
+	} else {
+		inputText := ""
+		for _, m := range messages {
+			inputText += m.Content
+		}
+		span.SetAttributes(
+			attribute.Int("llm.estimated_prompt_tokens", roughTokenCount(inputText)),
+			attribute.Int("llm.estimated_completion_tokens", roughTokenCount(result.Message.Content)),
+		)
+	}
+
 	if result.Done {
 		return result.Message.Content, nil
 	}
 
 	return "", fmt.Errorf("no response from Ollama")
+}
+
+func roughTokenCount(text string) int {
+	if text == "" {
+		return 0
+	}
+	cn := 0
+	for _, r := range text {
+		if r > 127 {
+			cn++
+		}
+	}
+	return cn + (len(text)-cn)/4
 }
 
 var _ client.ILLMProvider = (*OllamaProvider)(nil)

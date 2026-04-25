@@ -30,11 +30,12 @@ type OpenAIProvider struct {
 
 // NewOpenAIProvider creates a new OpenAI provider
 func NewOpenAIProvider() *OpenAIProvider {
+	timeout := viper.GetDuration("llm.openai.timeout")
 	return &OpenAIProvider{
 		apiKey:  viper.GetString("llm.openai.api_key"),
 		baseURL: viper.GetString("llm.openai.base_url"),
 		model:   viper.GetString("llm.openai.model"),
-		client:  &http.Client{},
+		client:  &http.Client{Timeout: timeout},
 	}
 }
 
@@ -100,6 +101,11 @@ type openAIResponse struct {
 		Message string `json:"message"`
 		Type    string `json:"type"`
 	} `json:"error,omitempty"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage,omitempty"`
 }
 
 var (
@@ -140,6 +146,7 @@ func (p *OpenAIProvider) Generate(ctx context.Context, messages []client.LLMMess
 	}
 	// Retry once when the backend enforces a single temperature value for this model.
 	out, body, result, err := p.doChatCompletion(ctx, reqBody)
+	_ = body
 	if err != nil {
 		if onlyTemp, ok := parseOnlyTemperature(err.Error()); ok {
 			reqBody.Temperature = onlyTemp
@@ -151,8 +158,13 @@ func (p *OpenAIProvider) Generate(ctx context.Context, messages []client.LLMMess
 		}
 		return "", err
 	}
-	_ = body
-	_ = result
+	if result.Usage != nil {
+		span.SetAttributes(
+			attribute.Int("llm.prompt_tokens", result.Usage.PromptTokens),
+			attribute.Int("llm.completion_tokens", result.Usage.CompletionTokens),
+			attribute.Int("llm.total_tokens", result.Usage.TotalTokens),
+		)
+	}
 	return out, nil
 }
 

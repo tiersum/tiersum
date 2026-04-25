@@ -27,11 +27,12 @@ type AnthropicProvider struct {
 
 // NewAnthropicProvider creates a new Anthropic Claude provider
 func NewAnthropicProvider() *AnthropicProvider {
+	timeout := viper.GetDuration("llm.anthropic.timeout")
 	return &AnthropicProvider{
 		apiKey:  viper.GetString("llm.anthropic.api_key"),
 		baseURL: viper.GetString("llm.anthropic.base_url"),
 		model:   viper.GetString("llm.anthropic.model"),
-		client:  &http.Client{},
+		client:  &http.Client{Timeout: timeout},
 	}
 }
 
@@ -53,6 +54,10 @@ type anthropicResponse struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"content"`
+	Usage *struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage,omitempty"`
 }
 
 // Generate implements ILLMProvider.Generate
@@ -120,6 +125,14 @@ func (p *AnthropicProvider) Generate(ctx context.Context, messages []client.LLMM
 	var result anthropicResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
+	}
+
+	if result.Usage != nil {
+		span.SetAttributes(
+			attribute.Int("llm.prompt_tokens", result.Usage.InputTokens),
+			attribute.Int("llm.completion_tokens", result.Usage.OutputTokens),
+			attribute.Int("llm.total_tokens", result.Usage.InputTokens+result.Usage.OutputTokens),
+		)
 	}
 
 	if len(result.Content) > 0 {
