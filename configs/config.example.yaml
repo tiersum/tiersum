@@ -33,7 +33,7 @@ llm:
     model: gpt-4o-mini
     # Max tokens for summary generation
     max_tokens: 2000
-    temperature: 0.3
+    temperature: 0.6
     # HTTP request timeout (e.g. 120s). Zero = use context deadline only.
     timeout: 120s
 
