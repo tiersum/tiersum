@@ -147,13 +147,7 @@ export const DocumentDetailPage = {
                 this.setDefaultChapterNav();
                 return;
             }
-            let decoded = want;
-            try {
-                decoded = decodeURIComponent(want);
-            } catch {
-                /* keep want */
-            }
-            decoded = decoded.trim();
+            const decoded = want.trim();
             this.viewMode = 'summary';
 
             if (decoded === 'overview') {

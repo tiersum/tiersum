@@ -289,8 +289,8 @@ export const SearchPage = {
                                         </svg>
                                         <p>{{ $t('searchNoRefs') }}</p>
                                     </div>
-                                    <div v-else>
-                                        <div v-for="(result, index) in results" :key="(result.path || result.id || '') + '-' + index"
+                                     <div v-else class="flex flex-col gap-3">
+                                         <div v-for="(result, index) in results" :key="(result.path || result.id || '') + '-' + index"
                                              :id="'ref-' + index"
                                              :class="['rounded-xl border bg-slate-800/30 transition-all cursor-pointer flex flex-col max-h-[248px] overflow-hidden shrink-0',
                                                       highlightedRef === index ? 'border-blue-500 ring-2 ring-blue-500/50' : 'border-slate-700 hover:border-slate-600']"
