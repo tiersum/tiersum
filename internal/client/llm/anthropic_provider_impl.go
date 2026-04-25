@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/spf13/viper"
 
@@ -35,6 +36,7 @@ type anthropicRequest struct {
 	Model       string    `json:"model"`
 	MaxTokens   int       `json:"max_tokens"`
 	Temperature float64   `json:"temperature"`
+	System      string    `json:"system,omitempty"`
 	Messages    []anthMsg `json:"messages"`
 }
 
@@ -51,18 +53,31 @@ type anthropicResponse struct {
 }
 
 // Generate implements ILLMProvider.Generate
-func (p *AnthropicProvider) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
+func (p *AnthropicProvider) Generate(ctx context.Context, messages []client.LLMMessage, maxTokens int) (string, error) {
 	temp := viper.GetFloat64("llm.anthropic.temperature")
 	if temp == 0 {
 		temp = 0.3
 	}
+
+	var systemPrompt string
+	var msgs []anthMsg
+	for i, m := range messages {
+		if m.Role == client.LLMMessageRoleSystem {
+			if i == 0 {
+				// Anthropic supports a top-level system field; use it for the first system message.
+				systemPrompt = m.Content
+				continue
+			}
+		}
+		msgs = append(msgs, anthMsg{Role: string(m.Role), Content: m.Content})
+	}
+
 	reqBody := anthropicRequest{
 		Model:       p.model,
 		MaxTokens:   maxTokens,
 		Temperature: temp,
-		Messages: []anthMsg{
-			{Role: "user", Content: prompt},
-		},
+		System:      systemPrompt,
+		Messages:    msgs,
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -85,13 +100,20 @@ func (p *AnthropicProvider) Generate(ctx context.Context, prompt string, maxToke
 	}
 	defer resp.Body.Close()
 
+	// Check HTTP status code
+	if resp.StatusCode != http.StatusOK {
+		var errBody bytes.Buffer
+		_, _ = errBody.ReadFrom(resp.Body)
+		return "", fmt.Errorf("api error: status=%d, body=%s", resp.StatusCode, errBody.String())
+	}
+
 	var result anthropicResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
 
 	if len(result.Content) > 0 {
-		return result.Content[0].Text, nil
+		return strings.TrimSpace(result.Content[0].Text), nil
 	}
 
 	return "", fmt.Errorf("no response from Anthropic")

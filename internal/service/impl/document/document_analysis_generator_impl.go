@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
+	"github.com/tiersum/tiersum/pkg/metrics"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -57,13 +58,20 @@ func (a *documentAnalyzer) GenerateAnalysis(ctx context.Context, title string, c
 		maxTokens = 8000
 	}
 
-	prompt := fmt.Sprintf(a.analyzePrompt, title, content)
+	docContent := fmt.Sprintf("Title: %s\n\nFull Content:\n%s", title, content)
+	msgs := []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: a.analyzePrompt},
+		{Role: client.LLMMessageRoleUser, Content: docContent},
+	}
 
-	out, err := a.provider.Generate(ctx, prompt, maxTokens)
+	out, err := a.provider.Generate(ctx, msgs, maxTokens)
 	if err != nil {
 		a.logger.Warn("AnalyzeDocument: llm generate failed", zap.Error(err))
 		return nil, err
 	}
+	inputTokens := estimateTokensForAnalyze(a.analyzePrompt + docContent)
+	outputTokens := estimateTokensForAnalyze(out)
+	metrics.RecordLLMTokens(metrics.PathDocAnalyze, inputTokens, outputTokens)
 	out = strings.TrimSpace(out)
 	res, perr := parseAnalysisJSON(out)
 	if perr != nil {
@@ -169,3 +177,17 @@ func titleOrDefault(t string) string {
 }
 
 var _ IDocumentAnalysisGenerator = (*documentAnalyzer)(nil)
+
+func estimateTokensForAnalyze(text string) int {
+	if text == "" {
+		return 0
+	}
+	chineseCount := 0
+	for _, r := range text {
+		if r > 127 {
+			chineseCount++
+		}
+	}
+	englishChars := len(text) - chineseCount
+	return chineseCount + englishChars/4
+}

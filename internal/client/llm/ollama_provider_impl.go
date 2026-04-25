@@ -14,7 +14,7 @@ import (
 	"github.com/tiersum/tiersum/internal/client"
 )
 
-// OllamaProvider implements client.ILLMProvider for local Ollama models
+// OllamaProvider implements client.ILLMProvider for local Ollama models using the /api/chat endpoint.
 type OllamaProvider struct {
 	baseURL string
 	model   string
@@ -38,27 +38,37 @@ func NewOllamaProvider() *OllamaProvider {
 	}
 }
 
-type ollamaRequest struct {
-	Model   string `json:"model"`
-	Prompt  string `json:"prompt"`
-	Stream  bool   `json:"stream"`
-	Options struct {
+type ollamaChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
+type ollamaChatRequest struct {
+	Model    string              `json:"model"`
+	Messages []ollamaChatMessage `json:"messages"`
+	Stream   bool                `json:"stream"`
+	Options  struct {
 		NumPredict  int     `json:"num_predict,omitempty"`
 		Temperature float64 `json:"temperature,omitempty"`
-	} `json:"options"`
+	} `json:"options,omitempty"`
 }
 
-type ollamaResponse struct {
-	Response string `json:"response"`
-	Done     bool   `json:"done"`
+type ollamaChatResponse struct {
+	Message ollamaChatMessage `json:"message"`
+	Done    bool              `json:"done"`
 }
 
-// Generate implements ILLMProvider.Generate
-func (p *OllamaProvider) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
-	reqBody := ollamaRequest{
-		Model:  p.model,
-		Prompt: prompt,
-		Stream: false,
+// Generate implements ILLMProvider.Generate using Ollama's /api/chat endpoint.
+func (p *OllamaProvider) Generate(ctx context.Context, messages []client.LLMMessage, maxTokens int) (string, error) {
+	msgs := make([]ollamaChatMessage, len(messages))
+	for i, m := range messages {
+		msgs[i] = ollamaChatMessage{Role: string(m.Role), Content: m.Content}
+	}
+
+	reqBody := ollamaChatRequest{
+		Model:    p.model,
+		Messages: msgs,
+		Stream:   false,
 	}
 	reqBody.Options.NumPredict = maxTokens
 	reqBody.Options.Temperature = 0.3
@@ -68,7 +78,7 @@ func (p *OllamaProvider) Generate(ctx context.Context, prompt string, maxTokens 
 		return "", err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/api/generate", bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", p.baseURL+"/api/chat", bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", err
 	}
@@ -81,13 +91,20 @@ func (p *OllamaProvider) Generate(ctx context.Context, prompt string, maxTokens 
 	}
 	defer resp.Body.Close()
 
-	var result ollamaResponse
+	// Check HTTP status code
+	if resp.StatusCode != http.StatusOK {
+		var errBody bytes.Buffer
+		_, _ = errBody.ReadFrom(resp.Body)
+		return "", fmt.Errorf("ollama api error: status=%d, body=%s", resp.StatusCode, errBody.String())
+	}
+
+	var result ollamaChatResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", err
 	}
 
 	if result.Done {
-		return result.Response, nil
+		return result.Message.Content, nil
 	}
 
 	return "", fmt.Errorf("no response from Ollama")

@@ -104,21 +104,27 @@ var (
 )
 
 // Generate implements ILLMProvider.Generate
-func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
+func (p *OpenAIProvider) Generate(ctx context.Context, messages []client.LLMMessage, maxTokens int) (string, error) {
 	sysMsg := viper.GetString("llm.prompts.system_message")
 	if strings.TrimSpace(sysMsg) == "" {
 		return "", fmt.Errorf("config llm.prompts.system_message is required")
 	}
 	temperature := p.resolveTemperature()
+
+	msgs := make([]message, 0, len(messages)+1)
+	// Prepend system message if caller did not supply one.
+	if len(messages) == 0 || messages[0].Role != client.LLMMessageRoleSystem {
+		msgs = append(msgs, message{Role: "system", Content: sysMsg})
+	}
+	for _, m := range messages {
+		msgs = append(msgs, message{Role: string(m.Role), Content: m.Content})
+	}
+
 	reqBody := openAIRequest{
-		Model: p.model,
-		Messages: []message{
-			{Role: "system", Content: sysMsg},
-			{Role: "user", Content: prompt},
-		},
+		Model:              p.model,
+		Messages:           msgs,
 		MaxTokens:          maxTokens,
 		Temperature:        temperature,
-		ResponseFormat:     openAIResponseFormat(p.baseURL, p.model),
 		ChatTemplateKwargs: openAIThinkOffChatTemplate(p.baseURL, p.model),
 		Thinking:           openAIThinkingField(p.baseURL, p.model),
 	}
@@ -261,18 +267,6 @@ func openAIThinkOffChatTemplate(baseURL, model string) map[string]any {
 	}
 	if strings.Contains(u, "siliconflow.cn") {
 		return map[string]any{"enable_thinking": false}
-	}
-	return nil
-}
-
-// openAIResponseFormat returns response_format for providers that support json_object (e.g. Moonshot Kimi)
-// to reduce token waste from prose around the JSON.
-func openAIResponseFormat(baseURL, model string) map[string]any {
-	u := strings.ToLower(baseURL)
-	m := strings.ToLower(model)
-	// Moonshot Kimi supports json_object response format.
-	if strings.Contains(u, "moonshot") || strings.Contains(u, "moonshot.cn") || strings.Contains(m, "kimi") {
-		return map[string]any{"type": "json_object"}
 	}
 	return nil
 }

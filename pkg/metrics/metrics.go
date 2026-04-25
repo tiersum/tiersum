@@ -6,7 +6,7 @@ import (
 )
 
 var (
-	// LLMMetrics tracks LLM calls and costs
+	// LLMMetrics tracks LLM calls and token counts
 	LLMCallsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "tiersum_llm_calls_total",
@@ -15,10 +15,18 @@ var (
 		[]string{"path"},
 	)
 
-	LLMCostUSD = prometheus.NewCounterVec(
+	LLMInputTokensTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "tiersum_llm_cost_usd",
-			Help: "Total LLM cost in USD",
+			Name: "tiersum_llm_input_tokens_total",
+			Help: "Total number of input tokens sent to LLM",
+		},
+		[]string{"path"},
+	)
+
+	LLMOutputTokensTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "tiersum_llm_output_tokens_total",
+			Help: "Total number of output tokens received from LLM",
 		},
 		[]string{"path"},
 	)
@@ -86,7 +94,8 @@ var (
 func init() {
 	// Register all metrics
 	prometheus.MustRegister(LLMCallsTotal)
-	prometheus.MustRegister(LLMCostUSD)
+	prometheus.MustRegister(LLMInputTokensTotal)
+	prometheus.MustRegister(LLMOutputTokensTotal)
 	prometheus.MustRegister(QueryDurationSeconds)
 	prometheus.MustRegister(QueryResultsTotal)
 	prometheus.MustRegister(DocumentsTotal)
@@ -108,28 +117,16 @@ const (
 
 // Path constants for queries
 const (
-	QueryPathHot  = "hot"
-	QueryPathCold = "cold"
+	QueryPathHot     = "hot"
+	QueryPathCold    = "cold"
+	PathAnswerGen    = "answer_gen"
 )
 
-// LLM pricing per 1K tokens (approximate USD rates)
-const (
-	PricePer1KInputTokens  = 0.0015
-	PricePer1KOutputTokens = 0.002
-	AvgOutputTokens        = 500
-)
-
-// RecordLLMCall records an LLM call with estimated cost
-func RecordLLMCall(path string, inputTokens int) {
+// RecordLLMTokens records an LLM call with input and output token counts
+func RecordLLMTokens(path string, inputTokens, outputTokens int) {
 	LLMCallsTotal.WithLabelValues(path).Inc()
-
-	// Estimate cost (simplified)
-	// Cost = (input_tokens * price_per_input_token + output_tokens * price_per_output_token) / 1000
-	inputCost := float64(inputTokens) * PricePer1KInputTokens / 1000
-	outputCost := AvgOutputTokens * PricePer1KOutputTokens / 1000
-	totalCost := inputCost + outputCost
-
-	LLMCostUSD.WithLabelValues(path).Add(totalCost)
+	LLMInputTokensTotal.WithLabelValues(path).Add(float64(inputTokens))
+	LLMOutputTokensTotal.WithLabelValues(path).Add(float64(outputTokens))
 }
 
 // RecordQueryLatency records query latency

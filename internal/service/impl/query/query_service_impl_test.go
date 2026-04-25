@@ -103,9 +103,9 @@ type fakeLLM struct {
 	err error
 }
 
-func (f *fakeLLM) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
+func (f *fakeLLM) Generate(ctx context.Context, messages []client.LLMMessage, maxTokens int) (string, error) {
 	_ = ctx
-	_ = prompt
+	_ = messages
 	_ = maxTokens
 	return f.out, f.err
 }

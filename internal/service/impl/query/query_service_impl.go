@@ -192,13 +192,14 @@ func truncateUTF8ForPrompt(s string, maxBytes int) string {
 	return utf8SafePrefix(s, maxBytes) + "\n…(truncated)"
 }
 
-func buildProgressiveAnswerPrompt(answerTemplate, question string, items []types.QueryItem) string {
+func buildProgressiveAnswerMessages(answerTemplate, question string, items []types.QueryItem) []client.LLMMessage {
 	maxRefs := progressiveAnswerMaxReferences()
 	n := len(items)
 	if n > maxRefs {
 		n = maxRefs
 	}
 	var refs strings.Builder
+	refs.WriteString("--- References ---\n")
 	for i := 0; i < n; i++ {
 		it := items[i]
 		excerpt := truncateUTF8ForPrompt(it.Content, progressiveAnswerExcerptMaxBytes())
@@ -214,7 +215,12 @@ func buildProgressiveAnswerPrompt(answerTemplate, question string, items []types
 		refs.WriteString(excerpt)
 		refs.WriteByte('\n')
 	}
-	return fmt.Sprintf(answerTemplate, refs.String(), strings.TrimSpace(question))
+
+	return []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: answerTemplate},
+		{Role: client.LLMMessageRoleUser, Content: refs.String()},
+		{Role: client.LLMMessageRoleUser, Content: strings.TrimSpace(question)},
+	}
 }
 
 // NewQueryService constructs the query service implementation.
@@ -395,14 +401,20 @@ func (s *queryService) generateProgressiveAnswer(ctx context.Context, question s
 	if s.llm == nil || len(items) == 0 {
 		return ""
 	}
-	prompt := buildProgressiveAnswerPrompt(s.answerPrompt, question, items)
+	msgs := buildProgressiveAnswerMessages(s.answerPrompt, question, items)
 	maxTok := progressiveAnswerCompletionMaxTokens()
-	ans, err := s.llm.Generate(ctx, prompt, maxTok)
+	ans, err := s.llm.Generate(ctx, msgs, maxTok)
 	if err != nil {
 		s.logger.Warn("progressive query: answer generation failed", zap.Error(err))
 		return ""
 	}
-	return strings.TrimSpace(ans)
+	ans = strings.TrimSpace(ans)
+	var inputText strings.Builder
+	for _, m := range msgs {
+		inputText.WriteString(m.Content)
+	}
+	metrics.RecordLLMTokens(metrics.PathAnswerGen, estimateQueryTokens(inputText.String()), estimateQueryTokens(ans))
+	return ans
 }
 
 func (s *queryService) queryHotPath(ctx context.Context, question string, half int) ([]types.QueryItem, []types.ProgressiveQueryStep, error) {
@@ -611,3 +623,17 @@ func extractTitleFromPath(path string) string {
 }
 
 var _ service.IQueryService = (*queryService)(nil)
+
+func estimateQueryTokens(text string) int {
+	if text == "" {
+		return 0
+	}
+	chineseCount := 0
+	for _, r := range text {
+		if r > 127 {
+			chineseCount++
+		}
+	}
+	englishChars := len(text) - chineseCount
+	return chineseCount + englishChars/4
+}

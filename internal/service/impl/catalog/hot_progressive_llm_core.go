@@ -57,13 +57,17 @@ func (c *hotProgressiveLLMCore) FilterDocuments(ctx context.Context, query strin
 		docList.WriteString(fmt.Sprintf("[%d] Title: %s\nTags: %v\nSummary: %s\n\n",
 			i, d.Title, d.Tags, truncateStringForHotLLM(d.Content, c.config.ParagraphSummaryMax)))
 	}
-	prompt := fmt.Sprintf(c.filterDocsPrompt, query, docList.String())
-	metrics.RecordLLMCall(metrics.PathDocFilter, estimateTokensForHotLLM(prompt))
-	resp, err := c.provider.Generate(ctx, prompt, 1500)
+	dataContent := fmt.Sprintf("Query: %s\n\nDocuments:\n%s", query, docList.String())
+	msgs := []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: c.filterDocsPrompt},
+		{Role: client.LLMMessageRoleUser, Content: dataContent},
+	}
+	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM filter failed", zap.Error(err))
 		return c.fallbackFilterDocuments(docs), nil
 	}
+	metrics.RecordLLMTokens(metrics.PathDocFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
 	return c.parseFilterResults(resp), nil
 }
 
@@ -80,13 +84,17 @@ func (c *hotProgressiveLLMCore) FilterChapters(ctx context.Context, query string
 		chapterList.WriteString(fmt.Sprintf("[%d] Path: %s\nSummary: %s\n\n",
 			i, ch.Path, truncateStringForHotLLM(body, c.config.ParagraphSummaryMax)))
 	}
-	prompt := fmt.Sprintf(c.filterChapsPrompt, query, chapterList.String())
-	metrics.RecordLLMCall(metrics.PathChapterFilter, estimateTokensForHotLLM(prompt))
-	resp, err := c.provider.Generate(ctx, prompt, 1500)
+	dataContent := fmt.Sprintf("Query: %s\n\nChapters:\n%s", query, chapterList.String())
+	msgs := []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: c.filterChapsPrompt},
+		{Role: client.LLMMessageRoleUser, Content: dataContent},
+	}
+	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM chapter filter failed", zap.Error(err))
 		return c.fallbackFilterChapters(chapters), nil
 	}
+	metrics.RecordLLMTokens(metrics.PathChapterFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
 	return c.parseFilterResults(resp), nil
 }
 
@@ -99,13 +107,17 @@ func (c *hotProgressiveLLMCore) FilterTopicsByQuery(ctx context.Context, query s
 		topicList.WriteString(fmt.Sprintf("[%d] ID: %s\nName: %s\nDescription: %s\nTag names: %v\n\n",
 			i, g.ID, g.Name, g.Description, g.TagNames))
 	}
-	prompt := fmt.Sprintf(c.filterTopicsPrompt, query, topicList.String())
-	metrics.RecordLLMCall(metrics.PathTopicFilter, estimateTokensForHotLLM(prompt))
-	resp, err := c.provider.Generate(ctx, prompt, 1500)
+	dataContent := fmt.Sprintf("Query: %s\n\nAvailable topics:\n%s", query, topicList.String())
+	msgs := []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: c.filterTopicsPrompt},
+		{Role: client.LLMMessageRoleUser, Content: dataContent},
+	}
+	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM topic filter failed", zap.Error(err))
 		return c.fallbackFilterTopics(topics), nil
 	}
+	metrics.RecordLLMTokens(metrics.PathTopicFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
 	return c.parseFilterResults(resp), nil
 }
 
@@ -117,13 +129,17 @@ func (c *hotProgressiveLLMCore) FilterTagsByQuery(ctx context.Context, query str
 	for _, tag := range tags {
 		tagList.WriteString(fmt.Sprintf("- %s (used in %d documents)\n", tag.Name, tag.DocumentCount))
 	}
-	prompt := fmt.Sprintf(c.filterTagsPrompt, query, tagList.String())
-	metrics.RecordLLMCall(metrics.PathTagFilter, estimateTokensForHotLLM(prompt))
-	resp, err := c.provider.Generate(ctx, prompt, 1500)
+	dataContent := fmt.Sprintf("Query: %s\n\nAvailable tags:\n%s", query, tagList.String())
+	msgs := []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: c.filterTagsPrompt},
+		{Role: client.LLMMessageRoleUser, Content: dataContent},
+	}
+	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM tag filter failed", zap.Error(err))
 		return c.fallbackTagFilter(tags), nil
 	}
+	metrics.RecordLLMTokens(metrics.PathTagFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
 	return c.parseTagFilterResults(resp), nil
 }
 
