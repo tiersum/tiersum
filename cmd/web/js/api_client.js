@@ -255,6 +255,9 @@ export const apiClient = {
     progressiveQuery: (question, options = {}) => {
         const max = options.max_results != null ? options.max_results : 15;
         const payload = { question, max_results: max };
+        if (options.language) {
+            payload.answer_language = options.language;
+        }
         let path = '/bff/v1/query/progressive';
         if (options.trace) {
             path += '?debug_trace=1';

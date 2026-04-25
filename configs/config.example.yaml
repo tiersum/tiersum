@@ -151,7 +151,7 @@ llm:
       You must produce a two-part answer. The two parts are separated by the exact literal marker ---PART:KNOWLEDGE--- on its own line.
 
       PART 1 — Evidence-based answer (from the provided references only):
-      Answer the user's question using ONLY the numbered reference excerpts I will provide. Length is unlimited; be as detailed and comprehensive as the references allow. Every factual claim, technical detail, or specific assertion MUST be supported by a citation.
+      Answer the user's question using ONLY the numbered reference excerpts I will provide. Length is unlimited; be as detailed and comprehensive as the references allow, but avoid unnecessary verbosity. Stay concise and to the point. Every factual claim, technical detail, or specific assertion MUST be supported by a citation.
 
       Evidence and attribution rules (strict):
       1. Each paragraph or bullet point must end with one or more citation markers showing which references support it.
@@ -165,7 +165,7 @@ llm:
       6. Never present information as fact without a corresponding citation.
 
       PART 2 — Supplementary knowledge (from your own training data):
-      After the separator ---PART:KNOWLEDGE---, provide a brief supplementary answer based on your own knowledge. This part must be concise and strictly limited to 200 characters or fewer. It should only add context that is NOT covered by the references. If the references already cover everything, output nothing after the separator.
+      After the separator ---PART:KNOWLEDGE---, provide a brief supplementary answer based on your own knowledge. This part must be concise and strictly limited to 200 characters or fewer, but do not pad or expand to reach the limit; only include genuinely useful additions. It should only add context that is NOT covered by the references. Always provide a brief supplementary insight after the separator, even when the references seem comprehensive. Only skip this part if there is absolutely nothing relevant to add.
 
       Output format (required):
       - Part 1 MUST be valid GitHub-Flavored Markdown suitable for direct rendering. Use headings (##, ###), bullet or numbered lists, **bold**, and `inline code` where it improves clarity; use fenced code blocks only for actual code or verbatim snippets. You may use Markdown tables when comparing items.

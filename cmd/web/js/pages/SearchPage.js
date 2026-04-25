@@ -1,4 +1,5 @@
 import { apiClient, isBrowserAdminRole, isBrowserViewerRole } from '../api_client.js';
+import { getLocale } from '../i18n.js';
 import { parseMarkdown } from '../markdown.js';
 
 export const SearchPage = {
@@ -65,7 +66,7 @@ export const SearchPage = {
             this.lastTraceID = null;
 
             try {
-                const response = await apiClient.progressiveQuery(this.query, { trace: this.traceDebug });
+                const response = await apiClient.progressiveQuery(this.query, { trace: this.traceDebug, language: getLocale() });
                 this.results = (response.results || []).map(r => ({
                     ...r,
                     docStatus: (r.status && String(r.status).trim()) || 'hot'
@@ -239,9 +240,9 @@ export const SearchPage = {
                 </div>
 
                 <div v-if="hasSearched" class="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-8">
-                    <div class="lg:col-span-8">
-                        <div class="card bg-slate-900/50 border border-slate-800 h-[calc(100vh-280px)]">
-                            <div class="card-body p-0">
+    <div class="lg:col-span-8">
+        <div class="card bg-slate-900/50 border border-slate-800 min-h-[calc(100vh-280px)]">
+            <div class="card-body p-0">
                                 <div class="p-4 border-b border-slate-800 flex items-center justify-between">
                                     <div class="flex items-center gap-2">
                                         <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

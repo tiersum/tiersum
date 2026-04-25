@@ -192,7 +192,7 @@ func truncateUTF8ForPrompt(s string, maxBytes int) string {
 	return utf8SafePrefix(s, maxBytes) + "\n…(truncated)"
 }
 
-func buildProgressiveAnswerMessages(answerTemplate, question string, items []types.QueryItem) []client.LLMMessage {
+func buildProgressiveAnswerMessages(answerTemplate, question string, items []types.QueryItem, language string) []client.LLMMessage {
 	maxRefs := progressiveAnswerMaxReferences()
 	n := len(items)
 	if n > maxRefs {
@@ -216,8 +216,13 @@ func buildProgressiveAnswerMessages(answerTemplate, question string, items []typ
 		refs.WriteByte('\n')
 	}
 
+	systemContent := answerTemplate
+	if language != "" {
+		systemContent = answerTemplate + "\n\nPlease answer in " + language + "."
+	}
+
 	return []client.LLMMessage{
-		{Role: client.LLMMessageRoleSystem, Content: answerTemplate},
+		{Role: client.LLMMessageRoleSystem, Content: systemContent},
 		{Role: client.LLMMessageRoleUser, Content: refs.String()},
 		{Role: client.LLMMessageRoleUser, Content: strings.TrimSpace(question)},
 	}
@@ -367,7 +372,7 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 		))
 		ansCtx = trace.ContextWithSpan(ansCtx, ansSpan)
 		ansCtx = WithProgressiveDebugTracer(ansCtx, tracer)
-		response.AnswerFromReferences, response.AnswerFromKnowledge = s.generateProgressiveAnswer(ansCtx, req.Question, mergedResults)
+		response.AnswerFromReferences, response.AnswerFromKnowledge = s.generateProgressiveAnswer(ansCtx, req.Question, mergedResults, req.AnswerLanguage)
 		response.Answer = response.AnswerFromReferences // backward compatibility
 		if response.AnswerFromReferences != "" {
 			ansSpan.SetAttributes(attribute.String("tier_response_answer", TruncateTraceStr(response.AnswerFromReferences, TraceMaxRespBytes)))
@@ -378,7 +383,7 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 		ansSpan.SetStatus(codes.Ok, "")
 		ansSpan.End()
 	} else {
-		response.AnswerFromReferences, response.AnswerFromKnowledge = s.generateProgressiveAnswer(ctx, req.Question, mergedResults)
+		response.AnswerFromReferences, response.AnswerFromKnowledge = s.generateProgressiveAnswer(ctx, req.Question, mergedResults, req.AnswerLanguage)
 		response.Answer = response.AnswerFromReferences // backward compatibility
 	}
 
@@ -402,11 +407,11 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 	return response, nil
 }
 
-func (s *queryService) generateProgressiveAnswer(ctx context.Context, question string, items []types.QueryItem) (refsAnswer, knowledgeAnswer string) {
+func (s *queryService) generateProgressiveAnswer(ctx context.Context, question string, items []types.QueryItem, language string) (refsAnswer, knowledgeAnswer string) {
 	if s.llm == nil || len(items) == 0 {
 		return "", ""
 	}
-	msgs := buildProgressiveAnswerMessages(s.answerPrompt, question, items)
+	msgs := buildProgressiveAnswerMessages(s.answerPrompt, question, items, language)
 	maxTok := progressiveAnswerCompletionMaxTokens()
 	ans, err := s.llm.Generate(ctx, msgs, maxTok)
 	if err != nil {
