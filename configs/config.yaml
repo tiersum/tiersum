@@ -37,6 +37,119 @@ llm:
     model: llama3.2
     timeout: 60s
 
+  prompts:
+    system_message: "You are a concise assistant. Respond briefly and accurately."
+
+    analyze_document: |
+      Analyze the following document and provide a JSON response.
+
+      Title: %s
+
+      Full Content:
+      %s
+
+      Please analyze this document and return a JSON object with the following structure:
+      {
+        "summary": "document summary (max 300 chars)",
+        "tags": ["tag1", "tag2", ...],
+        "chapters": [
+          {
+            "title": "chapter title",
+            "summary": "chapter summary (max 150 chars, may be empty)",
+            "content": "chapter original content (verbatim or trimmed)"
+          }
+        ]
+      }
+
+      Guidelines:
+      - Return ONLY the JSON object, no other text.
+      - Do NOT wrap the JSON in markdown code fences.
+      - Tags should be relevant keywords (lowercase, no spaces use-hyphens).
+      - Include at most 12 objects in "chapters".
+      - For EVERY chapter object you MUST include "title", "summary", and "content".
+      - "summary" may be empty when no short summary is appropriate; otherwise keep it within 150 characters.
+      - Organize chapters at the section level (roughly equivalent to ## headings).
+      - Each chapter's "content" MUST include sub-heading titles and their body text to preserve the full hierarchy.
+        Example: for a chapter titled "Architecture", content should contain both "### Frontend" text and "### Backend" text.
+      - If sub-sections are very small (single paragraph or less), merge them into the parent chapter instead of creating a separate chapter.
+      - If the document has no clear structure, create a single chapter spanning the full content (summary may be empty).
+
+    answer_synthesis: |
+      Answer the user's question using ONLY the numbered reference excerpts below. If the excerpts do not contain enough information, say so briefly. Write in the same language as the user's question when possible.
+
+      Output format (required): Your entire reply MUST be valid GitHub-Flavored Markdown suitable for direct rendering. Use headings (##, ###), bullet or numbered lists, **bold**, and `inline code` where it improves clarity; use fenced code blocks only for actual code or verbatim snippets. You may use Markdown tables when comparing items. Do not wrap the whole answer in a single outer code fence. Do not output HTML unless it appears inside a fenced code block as an example.
+
+      Citations: when you refer to a reference, include the marker [^N^] where N is the reference index (1-based), e.g. [^1^].
+
+      --- References ---
+
+      %s
+
+      --- User question ---
+      %s
+
+    filter_documents: |
+      Given the query: "%s"
+
+      Evaluate the relevance of each document below. Return a JSON array of objects with fields "id" (document ID) and "relevance" (0.0-1.0 score).
+      Only include documents with relevance >= 0.5. Sort by relevance descending.
+
+      Documents:
+      %s
+
+      Response format (JSON only):
+      [
+        {"id": "doc_id", "relevance": 0.95},
+        ...
+      ]
+
+    filter_chapters: |
+      Given the query: "%s"
+
+      Evaluate the relevance of each chapter below. Return a JSON array of objects with fields "id" (the path) and "relevance" (0.0-1.0 score).
+      Only include chapters with relevance >= 0.5. Sort by relevance descending.
+
+      Chapters:
+      %s
+
+      Response format (JSON only):
+      [
+        {"id": "doc_id/chapter_title", "relevance": 0.88},
+        ...
+      ]
+
+    filter_topics: |
+      Given the user query: "%s"
+
+      Select the 1-3 most relevant topics from the list below. These topics narrow the search for relevant documents.
+      Return a JSON array of objects with fields "id" (topic ID) and "relevance" (0.0-1.0 score).
+      Only include topics with relevance >= 0.5. Sort by relevance descending.
+      Select at most 3 topics.
+
+      Available topics:
+      %s
+
+      Response format (JSON only):
+      [
+        {"id": "topic_id", "relevance": 0.95},
+        {"id": "another_topic_id", "relevance": 0.82}
+      ]
+
+    filter_tags: |
+      Given the user query: "%s"
+
+      Select the most relevant tags from the list below. Return a JSON array of objects with fields "tag" and "relevance" (0.0-1.0 score).
+      Only include tags with relevance >= 0.5. Sort by relevance descending.
+
+      Available tags:
+      %s
+
+      Response format (JSON only):
+      [
+        {"tag": "tag-name", "relevance": 0.95},
+        {"tag": "another-tag", "relevance": 0.82}
+      ]
+
 telemetry:
   enabled: true
   persist_to_db: true
