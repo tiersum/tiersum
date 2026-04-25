@@ -106,6 +106,22 @@ type ICache interface {
 }
 
 // Cold index monitoring DTOs live in pkg/types; type aliases keep IColdIndex method signatures stable here.
+// IDeletedDocumentRepository records and cleans up deleted document IDs for cold index GC.
+// DeletedDocument represents one tombstone row.
+type DeletedDocument struct {
+	ID         string
+	DocumentID string
+	CreatedAt  time.Time
+}
+
+// IDeletedDocumentRepository records document deletion and exposes entries for cold index cleanup.
+type IDeletedDocumentRepository interface {
+	// Insert records a deleted document ID.
+	Insert(ctx context.Context, documentID string) error
+	// ListSince returns tombstones created after the given time.
+	ListSince(ctx context.Context, since time.Time, limit int) ([]DeletedDocument, error)
+}
+
 type (
 	ColdIndexInvertedStats = types.ColdIndexInvertedStats
 	ColdIndexVectorStats   = types.ColdIndexVectorStats
@@ -118,11 +134,14 @@ type IColdIndex interface {
 	AddDocument(ctx context.Context, doc *types.Document) error
 	// RemoveDocument removes the document from the cold index.
 	RemoveDocument(docID string) error
+	// AddChapter indexes a single pre-split cold chapter (embedding, Bleve, HNSW).
+	// The caller is responsible for calling RemoveDocument first if replacing a document's chapters.
+	AddChapter(ctx context.Context, docID, path, title, content string) error
 	// Search returns ranked content matches for the query string.
 	Search(ctx context.Context, query string, limit int) ([]ColdIndexHit, error)
 	// ApproxEntries returns a non-negative size hint for metrics (implementation-defined, e.g. row count).
 	ApproxEntries() int
-	// VectorStats returns HNSW / embedding fields for dashboards (zeros when the index is empty or not initialized).
+	// VectorStats returns HNSW / embedding fields for dashboards (zeros when the index is not empty or not initialized).
 	VectorStats() ColdIndexVectorStats
 	// InvertedIndexStats returns Bleve / inverted-text fields for dashboards.
 	InvertedIndexStats() ColdIndexInvertedStats

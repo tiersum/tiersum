@@ -672,6 +672,36 @@ func (idx *Index) MarkdownChapters(docID, title, markdown string) []types.Chapte
 	return MarkdownChaptersFromSplit(splitter, maxTok, docID, title, markdown)
 }
 
+// AddChapter indexes a single pre-split cold chapter (embedding, Bleve, HNSW).
+// The caller must hold no lock and must call RemoveDocument first when replacing a document's chapters.
+func (idx *Index) AddChapter(ctx context.Context, docID, path, title, content string) error {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	var vec []float32
+	if idx.textEmbedder != nil {
+		vec = FallbackColdTextEmbedding(ctx, idx.logger, idx.textEmbedder, content)
+	} else {
+		vec = GenerateSimpleEmbedding(content)
+	}
+
+	docIdx := &ChapterIndex{
+		DocumentID: docID,
+		Path:       path,
+		Title:      title,
+		Content:    content,
+		Embedding:  vec,
+	}
+
+	if err := idx.inverted.indexChapter(path, docIdx); err != nil {
+		return fmt.Errorf("failed to index chapter in bleve: %w", err)
+	}
+	idx.vector.add(path, vec)
+	idx.documents[path] = docIdx
+	idx.docChapterPaths[docID] = append(idx.docChapterPaths[docID], path)
+	return nil
+}
+
 // RemoveDocument removes all chapters for a cold document from the index.
 func (idx *Index) RemoveDocument(docID string) error {
 	idx.mu.Lock()

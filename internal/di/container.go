@@ -126,11 +126,9 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 	hotIngestSink := NewHotIngestQueueSink(logger)
 
 	// Cold→hot promotion and other maintenance steps still require a working LLM provider.
-	var maintenance service.IDocumentMaintenanceService
-	if llmProv != nil {
-		maintenance = document.NewDocumentMaintenanceService(uow.Documents, persister, analyzer, logger)
-	} else {
-		logger.Warn("LLM provider unavailable; document maintenance (cold→hot promotion, hot-score refresh) disabled")
+	maintenance := document.NewDocumentMaintenanceService(uow.Documents, uow.Chapters, coldIndex, uow.DeletedDocuments, persister, analyzer, logger)
+	if llmProv == nil {
+		logger.Warn("LLM provider unavailable; cold→hot promotion (PromoteJob) will fail, but cold index refresh and hot score update still work")
 	}
 
 	// Service: documents (list/detail/create ingest)
@@ -153,10 +151,9 @@ func NewDependencies(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, l
 
 	// Job scheduler + jobs (job layer depends on service facades only).
 	sched := job.NewScheduler(logger)
-	if maintenance != nil {
-		sched.Register(job.NewPromoteJob(maintenance))
-		sched.Register(job.NewHotScoreJob(maintenance))
-	}
+	sched.Register(job.NewPromoteJob(maintenance))
+	sched.Register(job.NewHotScoreJob(maintenance))
+	sched.Register(job.NewColdIndexRefreshJob(maintenance, logger))
 	sched.Register(job.NewTopicRegroupJob(topicSvc, logger))
 
 	// API: REST + MCP servers

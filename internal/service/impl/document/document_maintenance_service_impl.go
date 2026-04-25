@@ -2,6 +2,7 @@ package document
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
@@ -17,6 +18,9 @@ import (
 // NewDocumentMaintenanceService constructs the maintenance service implementation.
 func NewDocumentMaintenanceService(
 	docRepo storage.IDocumentRepository,
+	chapterRepo storage.IChapterRepository,
+	coldIndex storage.IColdIndex,
+	deletedDocRepo storage.IDeletedDocumentRepository,
 	persister IDocumentAnalysisPersister,
 	analyzer IDocumentAnalysisGenerator,
 	logger *zap.Logger,
@@ -25,18 +29,25 @@ func NewDocumentMaintenanceService(
 		logger = zap.NewNop()
 	}
 	return &documentMaintenanceService{
-		docRepo:      docRepo,
-		persister:    persister,
-		analyzer:     analyzer,
-		logger:       logger,
+		docRepo:        docRepo,
+		chapterRepo:    chapterRepo,
+		coldIndex:      coldIndex,
+		deletedDocRepo: deletedDocRepo,
+		persister:      persister,
+		analyzer:       analyzer,
+		logger:         logger,
 	}
 }
 
 type documentMaintenanceService struct {
-	docRepo      storage.IDocumentRepository
-	persister    IDocumentAnalysisPersister
-	analyzer     IDocumentAnalysisGenerator
-	logger       *zap.Logger
+	docRepo          storage.IDocumentRepository
+	chapterRepo      storage.IChapterRepository
+	coldIndex        storage.IColdIndex
+	deletedDocRepo   storage.IDeletedDocumentRepository
+	persister        IDocumentAnalysisPersister
+	analyzer         IDocumentAnalysisGenerator
+	logger           *zap.Logger
+	lastColdRefresh  time.Time
 }
 
 func (s *documentMaintenanceService) RunColdPromotionSweep(ctx context.Context) error {
@@ -105,6 +116,13 @@ func (s *documentMaintenanceService) promoteDocument(ctx context.Context, doc *t
 		s.logger.Error("failed to update document status to hot", zap.String("doc_id", doc.ID), zap.Error(err))
 	}
 
+	// Remove promoted document from the cold index — it is no longer cold.
+	if s.coldIndex != nil {
+		if err := s.coldIndex.RemoveDocument(doc.ID); err != nil {
+			s.logger.Warn("remove promoted doc from cold index", zap.String("doc_id", doc.ID), zap.Error(err))
+		}
+	}
+
 	s.logger.Info("document promoted successfully", zap.String("doc_id", doc.ID), zap.Int("chapters", len(analysis.Chapters)))
 	metrics.RecordDocumentPromotion(string(types.DocStatusCold), string(types.DocStatusHot))
 	return nil
@@ -130,6 +148,65 @@ func (s *documentMaintenanceService) RecalculateDocumentHotScores(ctx context.Co
 		updatedCount++
 	}
 	s.logger.Info("hot score update completed", zap.Int("total", len(docs)), zap.Int("updated", updatedCount))
+	return nil
+}
+
+func (s *documentMaintenanceService) RefreshColdIndex(ctx context.Context) error {
+	if s.coldIndex == nil || s.chapterRepo == nil {
+		return nil
+	}
+	now := time.Now()
+	since := s.lastColdRefresh
+	if since.IsZero() {
+		since = now // first run after startup/build: skip, RebuildFromDocuments is authoritative
+	}
+	s.lastColdRefresh = now
+
+	// Phase 1: Process tombstone entries — remove deleted documents from the cold index.
+	// s.lastColdRefresh advances on each run, so the same tombstone is never processed twice.
+	if s.deletedDocRepo != nil {
+		tombstones, err := s.deletedDocRepo.ListSince(ctx, since, 5000)
+		if err != nil {
+			return fmt.Errorf("list tombstones: %w", err)
+		}
+		for _, t := range tombstones {
+			s.logger.Debug("removing deleted document from cold index", zap.String("doc_id", t.DocumentID))
+			if err := s.coldIndex.RemoveDocument(t.DocumentID); err != nil {
+				s.logger.Warn("remove deleted doc from cold index", zap.String("doc_id", t.DocumentID), zap.Error(err))
+			}
+		}
+	}
+
+	// Phase 2: Index new/updated cold documents from the chapters table.
+	coldDocs, err := s.docRepo.ListByStatus(ctx, types.DocStatusCold, 5000)
+	if err != nil {
+		return fmt.Errorf("list cold docs: %w", err)
+	}
+
+	for i := range coldDocs {
+		doc := &coldDocs[i]
+
+		if doc.CreatedAt.Before(since) && doc.UpdatedAt.Before(since) {
+			continue
+		}
+		if err := s.coldIndex.RemoveDocument(doc.ID); err != nil {
+			s.logger.Warn("remove from cold index", zap.String("doc_id", doc.ID), zap.Error(err))
+		}
+
+		chapters, err := s.chapterRepo.ListByDocument(ctx, doc.ID)
+		if err != nil {
+			return fmt.Errorf("list chapters for %s: %w", doc.ID, err)
+		}
+		for _, ch := range chapters {
+			if err := s.coldIndex.AddChapter(ctx, doc.ID, ch.Path, ch.Title, ch.Content); err != nil {
+				s.logger.Error("add chapter to cold index",
+					zap.String("doc_id", doc.ID),
+					zap.String("path", ch.Path),
+					zap.Error(err))
+			}
+		}
+	}
+
 	return nil
 }
 

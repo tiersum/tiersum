@@ -11,19 +11,20 @@ import (
 
 // UnitOfWork combines multiple repositories.
 type UnitOfWork struct {
-	Documents       storage.IDocumentRepository
-	Chapters        storage.IChapterRepository
-	Tags            storage.ITagRepository
-	Topics          storage.ITopicRepository
-	OtelSpans       storage.IOtelSpanRepository
-	SystemAuth      storage.ISystemAuthStateRepository
-	AuthUsers       storage.IAuthUserRepository
-	BrowserSessions storage.IBrowserSessionRepository
-	DeviceTokens    storage.IDeviceTokenRepository
-	Passkeys        storage.IPasskeyCredentialRepository
-	PasskeyVerifs   storage.IPasskeySessionVerificationRepository
-	APIKeys         storage.IAPIKeyRepository
-	APIKeyAudit     storage.IAPIKeyAuditRepository
+	Documents            storage.IDocumentRepository
+	Chapters             storage.IChapterRepository
+	Tags                 storage.ITagRepository
+	Topics               storage.ITopicRepository
+	OtelSpans            storage.IOtelSpanRepository
+	SystemAuth           storage.ISystemAuthStateRepository
+	AuthUsers            storage.IAuthUserRepository
+	BrowserSessions      storage.IBrowserSessionRepository
+	DeviceTokens         storage.IDeviceTokenRepository
+	Passkeys             storage.IPasskeyCredentialRepository
+	PasskeyVerifs        storage.IPasskeySessionVerificationRepository
+	APIKeys              storage.IAPIKeyRepository
+	APIKeyAudit          storage.IAPIKeyAuditRepository
+	DeletedDocuments     storage.IDeletedDocumentRepository
 }
 
 // NewUnitOfWork creates a new unit of work.
@@ -40,7 +41,8 @@ func NewUnitOfWork(db shared.SQLDB, driver string, cache storage.ICache) *UnitOf
 		DeviceTokens:    auth.NewDeviceTokenRepo(db, driver),
 		Passkeys:        auth.NewPasskeyCredentialRepo(db, driver),
 		PasskeyVerifs:   auth.NewPasskeySessionVerificationRepo(db, driver),
-		APIKeys:         auth.NewAPIKeyRepo(db, driver),
-		APIKeyAudit:     auth.NewAPIKeyAuditRepo(db, driver),
+		APIKeys:           auth.NewAPIKeyRepo(db, driver),
+		APIKeyAudit:       auth.NewAPIKeyAuditRepo(db, driver),
+		DeletedDocuments:  document.NewDeletedDocumentRepo(db, driver),
 	}
 }

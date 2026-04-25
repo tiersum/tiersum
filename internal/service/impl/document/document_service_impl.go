@@ -102,15 +102,22 @@ func (s *documentService) CreateDocument(ctx context.Context, req types.CreateDo
 			return nil, err
 		}
 	} else if s.cold != nil {
-		// To avoid "DB row without index" inconsistency, index first, then persist.
-		coldDoc := *doc
-		coldDoc.Tags = nil
-		if err := s.cold.AddDocument(ctx, &coldDoc); err != nil {
-			return nil, fmt.Errorf("cold index add document: %w", err)
-		}
+		// Persist document first, then split chapters into the chapters table.
+		// The in-memory cold index is refreshed asynchronously by ColdIndexRefreshJob.
 		if err := s.docs.Create(ctx, doc); err != nil {
-			_ = s.cold.RemoveDocument(doc.ID)
 			return nil, fmt.Errorf("persist document: %w", err)
+		}
+		if s.chapters != nil {
+			coldChapters := s.cold.MarkdownChapters(doc.ID, doc.Title, doc.Content)
+			if len(coldChapters) > 0 {
+				if err := s.chapters.ReplaceByDocument(ctx, doc.ID, coldChapters); err != nil {
+					s.logger.Error("failed to persist cold chapters",
+						zap.String("doc_id", doc.ID),
+						zap.Error(err))
+				} else {
+					chapterCount = len(coldChapters)
+				}
+			}
 		}
 	} else {
 		if err := s.docs.Create(ctx, doc); err != nil {
