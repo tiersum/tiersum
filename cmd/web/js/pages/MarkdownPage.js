@@ -90,7 +90,7 @@ export const MarkdownPage = {
     },
     template: `
         <div class="min-h-screen bg-slate-950">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-16">
+            <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-16">
                 <div class="flex flex-col lg:flex-row gap-8">
                     <!-- Sidebar Navigation -->
                     <aside class="lg:w-64 shrink-0">

@@ -144,7 +144,7 @@ export const DocumentCreatePage = {
     },
     template: `
         <div class="min-h-screen bg-slate-950">
-            <main class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-16">
+            <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-16">
                 <div v-if="errorMessage" role="alert" class="alert alert-error border border-red-900/60 bg-red-950/50 text-red-100 mb-4 flex flex-row items-start justify-between gap-3">
                     <span class="text-sm leading-snug pt-0.5">{{ errorMessage }}</span>
                     <button type="button" class="btn btn-ghost btn-xs shrink-0 text-red-200" @click="clearError">{{ $t('dismiss') }}</button>

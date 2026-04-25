@@ -184,7 +184,7 @@ export const SettingsPage = {
         }
     },
     template: `
-        <div class="max-w-3xl mx-auto px-4 py-8">
+        <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <h1 class="text-2xl font-bold text-slate-100 mb-4">{{ $t('settingsTitle') }}</h1>
             <p v-if="isAdmin && !loading && !err" class="text-slate-400 text-sm mb-2">{{ $t('settingsAdminNote') }}</p>
             <p v-if="loading" class="text-slate-400">{{ $t('loading') }}</p>

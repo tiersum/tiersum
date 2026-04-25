@@ -438,12 +438,12 @@ export const ObservabilityPage = {
                     </div>
                 </div>
             </div>
-            <main class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-16">
+            <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-16">
                 <div class="mb-6">
                     <h1 class="text-2xl sm:text-3xl font-bold text-slate-100">{{ $t('observabilityTitle') }}</h1>
                     <p class="text-slate-500 text-sm mt-1">{{ $t('observabilityDescFull') }}</p>
                 </div>
-                <div role="tablist" class="tabs tabs-boxed bg-slate-900/80 border border-slate-800 mb-6 flex flex-wrap gap-y-1 w-full max-w-full sm:max-w-xl">
+                <div role="tablist" class="tabs tabs-boxed bg-slate-900/80 mb-6 flex flex-wrap gap-y-1">
                     <a role="tab" :class="['tab', tab === 'monitoring' ? 'tab-active' : '']" @click.prevent="setTab('monitoring')">{{ $t('observabilityTabMonitoring') }}</a>
                     <a role="tab" :class="['tab', tab === 'cold' ? 'tab-active' : '']" @click.prevent="setTab('cold')">{{ $t('observabilityTabCold') }}</a>
                     <a role="tab" :class="['tab', tab === 'traces' ? 'tab-active' : '']" @click.prevent="setTab('traces')">{{ $t('observabilityTabTraces') }}</a>

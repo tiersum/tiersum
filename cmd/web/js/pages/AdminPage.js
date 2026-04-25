@@ -101,7 +101,7 @@ export const AdminPage = {
         }
     },
     template: `
-        <div class="max-w-5xl mx-auto px-4 py-8">
+        <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <h1 class="text-2xl font-bold text-slate-100 mb-2">{{ $t('adminTitle') }}</h1>
             <p class="text-slate-500 text-sm mb-6">{{ $t('adminDesc') }}</p>
             <p v-if="loading" class="text-slate-400">{{ $t('loading') }}</p>
