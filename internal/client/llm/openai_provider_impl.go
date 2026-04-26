@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
@@ -27,14 +28,23 @@ type OpenAIProvider struct {
 	client  *http.Client
 }
 
-// NewOpenAIProvider creates a new OpenAI provider
+// NewOpenAIProvider creates a new OpenAI provider with shared connection pool.
 func NewOpenAIProvider() *OpenAIProvider {
 	timeout := viper.GetDuration("llm.openai.timeout")
+	if timeout <= 0 {
+		timeout = 60 * time.Second
+	}
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		DisableCompression:  false,
+	}
 	return &OpenAIProvider{
 		apiKey:  viper.GetString("llm.openai.api_key"),
 		baseURL: viper.GetString("llm.openai.base_url"),
 		model:   viper.GetString("llm.openai.model"),
-		client:  &http.Client{Timeout: timeout},
+		client:  &http.Client{Timeout: timeout, Transport: transport},
 	}
 }
 
