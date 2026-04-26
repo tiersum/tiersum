@@ -18,12 +18,17 @@ llm:
   provider: openai
   disable_think: true
 
+#  openai:
+#    api_key: ${MOONSHOT_API_KEY}
+#    base_url: https://api.moonshot.cn/v1
+#    model: kimi-k2.6
+#    max_tokens: 2000
+#    temperature: 0.6
+
   openai:
-    api_key: ${MOONSHOT_API_KEY}
-    base_url: https://api.moonshot.cn/v1
-    model: kimi-k2.6
-    max_tokens: 2000
-    temperature: 0.6
+    api_key: ${DEEPSEEK_API_KEY}
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-v4-flash
 
   anthropic:
     api_key: ${ANTHROPIC_API_KEY}
