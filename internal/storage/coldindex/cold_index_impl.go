@@ -10,6 +10,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -612,20 +613,33 @@ func (idx *Index) hybridSearch(queryText string, queryEmbedding []float32, topK 
 
 	recall := idx.branchRecallSize(topK)
 
-	bm25Results, err := idx.searchWithBleve(queryText, recall)
-	if err != nil {
-		idx.logger.Warn("text index search failed", zap.Error(err))
-		bm25Results = []scoredChapter{}
+	var bm25Results, vectorResults []scoredChapter
+	var bm25Err, vectorErr error
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		bm25Results, bm25Err = idx.searchWithBleve(queryText, recall)
+		if bm25Err != nil {
+			idx.logger.Warn("text index search failed", zap.Error(bm25Err))
+			bm25Results = []scoredChapter{}
+		}
+	}()
+
+	if len(queryEmbedding) == VectorDimension {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			vectorResults, vectorErr = idx.searchWithVector(queryEmbedding, recall)
+			if vectorErr != nil {
+				idx.logger.Warn("vector index search failed", zap.Error(vectorErr))
+				vectorResults = []scoredChapter{}
+			}
+		}()
 	}
 
-	var vectorResults []scoredChapter
-	if len(queryEmbedding) == VectorDimension {
-		vectorResults, err = idx.searchWithVector(queryEmbedding, recall)
-		if err != nil {
-			idx.logger.Warn("vector index search failed", zap.Error(err))
-			vectorResults = []scoredChapter{}
-		}
-	}
+	wg.Wait()
 
 	return idx.mergeHybridResults(bm25Results, vectorResults, topK), nil
 }
@@ -679,13 +693,9 @@ func (idx *Index) mergeHybridResults(bm25Results, vectorResults []scoredChapter,
 		results = append(results, *r)
 	}
 
-	for i := 0; i < len(results); i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].Score > results[i].Score {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Score > results[j].Score
+	})
 
 	if len(results) > topK {
 		results = results[:topK]

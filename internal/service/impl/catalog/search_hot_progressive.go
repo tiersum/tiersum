@@ -307,16 +307,16 @@ func (s *chapterService) queryAndFilterChaptersForHotSearch(ctx context.Context,
 		return nil, nil, nil
 	}
 
-	var allChapters []types.Chapter
-	for _, doc := range docs {
-		chapters, err := s.chapterRepo.ListByDocument(ctx, doc.ID)
-		if err != nil {
-			if s.logger != nil {
-				s.logger.Warn("failed to get document chapters", zap.String("doc_id", doc.ID), zap.Error(err))
-			}
-			continue
+	docIDs := make([]string, len(docs))
+	for i, doc := range docs {
+		docIDs[i] = doc.ID
+	}
+	allChapters, err := s.chapterRepo.ListByDocumentIDs(ctx, docIDs)
+	if err != nil {
+		if s.logger != nil {
+			s.logger.Warn("failed to get document chapters", zap.Strings("doc_ids", docIDs), zap.Error(err))
 		}
-		allChapters = append(allChapters, chapters...)
+		return nil, nil, err
 	}
 
 	if len(allChapters) == 0 {
