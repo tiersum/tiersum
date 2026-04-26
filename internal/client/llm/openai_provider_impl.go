@@ -184,7 +184,12 @@ func (p *OpenAIProvider) resolveTemperature() float64 {
 }
 
 func (p *OpenAIProvider) doChatCompletion(ctx context.Context, reqBody openAIRequest) (string, []byte, openAIResponse, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/client/llm")
+
+	_, marshalSpan := tr.Start(ctx, "llm.serialize_request", trace.WithSpanKind(trace.SpanKindClient))
+	marshalSpan.SetAttributes(attribute.String("model", p.model))
 	jsonBody, err := json.Marshal(reqBody)
+	marshalSpan.End()
 	if err != nil {
 		return "", nil, openAIResponse{}, err
 	}
@@ -197,13 +202,22 @@ func (p *OpenAIProvider) doChatCompletion(ctx context.Context, reqBody openAIReq
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+p.apiKey)
 
+	_, httpSpan := tr.Start(ctx, "llm.http_request", trace.WithSpanKind(trace.SpanKindClient))
+	httpSpan.SetAttributes(attribute.String("model", p.model))
+	httpSpan.SetAttributes(attribute.Int("request_bytes", len(jsonBody)))
 	resp, err := p.client.Do(req)
 	if err != nil {
+		httpSpan.End()
 		return "", nil, openAIResponse{}, fmt.Errorf("http request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, rerr := io.ReadAll(resp.Body)
+	httpSpan.SetAttributes(
+		attribute.Int("response_bytes", len(body)),
+		attribute.Int("http_status", resp.StatusCode),
+	)
+	httpSpan.End()
 	if rerr != nil {
 		return "", nil, openAIResponse{}, fmt.Errorf("read response body: %w", rerr)
 	}
@@ -212,6 +226,10 @@ func (p *OpenAIProvider) doChatCompletion(ctx context.Context, reqBody openAIReq
 	if resp.StatusCode != http.StatusOK {
 		return "", body, openAIResponse{}, fmt.Errorf("api error: status=%d, body=%s", resp.StatusCode, string(body))
 	}
+
+	_, parseSpan := tr.Start(ctx, "llm.parse_response", trace.WithSpanKind(trace.SpanKindClient))
+	parseSpan.SetAttributes(attribute.String("model", p.model))
+	defer parseSpan.End()
 
 	var result openAIResponse
 	if err := json.Unmarshal(body, &result); err != nil {
