@@ -10,6 +10,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/lib/pq"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/tiersum/tiersum/internal/storage"
 	"github.com/tiersum/tiersum/internal/storage/db/shared"
@@ -41,6 +42,7 @@ func (r *DocumentRepo) Create(ctx context.Context, doc *types.Document) error {
 	if doc.ID == "" {
 		doc.ID = uuid.New().String()
 	}
+	shared.SetSpanInputID(span, doc.ID)
 	now := time.Now()
 	doc.CreatedAt = now
 	doc.UpdatedAt = now
@@ -54,6 +56,7 @@ func (r *DocumentRepo) Create(ctx context.Context, doc *types.Document) error {
 	query := fmt.Sprintf(`INSERT INTO documents (id, title, summary, content, format, tags, status, hot_score, query_count, last_query_at, created_at, updated_at) VALUES (%s)`, vals)
 
 	_, err := r.db.ExecContext(ctx, query, doc.ID, doc.Title, doc.Summary, doc.Content, doc.Format, shared.FormatStringArray(doc.Tags), doc.Status, doc.HotScore, doc.QueryCount, doc.LastQueryAt, doc.CreatedAt, doc.UpdatedAt)
+	shared.SetSpanStatus(span, err)
 	return err
 }
 
@@ -63,11 +66,14 @@ func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document,
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputID(span, id)
 	if r.cache != nil {
 		if cached, ok := r.cache.Get("doc:" + id); ok {
 			if cached == nil {
 				// Cache invalidation marker: treat as miss.
 			} else if doc, ok := cached.(*types.Document); ok && doc != nil {
+				shared.SetSpanOutputID(span, doc.ID)
+				shared.SetSpanStatus(span, nil)
 				return doc, nil
 			}
 		}
@@ -89,15 +95,19 @@ func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document,
 		}
 	}
 	if err == sql.ErrNoRows {
+		shared.SetSpanStatus(span, nil)
 		return nil, nil
 	}
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
 
 	if r.cache != nil {
 		r.cache.Set("doc:"+id, doc)
 	}
+	shared.SetSpanOutputID(span, doc.ID)
+	shared.SetSpanStatus(span, nil)
 	return doc, nil
 }
 
@@ -119,6 +129,7 @@ func (r *DocumentRepo) GetRecent(ctx context.Context, limit int) ([]*types.Docum
 
 	rows, err := r.db.QueryContext(ctx, query, limit)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, fmt.Errorf("query recent documents: %w", err)
 	}
 	defer rows.Close()
@@ -129,6 +140,7 @@ func (r *DocumentRepo) GetRecent(ctx context.Context, limit int) ([]*types.Docum
 		var tagsStr string
 		var lastQueryAt sql.NullTime
 		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		d.Tags = shared.ParseStringArray(tagsStr)
@@ -137,16 +149,24 @@ func (r *DocumentRepo) GetRecent(ctx context.Context, limit int) ([]*types.Docum
 		}
 		documents = append(documents, d)
 	}
-	return documents, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(documents))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(documents, func(d *types.Document) string { return d.ID }))
+	shared.SetSpanStatus(span, nil)
+	return documents, nil
 }
 
 // ListByTags retrieves documents that match ANY of the given tags
 func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error) {
-	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.ListByTags")
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.ListByTags", attribute.StringSlice("input.tags", tags))
 	if span != nil {
 		defer span.End()
 	}
 	if len(tags) == 0 {
+		shared.SetSpanStatus(span, nil)
 		return []types.Document{}, nil
 	}
 	if limit <= 0 {
@@ -182,6 +202,7 @@ func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int)
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, fmt.Errorf("query documents by tags: %w", err)
 	}
 	defer rows.Close()
@@ -192,6 +213,7 @@ func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int)
 		var tagsStr string
 		var lastQueryAt sql.NullTime
 		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		d.Tags = shared.ParseStringArray(tagsStr)
@@ -200,16 +222,30 @@ func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int)
 		}
 		documents = append(documents, d)
 	}
-	return documents, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(documents))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(documents, func(d types.Document) string { return d.ID }))
+	shared.SetSpanStatus(span, nil)
+	return documents, nil
 }
 
 // ListMetaByTagsAndStatuses returns matching documents without loading content.
 func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []string, statuses []types.DocumentStatus, limit int) ([]types.Document, error) {
-	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.ListMetaByTagsAndStatuses")
+	statusList := make([]string, len(statuses))
+	for i, s := range statuses {
+		statusList[i] = string(s)
+	}
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.ListMetaByTagsAndStatuses",
+		attribute.StringSlice("input.tags", tags),
+		attribute.StringSlice("input.statuses", statusList))
 	if span != nil {
 		defer span.End()
 	}
 	if len(tags) == 0 {
+		shared.SetSpanStatus(span, nil)
 		return []types.Document{}, nil
 	}
 	if limit <= 0 {
@@ -219,10 +255,6 @@ func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []str
 		statuses = []types.DocumentStatus{types.DocStatusHot, types.DocStatusWarming}
 	}
 
-	statusList := make([]string, len(statuses))
-	for i, s := range statuses {
-		statusList[i] = string(s)
-	}
 	statusIn := "'" + strings.Join(statusList, "','") + "'"
 
 	var query string
@@ -253,6 +285,7 @@ func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []str
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, fmt.Errorf("list document meta by tags and status: %w", err)
 	}
 	defer rows.Close()
@@ -263,6 +296,7 @@ func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []str
 		var tagsStr string
 		var lastQueryAt sql.NullTime
 		if err := rows.Scan(&d.ID, &d.Title, &d.Summary, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		d.Tags = shared.ParseStringArray(tagsStr)
@@ -271,7 +305,14 @@ func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []str
 		}
 		documents = append(documents, d)
 	}
-	return documents, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(documents))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(documents, func(d types.Document) string { return d.ID }))
+	shared.SetSpanStatus(span, nil)
+	return documents, nil
 }
 
 // UpdateStatus updates the document's hot/cold status
@@ -280,6 +321,8 @@ func (r *DocumentRepo) UpdateStatus(ctx context.Context, docID string, status ty
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputID(span, docID)
+	shared.SetSpanInputString(span, "status", string(status))
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
 	ph3 := shared.Placeholder(r.driver, 3, "")
@@ -287,6 +330,7 @@ func (r *DocumentRepo) UpdateStatus(ctx context.Context, docID string, status ty
 
 	_, err := r.db.ExecContext(ctx, query, status, time.Now(), docID)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return fmt.Errorf("update document status: %w", err)
 	}
 
@@ -294,6 +338,7 @@ func (r *DocumentRepo) UpdateStatus(ctx context.Context, docID string, status ty
 	if r.cache != nil {
 		r.cache.Set("doc:"+docID, nil)
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
 
@@ -303,6 +348,7 @@ func (r *DocumentRepo) IncrementQueryCount(ctx context.Context, docID string) er
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputID(span, docID)
 	now := time.Now()
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
@@ -311,6 +357,7 @@ func (r *DocumentRepo) IncrementQueryCount(ctx context.Context, docID string) er
 
 	_, err := r.db.ExecContext(ctx, query, now, now, docID)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return fmt.Errorf("increment query count: %w", err)
 	}
 
@@ -318,6 +365,7 @@ func (r *DocumentRepo) IncrementQueryCount(ctx context.Context, docID string) er
 	if r.cache != nil {
 		r.cache.Set("doc:"+docID, nil)
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
 
@@ -327,6 +375,7 @@ func (r *DocumentRepo) UpdateHotScore(ctx context.Context, docID string, score f
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputID(span, docID)
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
 	ph3 := shared.Placeholder(r.driver, 3, "")
@@ -334,8 +383,10 @@ func (r *DocumentRepo) UpdateHotScore(ctx context.Context, docID string, score f
 
 	_, err := r.db.ExecContext(ctx, query, score, time.Now(), docID)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return fmt.Errorf("update hot score: %w", err)
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
 
@@ -345,6 +396,7 @@ func (r *DocumentRepo) UpdateTags(ctx context.Context, docID string, tags []stri
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputID(span, docID)
 	now := time.Now()
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
@@ -353,12 +405,14 @@ func (r *DocumentRepo) UpdateTags(ctx context.Context, docID string, tags []stri
 
 	_, err := r.db.ExecContext(ctx, query, shared.FormatStringArray(tags), now, docID)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return fmt.Errorf("update document tags: %w", err)
 	}
 
 	if r.cache != nil {
 		r.cache.Set("doc:"+docID, nil)
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
 
@@ -368,6 +422,7 @@ func (r *DocumentRepo) UpdateSummary(ctx context.Context, docID string, summary 
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputID(span, docID)
 	now := time.Now()
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
@@ -375,17 +430,19 @@ func (r *DocumentRepo) UpdateSummary(ctx context.Context, docID string, summary 
 	query := fmt.Sprintf(`UPDATE documents SET summary = %s, updated_at = %s WHERE id = %s`, ph1, ph2, ph3)
 	_, err := r.db.ExecContext(ctx, query, summary, now, docID)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return fmt.Errorf("update document summary: %w", err)
 	}
 	if r.cache != nil {
 		r.cache.Set("doc:"+docID, nil)
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
 
 // ListByStatus retrieves documents by status with optional limit
 func (r *DocumentRepo) ListByStatus(ctx context.Context, status types.DocumentStatus, limit int) ([]types.Document, error) {
-	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.ListByStatus")
+	ctx, span := shared.WithRepoSpan(ctx, "DocumentRepo.ListByStatus", attribute.String("input.status", string(status)))
 	if span != nil {
 		defer span.End()
 	}
@@ -402,6 +459,7 @@ func (r *DocumentRepo) ListByStatus(ctx context.Context, status types.DocumentSt
 
 	rows, err := r.db.QueryContext(ctx, query, status, limit)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, fmt.Errorf("query documents by status: %w", err)
 	}
 	defer rows.Close()
@@ -412,6 +470,7 @@ func (r *DocumentRepo) ListByStatus(ctx context.Context, status types.DocumentSt
 		var tagsStr string
 		var lastQueryAt sql.NullTime
 		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		d.Tags = shared.ParseStringArray(tagsStr)
@@ -420,7 +479,14 @@ func (r *DocumentRepo) ListByStatus(ctx context.Context, status types.DocumentSt
 		}
 		documents = append(documents, d)
 	}
-	return documents, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(documents))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(documents, func(d types.Document) string { return d.ID }))
+	shared.SetSpanStatus(span, nil)
+	return documents, nil
 }
 
 // ListAll returns all documents for hot score calculation
@@ -440,6 +506,7 @@ func (r *DocumentRepo) ListAll(ctx context.Context, limit int) ([]types.Document
 
 	rows, err := r.db.QueryContext(ctx, query, limit)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, fmt.Errorf("query all documents: %w", err)
 	}
 	defer rows.Close()
@@ -450,6 +517,7 @@ func (r *DocumentRepo) ListAll(ctx context.Context, limit int) ([]types.Document
 		var tagsStr string
 		var lastQueryAt sql.NullTime
 		if err := rows.Scan(&d.ID, &d.Title, &d.Content, &d.Format, &tagsStr, &d.Status, &d.HotScore, &d.QueryCount, &lastQueryAt, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		d.Tags = shared.ParseStringArray(tagsStr)
@@ -458,7 +526,14 @@ func (r *DocumentRepo) ListAll(ctx context.Context, limit int) ([]types.Document
 		}
 		documents = append(documents, d)
 	}
-	return documents, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(documents))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(documents, func(d types.Document) string { return d.ID }))
+	shared.SetSpanStatus(span, nil)
+	return documents, nil
 }
 
 // CountDocumentsByStatus implements storage.IDocumentRepository.CountDocumentsByStatus.
@@ -470,6 +545,7 @@ func (r *DocumentRepo) CountDocumentsByStatus(ctx context.Context) (types.Docume
 	const q = `SELECT status, COUNT(*) FROM documents GROUP BY status`
 	rows, err := r.db.QueryContext(ctx, q)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return types.DocumentStatusCounts{}, fmt.Errorf("count documents by status: %w", err)
 	}
 	defer rows.Close()
@@ -479,6 +555,7 @@ func (r *DocumentRepo) CountDocumentsByStatus(ctx context.Context) (types.Docume
 		var st string
 		var n int
 		if err := rows.Scan(&st, &n); err != nil {
+			shared.SetSpanStatus(span, err)
 			return types.DocumentStatusCounts{}, err
 		}
 		out.Total += n
@@ -491,7 +568,13 @@ func (r *DocumentRepo) CountDocumentsByStatus(ctx context.Context) (types.Docume
 			out.Warming += n
 		}
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return types.DocumentStatusCounts{}, err
+	}
+	shared.SetSpanOutputCount(span, out.Total)
+	shared.SetSpanStatus(span, nil)
+	return out, nil
 }
 
 var _ storage.IDocumentRepository = (*DocumentRepo)(nil)

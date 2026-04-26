@@ -36,15 +36,20 @@ func (r *ChapterRepo) ReplaceByDocument(ctx context.Context, documentID string, 
 		defer span.End()
 	}
 	documentID = strings.TrimSpace(documentID)
+	shared.SetSpanInputID(span, documentID)
+	shared.SetSpanOutputCount(span, len(chapters))
 	if documentID == "" {
+		shared.SetSpanStatus(span, fmt.Errorf("replace chapters: document id is required"))
 		return fmt.Errorf("replace chapters: document id is required")
 	}
 	phDel := shared.Placeholder(r.driver, 1, "")
 	del := fmt.Sprintf(`DELETE FROM chapters WHERE document_id = %s`, phDel)
 	if _, err := r.db.ExecContext(ctx, del, documentID); err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("delete chapters by document: %w", err))
 		return fmt.Errorf("delete chapters by document: %w", err)
 	}
 	if len(chapters) == 0 {
+		shared.SetSpanStatus(span, nil)
 		return nil
 	}
 	for i := range chapters {
@@ -63,12 +68,14 @@ func (r *ChapterRepo) ReplaceByDocument(ctx context.Context, documentID string, 
 		vals := shared.PlaceholdersCSV(r.driver, 8)
 		ins := fmt.Sprintf(`INSERT INTO chapters (id, document_id, path, title, summary, content, created_at, updated_at) VALUES (%s)`, vals)
 		if _, err := r.db.ExecContext(ctx, ins, ch.ID, ch.DocumentID, ch.Path, ch.Title, ch.Summary, ch.Content, ch.CreatedAt, ch.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, fmt.Errorf("insert chapter: %w", err))
 			return fmt.Errorf("insert chapter: %w", err)
 		}
 	}
 	if r.cache != nil {
 		r.cache.Set("chapters:"+documentID, nil)
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
 
@@ -77,12 +84,16 @@ func (r *ChapterRepo) ListByDocument(ctx context.Context, documentID string) ([]
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputID(span, documentID)
 	cacheKey := "chapters:" + documentID
 	if r.cache != nil {
 		if cached, ok := r.cache.Get(cacheKey); ok {
 			if cached == nil {
 				// Cache invalidation marker: treat as miss.
 			} else if out, ok := cached.([]types.Chapter); ok {
+				shared.SetSpanOutputCount(span, len(out))
+				shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(c types.Chapter) string { return c.ID }))
+				shared.SetSpanStatus(span, nil)
 				return out, nil
 			}
 		}
@@ -91,6 +102,7 @@ func (r *ChapterRepo) ListByDocument(ctx context.Context, documentID string) ([]
 	q := fmt.Sprintf(`SELECT id, document_id, path, title, summary, content, created_at, updated_at FROM chapters WHERE document_id = %s ORDER BY created_at`, ph)
 	rows, err := r.db.QueryContext(ctx, q, documentID)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -98,16 +110,21 @@ func (r *ChapterRepo) ListByDocument(ctx context.Context, documentID string) ([]
 	for rows.Next() {
 		var c types.Chapter
 		if err := rows.Scan(&c.ID, &c.DocumentID, &c.Path, &c.Title, &c.Summary, &c.Content, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
 	if r.cache != nil {
 		r.cache.Set(cacheKey, out)
 	}
+	shared.SetSpanOutputCount(span, len(out))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(c types.Chapter) string { return c.ID }))
+	shared.SetSpanStatus(span, nil)
 	return out, nil
 }
 
@@ -116,13 +133,16 @@ func (r *ChapterRepo) ListByDocumentIDs(ctx context.Context, documentIDs []strin
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputIDs(span, documentIDs)
 	if len(documentIDs) == 0 {
+		shared.SetSpanStatus(span, nil)
 		return nil, nil
 	}
 	placeholders, args := shared.BuildInPlaceholders(r.driver, documentIDs)
 	q := fmt.Sprintf(`SELECT id, document_id, path, title, summary, content, created_at, updated_at FROM chapters WHERE document_id IN (%s) ORDER BY document_id, created_at`, placeholders)
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -130,11 +150,19 @@ func (r *ChapterRepo) ListByDocumentIDs(ctx context.Context, documentIDs []strin
 	for rows.Next() {
 		var c types.Chapter
 		if err := rows.Scan(&c.ID, &c.DocumentID, &c.Path, &c.Title, &c.Summary, &c.Content, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(out))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(c types.Chapter) string { return c.ID }))
+	shared.SetSpanStatus(span, nil)
+	return out, nil
 }
 
 func (r *ChapterRepo) ListByIDs(ctx context.Context, chapterIDs []string) ([]types.Chapter, error) {
@@ -142,13 +170,16 @@ func (r *ChapterRepo) ListByIDs(ctx context.Context, chapterIDs []string) ([]typ
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputIDs(span, chapterIDs)
 	if len(chapterIDs) == 0 {
+		shared.SetSpanStatus(span, nil)
 		return nil, nil
 	}
 	placeholders, args := shared.BuildInPlaceholders(r.driver, chapterIDs)
 	q := fmt.Sprintf(`SELECT id, document_id, path, title, summary, content, created_at, updated_at FROM chapters WHERE id IN (%s)`, placeholders)
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -156,11 +187,19 @@ func (r *ChapterRepo) ListByIDs(ctx context.Context, chapterIDs []string) ([]typ
 	for rows.Next() {
 		var c types.Chapter
 		if err := rows.Scan(&c.ID, &c.DocumentID, &c.Path, &c.Title, &c.Summary, &c.Content, &c.CreatedAt, &c.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		out = append(out, c)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(out))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(c types.Chapter) string { return c.ID }))
+	shared.SetSpanStatus(span, nil)
+	return out, nil
 }
 
 var _ storage.IChapterRepository = (*ChapterRepo)(nil)

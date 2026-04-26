@@ -22,9 +22,13 @@ func NewDeviceTokenRepo(db shared.SQLDB, driver string) *DeviceTokenRepo {
 }
 
 func (r *DeviceTokenRepo) Create(ctx context.Context, t *storage.DeviceToken) error {
+	ctx, span := shared.WithRepoSpan(ctx, "DeviceTokenRepo.Create")
+	if span != nil { defer span.End() }
+
 	if t.ID == "" {
 		t.ID = uuid.New().String()
 	}
+	shared.SetSpanInputID(span, t.ID)
 	now := time.Now().UTC()
 	if t.CreatedAt.IsZero() {
 		t.CreatedAt = now
@@ -34,6 +38,7 @@ func (r *DeviceTokenRepo) Create(ctx context.Context, t *storage.DeviceToken) er
 		VALUES (%s)`, vals)
 	args := []any{t.ID, t.UserID, t.TokenHash, t.DeviceName, t.IPPrefix, t.UserAgentNorm, t.LastUsedAt, t.ExpiresAt, t.RevokedAt, t.CreatedAt}
 	_, err := r.db.ExecContext(ctx, q, args...)
+	shared.SetSpanStatus(span, err)
 	return err
 }
 
@@ -53,18 +58,34 @@ func (r *DeviceTokenRepo) selectCols() string {
 }
 
 func (r *DeviceTokenRepo) GetByTokenHash(ctx context.Context, tokenHash string) (*storage.DeviceToken, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "DeviceTokenRepo.GetByTokenHash")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputString(span, "token_hash", tokenHash)
+
 	cols := r.selectCols()
 	ph := shared.Placeholder(r.driver, 1, "")
 	q := fmt.Sprintf(`SELECT %s FROM device_tokens WHERE token_hash = %s`, cols, ph)
-	return r.scan(r.db.QueryRowContext(ctx, q, tokenHash))
+	t, err := r.scan(r.db.QueryRowContext(ctx, q, tokenHash))
+	if err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputID(span, t.ID)
+	shared.SetSpanStatus(span, nil)
+	return t, nil
 }
 
 func (r *DeviceTokenRepo) ListByUser(ctx context.Context, userID string) ([]storage.DeviceToken, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "DeviceTokenRepo.ListByUser")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputID(span, userID)
+
 	cols := r.selectCols()
 	ph := shared.Placeholder(r.driver, 1, "uuid")
 	q := fmt.Sprintf(`SELECT %s FROM device_tokens WHERE user_id = %s ORDER BY created_at DESC`, cols, ph)
 	rows, err := r.db.QueryContext(ctx, q, userID)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -72,34 +93,61 @@ func (r *DeviceTokenRepo) ListByUser(ctx context.Context, userID string) ([]stor
 	for rows.Next() {
 		t, err := r.scan(rows)
 		if err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		out = append(out, *t)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(out))
+	ids := make([]string, 0, len(out))
+	for _, t := range out {
+		ids = append(ids, t.ID)
+	}
+	shared.SetSpanOutputIDs(span, ids)
+	shared.SetSpanStatus(span, nil)
+	return out, nil
 }
 
 func (r *DeviceTokenRepo) TouchUse(ctx context.Context, id string, at time.Time) error {
+	ctx, span := shared.WithRepoSpan(ctx, "DeviceTokenRepo.TouchUse")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputID(span, id)
+
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "uuid")
 	q := fmt.Sprintf(`UPDATE device_tokens SET last_used_at = %s WHERE id = %s`, ph1, ph2)
 	_, err := r.db.ExecContext(ctx, q, at, id)
+	shared.SetSpanStatus(span, err)
 	return err
 }
 
 func (r *DeviceTokenRepo) Revoke(ctx context.Context, id string, at time.Time) error {
+	ctx, span := shared.WithRepoSpan(ctx, "DeviceTokenRepo.Revoke")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputID(span, id)
+
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "uuid")
 	q := fmt.Sprintf(`UPDATE device_tokens SET revoked_at = %s WHERE id = %s`, ph1, ph2)
 	_, err := r.db.ExecContext(ctx, q, at, id)
+	shared.SetSpanStatus(span, err)
 	return err
 }
 
 func (r *DeviceTokenRepo) RevokeAllForUser(ctx context.Context, userID string, at time.Time) error {
+	ctx, span := shared.WithRepoSpan(ctx, "DeviceTokenRepo.RevokeAllForUser")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputID(span, userID)
+
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "uuid")
 	q := fmt.Sprintf(`UPDATE device_tokens SET revoked_at = %s WHERE user_id = %s`, ph1, ph2)
 	_, err := r.db.ExecContext(ctx, q, at, userID)
+	shared.SetSpanStatus(span, err)
 	return err
 }
 

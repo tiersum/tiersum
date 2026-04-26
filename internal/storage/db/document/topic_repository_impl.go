@@ -39,14 +39,18 @@ func (r *TopicRepo) Create(ctx context.Context, topic *types.Topic) error {
 	now := time.Now()
 	topic.CreatedAt = now
 	topic.UpdatedAt = now
+	shared.SetSpanInputID(span, topic.ID)
+	shared.SetSpanInputString(span, "name", topic.Name)
 
 	vals := shared.PlaceholdersCSV(r.driver, 6)
 	query := fmt.Sprintf(`INSERT INTO topics (id, name, description, tag_names, created_at, updated_at) VALUES (%s)`, vals)
 
 	_, err := r.db.ExecContext(ctx, query, topic.ID, topic.Name, topic.Description, shared.FormatStringArray(topic.TagNames), topic.CreatedAt, topic.UpdatedAt)
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("create topic: %w", err))
 		return fmt.Errorf("create topic: %w", err)
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
 
@@ -56,6 +60,7 @@ func (r *TopicRepo) GetByID(ctx context.Context, id string) (*types.Topic, error
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputID(span, id)
 	ph := shared.Placeholder(r.driver, 1, "")
 	query := fmt.Sprintf(`SELECT id, name, description, tag_names, created_at, updated_at FROM topics WHERE id = %s`, ph)
 
@@ -65,13 +70,17 @@ func (r *TopicRepo) GetByID(ctx context.Context, id string) (*types.Topic, error
 		&c.ID, &c.Name, &c.Description, &tagsStr, &c.CreatedAt, &c.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
+		shared.SetSpanStatus(span, nil)
 		return nil, nil
 	}
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("get topic by id: %w", err))
 		return nil, fmt.Errorf("get topic by id: %w", err)
 	}
 
 	c.TagNames = shared.ParseStringArray(tagsStr)
+	shared.SetSpanOutputID(span, c.ID)
+	shared.SetSpanStatus(span, nil)
 	return &c, nil
 }
 
@@ -85,6 +94,7 @@ func (r *TopicRepo) List(ctx context.Context) ([]types.Topic, error) {
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("list topics: %w", err))
 		return nil, fmt.Errorf("list topics: %w", err)
 	}
 	defer rows.Close()
@@ -94,12 +104,20 @@ func (r *TopicRepo) List(ctx context.Context) ([]types.Topic, error) {
 		var g types.Topic
 		var tagsStr string
 		if err := rows.Scan(&g.ID, &g.Name, &g.Description, &tagsStr, &g.CreatedAt, &g.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		g.TagNames = shared.ParseStringArray(tagsStr)
 		topics = append(topics, g)
 	}
-	return topics, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(topics))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(topics, func(t types.Topic) string { return t.ID }))
+	shared.SetSpanStatus(span, nil)
+	return topics, nil
 }
 
 // DeleteAll implements ITopicRepository.DeleteAll
@@ -111,8 +129,10 @@ func (r *TopicRepo) DeleteAll(ctx context.Context) error {
 	query := `DELETE FROM topics`
 	_, err := r.db.ExecContext(ctx, query)
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("delete all topics: %w", err))
 		return fmt.Errorf("delete all topics: %w", err)
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
 
@@ -127,8 +147,11 @@ func (r *TopicRepo) GetCount(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx, query).Scan(&count)
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("count topics: %w", err))
 		return 0, fmt.Errorf("count topics: %w", err)
 	}
+	shared.SetSpanOutputCount(span, count)
+	shared.SetSpanStatus(span, nil)
 	return count, nil
 }
 

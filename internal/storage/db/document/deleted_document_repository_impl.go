@@ -24,15 +24,24 @@ func NewDeletedDocumentRepo(db shared.SQLDB, driver string) *DeletedDocumentRepo
 
 // Insert records a deleted document ID.
 func (r *DeletedDocumentRepo) Insert(ctx context.Context, documentID string) error {
+	ctx, span := shared.WithRepoSpan(ctx, "DeletedDocumentRepo.Insert")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputID(span, documentID)
+
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
 	q := fmt.Sprintf(`INSERT INTO deleted_documents (id, document_id, created_at) VALUES (%s, %s, %s)`, ph1, ph2, ph1)
 	_, err := r.db.ExecContext(ctx, q, uuid.New().String(), documentID, time.Now())
+	shared.SetSpanStatus(span, err)
 	return err
 }
 
 // ListSince returns tombstones created after the given time.
 func (r *DeletedDocumentRepo) ListSince(ctx context.Context, since time.Time, limit int) ([]storage.DeletedDocument, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "DeletedDocumentRepo.ListSince")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputString(span, "limit", fmt.Sprintf("%d", limit))
+
 	if limit <= 0 {
 		limit = 1000
 	}
@@ -41,6 +50,7 @@ func (r *DeletedDocumentRepo) ListSince(ctx context.Context, since time.Time, li
 	q := fmt.Sprintf(`SELECT id, document_id, created_at FROM deleted_documents WHERE created_at > %s ORDER BY created_at LIMIT %s`, ph1, ph2)
 	rows, err := r.db.QueryContext(ctx, q, since, limit)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -48,11 +58,23 @@ func (r *DeletedDocumentRepo) ListSince(ctx context.Context, since time.Time, li
 	for rows.Next() {
 		var d storage.DeletedDocument
 		if err := rows.Scan(&d.ID, &d.DocumentID, &d.CreatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		out = append(out, d)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(out))
+	ids := make([]string, 0, len(out))
+	for _, d := range out {
+		ids = append(ids, d.ID)
+	}
+	shared.SetSpanOutputIDs(span, ids)
+	shared.SetSpanStatus(span, nil)
+	return out, nil
 }
 
 var _ storage.IDeletedDocumentRepository = (*DeletedDocumentRepo)(nil)

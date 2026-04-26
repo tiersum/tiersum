@@ -19,15 +19,25 @@ func NewPasskeySessionVerificationRepo(db shared.SQLDB, driver string) *PasskeyS
 }
 
 func (r *PasskeySessionVerificationRepo) Put(ctx context.Context, v *storage.PasskeySessionVerification) error {
+	ctx, span := shared.WithRepoSpan(ctx, "PasskeySessionVerificationRepo.Put")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputString(span, "session_id", v.SessionID)
+	shared.SetSpanInputID(span, v.UserID)
+
 	vals := shared.PlaceholdersCSVWithPGCasts(r.driver, []string{"", "uuid", "", ""})
 	q := fmt.Sprintf(`INSERT INTO passkey_session_verifications (session_id, user_id, verified_at, expires_at)
 		VALUES (%s)
 		ON CONFLICT(session_id) DO UPDATE SET user_id=excluded.user_id, verified_at=excluded.verified_at, expires_at=excluded.expires_at`, vals)
 	_, err := r.db.ExecContext(ctx, q, v.SessionID, v.UserID, v.VerifiedAt, v.ExpiresAt)
+	shared.SetSpanStatus(span, err)
 	return err
 }
 
 func (r *PasskeySessionVerificationRepo) GetBySessionID(ctx context.Context, sessionID string) (*storage.PasskeySessionVerification, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "PasskeySessionVerificationRepo.GetBySessionID")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputString(span, "session_id", sessionID)
+
 	userCol := "user_id"
 	if shared.DriverIsPostgres(r.driver) {
 		userCol = "user_id::text"
@@ -37,15 +47,23 @@ func (r *PasskeySessionVerificationRepo) GetBySessionID(ctx context.Context, ses
 	row := r.db.QueryRowContext(ctx, q, sessionID)
 	var v storage.PasskeySessionVerification
 	if err := row.Scan(&v.SessionID, &v.UserID, &v.VerifiedAt, &v.ExpiresAt); err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
+	shared.SetSpanOutputID(span, v.SessionID)
+	shared.SetSpanStatus(span, nil)
 	return &v, nil
 }
 
 func (r *PasskeySessionVerificationRepo) DeleteBySessionID(ctx context.Context, sessionID string) error {
+	ctx, span := shared.WithRepoSpan(ctx, "PasskeySessionVerificationRepo.DeleteBySessionID")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputString(span, "session_id", sessionID)
+
 	ph := shared.Placeholder(r.driver, 1, "")
 	q := fmt.Sprintf(`DELETE FROM passkey_session_verifications WHERE session_id = %s`, ph)
 	_, err := r.db.ExecContext(ctx, q, sessionID)
+	shared.SetSpanStatus(span, err)
 	return err
 }
 

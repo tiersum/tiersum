@@ -39,6 +39,8 @@ func (r *TagRepo) Create(ctx context.Context, tag *types.Tag) error {
 	now := time.Now()
 	tag.CreatedAt = now
 	tag.UpdatedAt = now
+	shared.SetSpanInputID(span, tag.ID)
+	shared.SetSpanInputString(span, "name", tag.Name)
 
 	v6 := shared.PlaceholdersCSV(r.driver, 6)
 	ph7 := shared.Placeholder(r.driver, 7, "")
@@ -47,8 +49,10 @@ func (r *TagRepo) Create(ctx context.Context, tag *types.Tag) error {
 
 	_, err := r.db.ExecContext(ctx, query, tag.ID, tag.Name, tag.TopicID, tag.DocumentCount, tag.CreatedAt, tag.UpdatedAt, tag.UpdatedAt)
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("create catalog tag: %w", err))
 		return fmt.Errorf("create catalog tag: %w", err)
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
 
@@ -58,6 +62,7 @@ func (r *TagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputString(span, "name", name)
 	ph := shared.Placeholder(r.driver, 1, "")
 	query := fmt.Sprintf(`SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE name = %s`, ph)
 
@@ -67,15 +72,19 @@ func (r *TagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error
 		&t.ID, &t.Name, &topicID, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
+		shared.SetSpanStatus(span, nil)
 		return nil, nil
 	}
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("get catalog tag by name: %w", err))
 		return nil, fmt.Errorf("get catalog tag by name: %w", err)
 	}
 
 	if topicID.Valid {
 		t.TopicID = topicID.String
 	}
+	shared.SetSpanOutputID(span, t.ID)
+	shared.SetSpanStatus(span, nil)
 	return &t, nil
 }
 
@@ -89,6 +98,7 @@ func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
 
 	rows, err := r.db.QueryContext(ctx, query)
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("list catalog tags: %w", err))
 		return nil, fmt.Errorf("list catalog tags: %w", err)
 	}
 	defer rows.Close()
@@ -98,6 +108,7 @@ func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
 		var t types.Tag
 		var topicRef sql.NullString
 		if err := rows.Scan(&t.ID, &t.Name, &topicRef, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		if topicRef.Valid {
@@ -105,7 +116,14 @@ func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
 		}
 		tags = append(tags, t)
 	}
-	return tags, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(tags))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(tags, func(t types.Tag) string { return t.ID }))
+	shared.SetSpanStatus(span, nil)
+	return tags, nil
 }
 
 // ListByTopic implements ITagRepository.ListByTopic
@@ -114,11 +132,13 @@ func (r *TagRepo) ListByTopic(ctx context.Context, topicID string) ([]types.Tag,
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputID(span, topicID)
 	ph := shared.Placeholder(r.driver, 1, "")
 	query := fmt.Sprintf(`SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE topic_id = %s ORDER BY name`, ph)
 
 	rows, err := r.db.QueryContext(ctx, query, topicID)
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("list catalog tags by topic: %w", err))
 		return nil, fmt.Errorf("list catalog tags by topic: %w", err)
 	}
 	defer rows.Close()
@@ -128,6 +148,7 @@ func (r *TagRepo) ListByTopic(ctx context.Context, topicID string) ([]types.Tag,
 		var t types.Tag
 		var tid sql.NullString
 		if err := rows.Scan(&t.ID, &t.Name, &tid, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		if tid.Valid {
@@ -135,7 +156,14 @@ func (r *TagRepo) ListByTopic(ctx context.Context, topicID string) ([]types.Tag,
 		}
 		tags = append(tags, t)
 	}
-	return tags, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(tags))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(tags, func(t types.Tag) string { return t.ID }))
+	shared.SetSpanStatus(span, nil)
+	return tags, nil
 }
 
 // ListByTopicIDs implements ITagRepository.ListByTopicIDs
@@ -144,7 +172,9 @@ func (r *TagRepo) ListByTopicIDs(ctx context.Context, topicIDs []string, limit i
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputIDs(span, topicIDs)
 	if len(topicIDs) == 0 {
+		shared.SetSpanStatus(span, nil)
 		return []types.Tag{}, nil
 	}
 	if limit <= 0 {
@@ -158,6 +188,7 @@ func (r *TagRepo) ListByTopicIDs(ctx context.Context, topicIDs []string, limit i
 
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("list catalog tags by topic ids: %w", err))
 		return nil, fmt.Errorf("list catalog tags by topic ids: %w", err)
 	}
 	defer rows.Close()
@@ -167,6 +198,7 @@ func (r *TagRepo) ListByTopicIDs(ctx context.Context, topicIDs []string, limit i
 		var t types.Tag
 		var tid sql.NullString
 		if err := rows.Scan(&t.ID, &t.Name, &tid, &t.DocumentCount, &t.CreatedAt, &t.UpdatedAt); err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		if tid.Valid {
@@ -174,7 +206,14 @@ func (r *TagRepo) ListByTopicIDs(ctx context.Context, topicIDs []string, limit i
 		}
 		tags = append(tags, t)
 	}
-	return tags, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(tags))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(tags, func(t types.Tag) string { return t.ID }))
+	shared.SetSpanStatus(span, nil)
+	return tags, nil
 }
 
 // IncrementDocumentCount implements ITagRepository.IncrementDocumentCount
@@ -183,14 +222,17 @@ func (r *TagRepo) IncrementDocumentCount(ctx context.Context, tagName string) er
 	if span != nil {
 		defer span.End()
 	}
+	shared.SetSpanInputString(span, "name", tagName)
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
 	query := fmt.Sprintf(`UPDATE tags SET document_count = document_count + 1, updated_at = %s WHERE name = %s`, ph1, ph2)
 
 	_, err := r.db.ExecContext(ctx, query, time.Now(), tagName)
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("increment document count: %w", err))
 		return fmt.Errorf("increment document count: %w", err)
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
 
@@ -203,8 +245,10 @@ func (r *TagRepo) DeleteAll(ctx context.Context) error {
 	query := `DELETE FROM tags`
 	_, err := r.db.ExecContext(ctx, query)
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("delete all catalog tags: %w", err))
 		return fmt.Errorf("delete all catalog tags: %w", err)
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
 
@@ -219,8 +263,11 @@ func (r *TagRepo) GetCount(ctx context.Context) (int, error) {
 	var count int
 	err := r.db.QueryRowContext(ctx, query).Scan(&count)
 	if err != nil {
+		shared.SetSpanStatus(span, fmt.Errorf("count catalog tags: %w", err))
 		return 0, fmt.Errorf("count catalog tags: %w", err)
 	}
+	shared.SetSpanOutputCount(span, count)
+	shared.SetSpanStatus(span, nil)
 	return count, nil
 }
 

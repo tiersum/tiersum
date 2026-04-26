@@ -23,9 +23,12 @@ func NewAPIKeyRepo(db shared.SQLDB, driver string) *APIKeyRepo {
 }
 
 func (r *APIKeyRepo) Create(ctx context.Context, k *storage.APIKey) error {
+	ctx, span := shared.WithRepoSpan(ctx, "APIKeyRepo.Create")
+	if span != nil { defer span.End() }
 	if k.ID == "" {
 		k.ID = uuid.New().String()
 	}
+	shared.SetSpanInputID(span, k.ID)
 	k.CreatedAt = time.Now().UTC()
 	var createdBy interface{}
 	if k.CreatedByUserID != nil && *k.CreatedByUserID != "" {
@@ -38,7 +41,12 @@ func (r *APIKeyRepo) Create(ctx context.Context, k *storage.APIKey) error {
 		VALUES (%s)`, vals)
 	args := []interface{}{k.ID, k.Name, k.Scope, k.KeyHash, k.RevokedAt, k.ExpiresAt, createdBy, k.LastUsedAt, k.LastUsedIP, k.CreatedAt}
 	_, err := r.db.ExecContext(ctx, q, args...)
-	return err
+	if err != nil {
+		shared.SetSpanStatus(span, err)
+		return err
+	}
+	shared.SetSpanStatus(span, nil)
+	return nil
 }
 
 func (r *APIKeyRepo) scanKey(scanner shared.RowScanner) (*storage.APIKey, error) {
@@ -80,22 +88,45 @@ func (r *APIKeyRepo) selectKeyCols() string {
 }
 
 func (r *APIKeyRepo) GetByID(ctx context.Context, id string) (*storage.APIKey, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "APIKeyRepo.GetByID")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputID(span, id)
 	cols := r.selectKeyCols()
 	ph := shared.Placeholder(r.driver, 1, "uuid")
 	q := fmt.Sprintf(`SELECT %s FROM api_keys WHERE id = %s`, cols, ph)
 	row := r.db.QueryRowContext(ctx, q, id)
-	return r.scanKey(row)
+	k, err := r.scanKey(row)
+	if err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputID(span, k.ID)
+	shared.SetSpanStatus(span, nil)
+	return k, nil
 }
 
 func (r *APIKeyRepo) GetByKeyHash(ctx context.Context, keyHashHex string) (*storage.APIKey, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "APIKeyRepo.GetByKeyHash")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputString(span, "key_hash", keyHashHex)
 	cols := r.selectKeyCols()
 	ph := shared.Placeholder(r.driver, 1, "")
 	q := fmt.Sprintf(`SELECT %s FROM api_keys WHERE key_hash = %s`, cols, ph)
 	row := r.db.QueryRowContext(ctx, q, keyHashHex)
-	return r.scanKey(row)
+	k, err := r.scanKey(row)
+	if err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputID(span, k.ID)
+	shared.SetSpanStatus(span, nil)
+	return k, nil
 }
 
 func (r *APIKeyRepo) GetActiveByKeyHash(ctx context.Context, keyHashHex string) (*storage.APIKey, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "APIKeyRepo.GetActiveByKeyHash")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputString(span, "key_hash", keyHashHex)
 	now := time.Now().UTC()
 	cols := r.selectKeyCols()
 	ph1 := shared.Placeholder(r.driver, 1, "")
@@ -103,13 +134,23 @@ func (r *APIKeyRepo) GetActiveByKeyHash(ctx context.Context, keyHashHex string) 
 	q := fmt.Sprintf(`SELECT %s FROM api_keys
 		WHERE key_hash = %s AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > %s)`, cols, ph1, ph2)
 	row := r.db.QueryRowContext(ctx, q, keyHashHex, now)
-	return r.scanKey(row)
+	k, err := r.scanKey(row)
+	if err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputID(span, k.ID)
+	shared.SetSpanStatus(span, nil)
+	return k, nil
 }
 
 func (r *APIKeyRepo) List(ctx context.Context) ([]storage.APIKey, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "APIKeyRepo.List")
+	if span != nil { defer span.End() }
 	q := fmt.Sprintf(`SELECT %s FROM api_keys ORDER BY created_at DESC`, r.selectKeyCols())
 	rows, err := r.db.QueryContext(ctx, q)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
 	defer rows.Close()
@@ -117,27 +158,51 @@ func (r *APIKeyRepo) List(ctx context.Context) ([]storage.APIKey, error) {
 	for rows.Next() {
 		k, err := r.scanKey(rows)
 		if err != nil {
+			shared.SetSpanStatus(span, err)
 			return nil, err
 		}
 		out = append(out, *k)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		shared.SetSpanStatus(span, err)
+		return nil, err
+	}
+	shared.SetSpanOutputCount(span, len(out))
+	shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(k storage.APIKey) string { return k.ID }))
+	shared.SetSpanStatus(span, nil)
+	return out, nil
 }
 
 func (r *APIKeyRepo) Revoke(ctx context.Context, id string) error {
+	ctx, span := shared.WithRepoSpan(ctx, "APIKeyRepo.Revoke")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputID(span, id)
 	now := time.Now().UTC()
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "uuid")
 	q := fmt.Sprintf(`UPDATE api_keys SET revoked_at = %s WHERE id = %s AND revoked_at IS NULL`, ph1, ph2)
 	_, err := r.db.ExecContext(ctx, q, now, id)
-	return err
+	if err != nil {
+		shared.SetSpanStatus(span, err)
+		return err
+	}
+	shared.SetSpanStatus(span, nil)
+	return nil
 }
 
 func (r *APIKeyRepo) TouchLastUsed(ctx context.Context, id, clientIP string, at time.Time) error {
+	ctx, span := shared.WithRepoSpan(ctx, "APIKeyRepo.TouchLastUsed")
+	if span != nil { defer span.End() }
+	shared.SetSpanInputID(span, id)
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
 	ph3 := shared.Placeholder(r.driver, 3, "uuid")
 	q := fmt.Sprintf(`UPDATE api_keys SET last_used_at = %s, last_used_ip = %s WHERE id = %s`, ph1, ph2, ph3)
 	_, err := r.db.ExecContext(ctx, q, at, clientIP, id)
-	return err
+	if err != nil {
+		shared.SetSpanStatus(span, err)
+		return err
+	}
+	shared.SetSpanStatus(span, nil)
+	return nil
 }

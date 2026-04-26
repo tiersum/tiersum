@@ -22,6 +22,8 @@ func NewSystemAuthStateRepo(db shared.SQLDB, driver string) *SystemAuthStateRepo
 }
 
 func (r *SystemAuthStateRepo) Get(ctx context.Context) (*storage.SystemAuthState, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "SystemAuthStateRepo.Get")
+	if span != nil { defer span.End() }
 	const q = `SELECT initialized_at FROM system_state WHERE id = 1`
 	var t sql.NullTime
 	err := r.db.QueryRowContext(ctx, q).Scan(&t)
@@ -29,16 +31,20 @@ func (r *SystemAuthStateRepo) Get(ctx context.Context) (*storage.SystemAuthState
 		if errors.Is(err, sql.ErrNoRows) {
 			// Missing singleton row (empty or legacy DB): treat as uninitialized, not a hard failure.
 			if seedErr := r.ensureSingletonRow(ctx); seedErr != nil {
+				shared.SetSpanStatus(span, seedErr)
 				return nil, seedErr
 			}
+			shared.SetSpanStatus(span, nil)
 			return &storage.SystemAuthState{}, nil
 		}
+		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
 	st := &storage.SystemAuthState{}
 	if t.Valid {
 		st.InitializedAt = &t.Time
 	}
+	shared.SetSpanStatus(span, nil)
 	return st, nil
 }
 
@@ -55,7 +61,10 @@ func (r *SystemAuthStateRepo) ensureSingletonRow(ctx context.Context) error {
 }
 
 func (r *SystemAuthStateRepo) MarkInitialized(ctx context.Context) error {
+	ctx, span := shared.WithRepoSpan(ctx, "SystemAuthStateRepo.MarkInitialized")
+	if span != nil { defer span.End() }
 	if err := r.ensureSingletonRow(ctx); err != nil {
+		shared.SetSpanStatus(span, err)
 		return err
 	}
 	now := time.Now().UTC()
@@ -63,11 +72,15 @@ func (r *SystemAuthStateRepo) MarkInitialized(ctx context.Context) error {
 	q := fmt.Sprintf(`UPDATE system_state SET initialized_at = %s WHERE id = 1 AND initialized_at IS NULL`, ph)
 	res, err := r.db.ExecContext(ctx, q, now)
 	if err != nil {
+		shared.SetSpanStatus(span, err)
 		return err
 	}
 	n, _ := res.RowsAffected()
 	if n == 0 {
-		return fmt.Errorf("system already initialized or state row missing")
+		err := fmt.Errorf("system already initialized or state row missing")
+		shared.SetSpanStatus(span, err)
+		return err
 	}
+	shared.SetSpanStatus(span, nil)
 	return nil
 }
