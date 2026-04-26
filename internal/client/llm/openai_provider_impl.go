@@ -257,6 +257,10 @@ func openAIThinkingField(baseURL, model string) map[string]any {
 	if strings.Contains(u, "moonshot") || strings.Contains(u, "moonshot.cn") || strings.Contains(m, "kimi") {
 		return map[string]any{"type": "disabled"}
 	}
+	// DeepSeek: disable thinking via top-level thinking field (chat_template_kwargs is not supported).
+	if strings.Contains(u, "deepseek.com") || strings.Contains(m, "deepseek") {
+		return map[string]any{"type": "disabled"}
+	}
 	return nil
 }
 
@@ -266,10 +270,6 @@ func openAIThinkOffChatTemplate(baseURL, model string) map[string]any {
 		return nil
 	}
 	u := strings.ToLower(baseURL)
-	m := strings.ToLower(model)
-	if strings.Contains(u, "deepseek.com") || strings.Contains(m, "deepseek") {
-		return map[string]any{"enable_thinking": false}
-	}
 	if strings.Contains(u, "dashscope.aliyuncs.com") || strings.Contains(u, "dashscope") {
 		return map[string]any{"enable_thinking": false}
 	}

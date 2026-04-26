@@ -28,9 +28,18 @@ func TestOpenAIThinkOffChatTemplate(t *testing.T) {
 	viper.Set("llm.disable_think", true)
 	t.Cleanup(func() { viper.Set("llm.disable_think", nil) })
 
-	k := openAIThinkOffChatTemplate("https://api.deepseek.com/v1", "deepseek-chat")
-	assert.NotNil(t, k)
-	assert.Equal(t, false, k["enable_thinking"])
-
+	// DeepSeek moved to openAIThinkingField; chat_template_kwargs now returns nil.
+	assert.Nil(t, openAIThinkOffChatTemplate("https://api.deepseek.com/v1", "deepseek-chat"))
 	assert.Nil(t, openAIThinkOffChatTemplate("https://api.openai.com/v1", "gpt-4o-mini"))
+}
+
+func TestOpenAIThinkingField(t *testing.T) {
+	viper.Set("llm.disable_think", true)
+	t.Cleanup(func() { viper.Set("llm.disable_think", nil) })
+
+	ds := openAIThinkingField("https://api.deepseek.com/v1", "deepseek-v4-flash")
+	assert.NotNil(t, ds)
+	assert.Equal(t, "disabled", ds["type"])
+
+	assert.Nil(t, openAIThinkingField("https://api.openai.com/v1", "gpt-4o-mini"))
 }
