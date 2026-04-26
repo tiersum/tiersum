@@ -37,9 +37,9 @@ func (s *chapterService) searchHotChaptersProgressive(ctx context.Context, query
 		return nil, nil
 	}
 
-	docCap := limit
-	if docCap < 100 {
-		docCap = 100
+	docCap := limit * 2
+	if docCap < 10 {
+		docCap = 10
 	}
 
 	tagNames, err := s.filterCatalogTags(ctx, query)
@@ -258,33 +258,18 @@ func extractRelevantTags(results []types.TagFilterResult) []string {
 }
 
 func (s *chapterService) queryAndFilterDocumentsForHotSearch(ctx context.Context, query string, tags []string, docCap int) ([]types.Document, error) {
-	var docs []types.Document
-	var err error
-
 	if len(tags) == 0 {
 		return nil, nil
 	}
-	docs, err = s.docRepo.ListByTags(ctx, tags, docCap)
+	statuses := []types.DocumentStatus{types.DocStatusHot, types.DocStatusWarming}
+	docs, err := s.docRepo.ListMetaByTagsAndStatuses(ctx, tags, statuses, docCap)
 	if err != nil {
 		return nil, fmt.Errorf("list documents by tags: %w", err)
 	}
-
 	if len(docs) == 0 {
 		return nil, nil
 	}
-
-	var hotDocs []types.Document
-	for _, doc := range docs {
-		if doc.Status == types.DocStatusHot || doc.Status == types.DocStatusWarming {
-			hotDocs = append(hotDocs, doc)
-		}
-	}
-
-	if len(hotDocs) == 0 {
-		return nil, nil
-	}
-
-	filtered, err := s.filterHotDocumentsForHotSearch(ctx, query, hotDocs)
+	filtered, err := s.filterHotDocumentsForHotSearch(ctx, query, docs)
 	if err != nil {
 		return nil, err
 	}

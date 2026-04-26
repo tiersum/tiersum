@@ -70,8 +70,12 @@ func (c *hotProgressiveLLMCore) FilterDocuments(ctx context.Context, query strin
 	}
 	var docList strings.Builder
 	for _, d := range docs {
+		summary := strings.TrimSpace(d.Summary)
+		if summary == "" {
+			summary = truncateStringForHotLLM(d.Content, c.config.ParagraphSummaryMax)
+		}
 		docList.WriteString(fmt.Sprintf("ID: %s\nTitle: %s\nTags: %v\nSummary: %s\n\n",
-			d.ID, d.Title, d.Tags, truncateStringForHotLLM(d.Content, c.config.ParagraphSummaryMax)))
+			d.ID, d.Title, d.Tags, summary))
 	}
 	dataContent := fmt.Sprintf("Query: %s\n\nDocuments:\n%s", query, docList.String())
 	msgs := []client.LLMMessage{
