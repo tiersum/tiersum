@@ -437,7 +437,14 @@ func (idx *Index) AddDocument(ctx context.Context, doc *types.Document) error {
 		}
 		var vec []float32
 		if emb != nil {
-			vec = FallbackColdTextEmbedding(ctx, idx.logger, emb, text)
+			v, err := emb.Embed(ctx, text)
+			if err != nil {
+				return fmt.Errorf("embed chapter text: %w", err)
+			}
+			if len(v) != types.ColdEmbeddingVectorDimension {
+				return fmt.Errorf("embed dimension mismatch: got %d, want %d", len(v), types.ColdEmbeddingVectorDimension)
+			}
+			vec = v
 		} else {
 			vec = GenerateSimpleEmbedding(text)
 		}
@@ -515,7 +522,14 @@ func (idx *Index) Search(ctx context.Context, queryText string, topK int) ([]sto
 	idx.mu.RUnlock()
 	var queryEmbedding []float32
 	if emb != nil {
-		queryEmbedding = FallbackColdTextEmbedding(ctx, idx.logger, emb, queryText)
+		v, err := emb.Embed(ctx, queryText)
+		if err != nil {
+			return nil, fmt.Errorf("embed query text: %w", err)
+		}
+		if len(v) != types.ColdEmbeddingVectorDimension {
+			return nil, fmt.Errorf("embed dimension mismatch: got %d, want %d", len(v), types.ColdEmbeddingVectorDimension)
+		}
+		queryEmbedding = v
 	}
 	raw, err := idx.hybridSearch(queryText, queryEmbedding, topK)
 	if err != nil {
@@ -727,7 +741,14 @@ func (idx *Index) AddChapter(ctx context.Context, docID, path, title, content st
 
 	var vec []float32
 	if idx.textEmbedder != nil {
-		vec = FallbackColdTextEmbedding(ctx, idx.logger, idx.textEmbedder, content)
+		v, err := idx.textEmbedder.Embed(ctx, content)
+		if err != nil {
+			return fmt.Errorf("embed chapter content: %w", err)
+		}
+		if len(v) != types.ColdEmbeddingVectorDimension {
+			return fmt.Errorf("embed dimension mismatch: got %d, want %d", len(v), types.ColdEmbeddingVectorDimension)
+		}
+		vec = v
 	} else {
 		vec = GenerateSimpleEmbedding(content)
 	}
