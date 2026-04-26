@@ -75,11 +75,20 @@ llm:
       6. The "content" field must contain the full rewritten text of the entire first-level chapter, including all its sub-sections with re-numbered headings and their body text.
       7. If the document has no clear structure, create a single chapter: title "1. Overview", summary may be empty, content contains the full text.
 
-      Additional Guidelines:
-      - Return ONLY the JSON object, no other text.
-      - Do NOT wrap the JSON in markdown code fences.
-      - Tags should be relevant keywords (lowercase, no spaces use-hyphens).
-      - "summary" may be empty when no short summary is appropriate; otherwise keep it within 150 characters.
+      Tag Generation Rules:
+      1. Generate exactly 8–12 tags. Fewer than 8 means missed concepts; more than 12 means noise.
+      2. Cover ALL of the following dimensions. Use at least one tag from each category:
+         - Technology stack: e.g., kafka, zookeeper, etcd, elasticsearch, postgresql
+         - Core concepts: e.g., partition, replication, leader-election, log-compaction, consistency-model
+         - Scenarios / use cases: e.g., high-availability, performance-tuning, disaster-recovery, stream-processing
+         - Patterns / architecture: e.g., event-sourcing, cqrs, saga-pattern, idempotency-key
+         - Operational concerns: e.g., monitoring, observability, deployment, scaling
+      3. Use specific, searchable terms. Prefer "consumer-group-rebalance" over "kafka" alone.
+      4. Tags must be lowercase, hyphen-separated, no spaces: "load-balancing" not "load balancing".
+      5. Include synonyms when the document discusses them explicitly (e.g., both "split-brain" and "network-partition" if applicable).
+      6. Return ONLY the JSON object, no other text.
+      7. Do NOT wrap the JSON in markdown code fences.
+      8. "summary" may be empty when no short summary is appropriate; otherwise keep it within 150 characters.
 
     answer_synthesis: |
       You must produce a two-part answer. The two parts are separated by the exact literal marker ---PART:KNOWLEDGE--- on its own line.
