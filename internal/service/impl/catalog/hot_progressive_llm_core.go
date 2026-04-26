@@ -72,7 +72,7 @@ func (c *hotProgressiveLLMCore) FilterDocuments(ctx context.Context, query strin
 	for _, d := range docs {
 		summary := strings.TrimSpace(d.Summary)
 		if summary == "" {
-			summary = truncateStringForHotLLM(d.Content, c.config.ParagraphSummaryMax)
+			continue
 		}
 		docList.WriteString(fmt.Sprintf("ID: %s\nTitle: %s\nTags: %v\nSummary: %s\n\n",
 			d.ID, d.Title, d.Tags, summary))

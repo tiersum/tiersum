@@ -55,6 +55,9 @@ func (s *chapterService) searchHotChaptersProgressive(ctx context.Context, query
 	if err != nil {
 		return nil, err
 	}
+	if len(docs) > limit {
+		docs = docs[:limit]
+	}
 	span.SetAttributes(attribute.Int("filtered_doc_count", len(docs)))
 	if len(docs) > 0 {
 		ids := make([]string, 0, min(10, len(docs)))
