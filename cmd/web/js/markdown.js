@@ -24,8 +24,10 @@ renderer.link = function(href, title, text) {
 
 export function parseMarkdown(content) {
     if (!content) return '';
+    // Style citation markers [^N^] into colored superscript badges before Markdown parsing.
+    const styled = content.replace(/\[\^(\d+)\^\]/g, '<sup class="citation-ref">[$1]</sup>');
     try {
-        return marked.parse(content, { renderer });
+        return marked.parse(styled, { renderer });
     } catch {
         return '';
     }

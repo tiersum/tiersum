@@ -1,4 +1,5 @@
 import { apiClient, isBrowserAdminRole, isBrowserViewerRole } from '../api_client.js';
+import { getLocale } from '../i18n.js';
 import { parseMarkdown } from '../markdown.js';
 
 export const SearchPage = {
@@ -9,6 +10,8 @@ export const SearchPage = {
             results: [],
             hasSearched: false,
             aiAnswer: '',
+            aiAnswerFromRefs: '',
+            aiAnswerFromKnowledge: '',
             aiLoading: false,
             highlightedRef: null,
             traceDebug: false,
@@ -57,18 +60,22 @@ export const SearchPage = {
             this.aiLoading = true;
             this.hasSearched = true;
             this.aiAnswer = '';
+            this.aiAnswerFromRefs = '';
+            this.aiAnswerFromKnowledge = '';
             this.results = [];
             this.lastTraceID = null;
 
             try {
-                const response = await apiClient.progressiveQuery(this.query, { trace: this.traceDebug });
+                const response = await apiClient.progressiveQuery(this.query, { trace: this.traceDebug, language: getLocale() });
                 this.results = (response.results || []).map(r => ({
                     ...r,
                     docStatus: (r.status && String(r.status).trim()) || 'hot'
                 }));
-                const serverAnswer = (response.answer || '').trim();
-                if (serverAnswer) {
-                    this.aiAnswer = serverAnswer;
+                const refsAnswer = (response.answer_from_references || '').trim();
+                const knowledgeAnswer = (response.answer_from_knowledge || '').trim();
+                if (refsAnswer) {
+                    this.aiAnswerFromRefs = refsAnswer;
+                    this.aiAnswerFromKnowledge = knowledgeAnswer;
                 } else {
                     await this.generateAiAnswerFallback();
                 }
@@ -233,9 +240,9 @@ export const SearchPage = {
                 </div>
 
                 <div v-if="hasSearched" class="grid grid-cols-1 lg:grid-cols-12 gap-6 mt-8">
-                    <div class="lg:col-span-8">
-                        <div class="card bg-slate-900/50 border border-slate-800 h-[calc(100vh-280px)]">
-                            <div class="card-body p-0">
+    <div class="lg:col-span-8">
+        <div class="card bg-slate-900/50 border border-slate-800 min-h-[calc(100vh-280px)]">
+            <div class="card-body p-0">
                                 <div class="p-4 border-b border-slate-800 flex items-center justify-between">
                                     <div class="flex items-center gap-2">
                                         <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -247,17 +254,32 @@ export const SearchPage = {
                                         {{ $t('searchBasedOnRefs', { count: results.length }) }}
                                     </span>
                                 </div>
-                                <div class="p-6 overflow-y-auto h-[calc(100%-80px)]">
+                                <div class="p-6 overflow-y-auto h-[calc(100%-80px)] space-y-6">
                                     <div v-if="aiLoading" class="space-y-4">
                                         <div class="h-4 bg-slate-800 rounded animate-pulse w-full"></div>
                                         <div class="h-4 bg-slate-800 rounded animate-pulse w-5/6"></div>
                                         <div class="h-4 bg-slate-800 rounded animate-pulse w-4/6"></div>
                                         <div class="h-20 bg-slate-800 rounded animate-pulse w-full mt-4"></div>
                                     </div>
-                                    <div v-else-if="aiAnswer" class="markdown-body max-w-none px-0 py-0 text-[15px] leading-relaxed" v-html="renderMarkdown(aiAnswer)"></div>
-                                    <div v-else class="text-center py-12 text-slate-500">
-                                        <p>{{ $t('searchGenerating') }}</p>
-                                    </div>
+                                    <template v-else>
+                                        <!-- Part 1: Evidence-based answer from references -->
+                                        <div v-if="aiAnswerFromRefs">
+                                            <div class="flex items-center gap-2 mb-3">
+                                                <span class="badge badge-sm badge-primary">{{ $t('searchAnswerFromRefs') }}</span>
+                                            </div>
+                                            <div class="markdown-body max-w-none px-0 py-0 text-[15px] leading-relaxed" v-html="renderMarkdown(aiAnswerFromRefs)"></div>
+                                        </div>
+                                        <!-- Part 2: Supplementary knowledge from LLM -->
+                                        <div v-if="aiAnswerFromKnowledge" class="border-t border-slate-800 pt-4">
+                                            <div class="flex items-center gap-2 mb-2">
+                                                <span class="badge badge-sm badge-secondary">{{ $t('searchAnswerFromKnowledge') }}</span>
+                                            </div>
+                                            <div class="text-slate-400 text-sm leading-relaxed">{{ aiAnswerFromKnowledge }}</div>
+                                        </div>
+                                        <div v-if="!aiAnswerFromRefs && !aiAnswerFromKnowledge" class="text-center py-12 text-slate-500">
+                                            <p>{{ $t('searchGenerating') }}</p>
+                                        </div>
+                                    </template>
                                 </div>
                             </div>
                         </div>
@@ -289,10 +311,10 @@ export const SearchPage = {
                                         </svg>
                                         <p>{{ $t('searchNoRefs') }}</p>
                                     </div>
-                                    <div v-else>
-                                        <div v-for="(result, index) in results" :key="(result.path || result.id || '') + '-' + index"
+                                     <div v-else class="flex flex-col gap-3">
+                                         <div v-for="(result, index) in results" :key="(result.path || result.id || '') + '-' + index"
                                              :id="'ref-' + index"
-                                             :class="['rounded-xl border bg-slate-800/30 transition-all cursor-pointer flex flex-col max-h-[248px] overflow-hidden shrink-0',
+                                             :class="['rounded-xl border bg-slate-800/30 transition-all cursor-pointer flex flex-col shrink-0',
                                                       highlightedRef === index ? 'border-blue-500 ring-2 ring-blue-500/50' : 'border-slate-700 hover:border-slate-600']"
                                              @click="highlightedRef = index">
                                             <div class="p-3 flex flex-col min-h-0 flex-1 gap-2">
@@ -311,7 +333,7 @@ export const SearchPage = {
                                                     <p class="truncate"><span class="text-slate-600">{{ $t('searchSource') }}</span> <span class="text-slate-400">{{ contentSourceLabel(result.content_source) }}</span></p>
                                                     <p class="truncate" :title="extractChapterPath(result.path) || ''"><span class="text-slate-600">{{ $t('searchPath') }}</span> {{ extractChapterPath(result.path) || $t('searchWholeDoc') }}</p>
                                                 </div>
-                                                <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain text-xs text-slate-400 leading-relaxed border border-slate-700/40 rounded-lg px-2 py-1.5 bg-slate-900/40">
+                                                <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain text-xs text-slate-400 leading-relaxed border border-slate-700/40 rounded-lg px-2 py-1.5 bg-slate-900/40 max-h-[160px]">
                                                     {{ refSnippet(result) }}
                                                 </div>
                                                 <div class="flex justify-end items-center shrink-0 pt-1 border-t border-slate-700/50">

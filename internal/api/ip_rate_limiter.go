@@ -109,4 +109,3 @@ func normalizeClientIP(ip string) string {
 	}
 	return parsed.String()
 }
-

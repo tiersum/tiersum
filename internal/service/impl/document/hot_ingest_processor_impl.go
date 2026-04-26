@@ -6,6 +6,9 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
@@ -48,6 +51,11 @@ func (p *hotIngestProcessor) ProcessHotIngest(ctx context.Context, work types.Ho
 	if work.DocID == "" {
 		return nil
 	}
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "ProcessHotIngest", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", work.DocID))
+	span.SetAttributes(attribute.Int("prebuilt_tags", len(work.PrebuiltTags)))
 	if p.logger != nil {
 		p.logger.Info("hot ingest: processing", zap.String("doc_id", work.DocID))
 	}

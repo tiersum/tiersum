@@ -44,10 +44,18 @@ func (r *listHotMetaRepo) IncrementQueryCount(ctx context.Context, docID string)
 func (r *listHotMetaRepo) UpdateStatus(ctx context.Context, docID string, status types.DocumentStatus) error {
 	return nil
 }
-func (r *listHotMetaRepo) UpdateHotScore(ctx context.Context, docID string, score float64) error { return nil }
-func (r *listHotMetaRepo) UpdateTags(ctx context.Context, docID string, tags []string) error { return nil }
-func (r *listHotMetaRepo) UpdateSummary(ctx context.Context, docID string, summary string) error { return nil }
-func (r *listHotMetaRepo) ListAll(ctx context.Context, limit int) ([]types.Document, error) { return nil, nil }
+func (r *listHotMetaRepo) UpdateHotScore(ctx context.Context, docID string, score float64) error {
+	return nil
+}
+func (r *listHotMetaRepo) UpdateTags(ctx context.Context, docID string, tags []string) error {
+	return nil
+}
+func (r *listHotMetaRepo) UpdateSummary(ctx context.Context, docID string, summary string) error {
+	return nil
+}
+func (r *listHotMetaRepo) ListAll(ctx context.Context, limit int) ([]types.Document, error) {
+	return nil, nil
+}
 func (r *listHotMetaRepo) CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error) {
 	return types.DocumentStatusCounts{}, nil
 }
@@ -60,7 +68,7 @@ func TestListHotDocumentsWithSummariesByTags_DedupesTagsAndStatuses(t *testing.T
 			{ID: "a", Title: "T", Summary: "S", Status: types.DocStatusHot},
 		},
 	}
-	svc := NewDocumentService(repo, nil, nil, nil, nil, nil, zap.NewNop())
+	svc := NewDocumentService(repo, nil, nil, nil, nil, zap.NewNop())
 
 	out, err := svc.ListHotDocumentsWithSummariesByTags(context.Background(), []string{" k8s ", "k8s", "docker"}, 50)
 	require.NoError(t, err)
@@ -74,7 +82,7 @@ func TestListHotDocumentsWithSummariesByTags_DedupesTagsAndStatuses(t *testing.T
 
 func TestListHotDocumentsWithSummariesByTags_EmptyAfterDedupe(t *testing.T) {
 	repo := &listHotMetaRepo{}
-	svc := NewDocumentService(repo, nil, nil, nil, nil, nil, zap.NewNop())
+	svc := NewDocumentService(repo, nil, nil, nil, nil, zap.NewNop())
 
 	out, err := svc.ListHotDocumentsWithSummariesByTags(context.Background(), []string{"  ", ""}, 10)
 	require.NoError(t, err)

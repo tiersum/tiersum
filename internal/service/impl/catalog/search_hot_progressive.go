@@ -6,6 +6,9 @@ import (
 	"sort"
 	"strings"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/pkg/types"
@@ -17,6 +20,12 @@ const catalogTagThreshold = 200
 
 // searchHotChaptersProgressive mirrors the legacy hot progressive pipeline: catalog tags (optional topics) → documents → chapters, each hop LLM-filtered where applicable.
 func (s *chapterService) searchHotChaptersProgressive(ctx context.Context, query string, limit int) ([]types.HotSearchHit, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "searchHotChaptersProgressive", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", query))
+	span.SetAttributes(attribute.Int("limit", limit))
+
 	if limit <= 0 {
 		limit = 50
 	}
@@ -24,6 +33,7 @@ func (s *chapterService) searchHotChaptersProgressive(ctx context.Context, query
 		if s.logger != nil {
 			s.logger.Warn("SearchHotChapters: LLM unavailable; returning no hot hits")
 		}
+		span.SetAttributes(attribute.String("skip_reason", "llm_unavailable"))
 		return nil, nil
 	}
 
@@ -36,10 +46,22 @@ func (s *chapterService) searchHotChaptersProgressive(ctx context.Context, query
 	if err != nil {
 		return nil, err
 	}
+	span.SetAttributes(attribute.Int("tag_count", len(tagNames)))
+	if len(tagNames) > 0 {
+		span.SetAttributes(attribute.String("tags", joinFirstN(tagNames, 10)))
+	}
 
 	docs, err := s.queryAndFilterDocumentsForHotSearch(ctx, query, tagNames, docCap)
 	if err != nil {
 		return nil, err
+	}
+	span.SetAttributes(attribute.Int("filtered_doc_count", len(docs)))
+	if len(docs) > 0 {
+		ids := make([]string, 0, min(10, len(docs)))
+		for i := 0; i < min(10, len(docs)); i++ {
+			ids = append(ids, docs[i].ID)
+		}
+		span.SetAttributes(attribute.String("filtered_doc_ids", joinFirstN(ids, 10)))
 	}
 
 	chapters, relByPath, err := s.queryAndFilterChaptersForHotSearch(ctx, query, docs)
@@ -82,6 +104,7 @@ func (s *chapterService) searchHotChaptersProgressive(ctx context.Context, query
 	if len(hits) > limit {
 		hits = hits[:limit]
 	}
+	span.SetAttributes(attribute.Int("hit_count", len(hits)))
 	return hits, nil
 }
 
@@ -117,10 +140,7 @@ func (s *chapterService) filterCatalogTags(ctx context.Context, query string) ([
 func (s *chapterService) filterTagsDirect(ctx context.Context, query string, tags []types.Tag) ([]string, error) {
 	filterResults, err := s.relCore.FilterTagsByQuery(ctx, query, tags)
 	if err != nil {
-		if s.logger != nil {
-			s.logger.Warn("LLM tag filter failed, using all tags", zap.Error(err))
-		}
-		return extractTagNames(tags), nil
+		return nil, err
 	}
 	return extractRelevantTags(filterResults), nil
 }
@@ -128,19 +148,11 @@ func (s *chapterService) filterTagsDirect(ctx context.Context, query string, tag
 func (s *chapterService) filterTagsViaTopics(ctx context.Context, query string) ([]string, error) {
 	selectedTopics, err := s.filterTopics(ctx, query)
 	if err != nil {
-		if s.logger != nil {
-			s.logger.Warn("topic filter failed, falling back to direct tag filter", zap.Error(err))
-		}
-		allTags, _ := s.tagRepo.List(ctx)
-		return s.filterTagsDirect(ctx, query, allTags)
+		return nil, err
 	}
 
 	if len(selectedTopics) == 0 {
-		if s.logger != nil {
-			s.logger.Warn("no topics selected, falling back to direct tag filter")
-		}
-		allTags, _ := s.tagRepo.List(ctx)
-		return s.filterTagsDirect(ctx, query, allTags)
+		return nil, nil
 	}
 
 	if s.logger != nil {
@@ -154,19 +166,11 @@ func (s *chapterService) filterTagsViaTopics(ctx context.Context, query string) 
 
 	tagsInTopics, err := s.getTagsFromTopics(ctx, topicIDs)
 	if err != nil {
-		if s.logger != nil {
-			s.logger.Warn("failed to get tags from topics, falling back to direct tag filter", zap.Error(err))
-		}
-		allTags, _ := s.tagRepo.List(ctx)
-		return s.filterTagsDirect(ctx, query, allTags)
+		return nil, err
 	}
 
 	if len(tagsInTopics) == 0 {
-		if s.logger != nil {
-			s.logger.Warn("no tags in selected topics, falling back to direct tag filter")
-		}
-		allTags, _ := s.tagRepo.List(ctx)
-		return s.filterTagsDirect(ctx, query, allTags)
+		return nil, nil
 	}
 
 	if s.logger != nil {
@@ -190,10 +194,7 @@ func (s *chapterService) filterTopics(ctx context.Context, query string) ([]type
 
 	filterResults, err := s.relCore.FilterTopicsByQuery(ctx, query, topics)
 	if err != nil {
-		if s.logger != nil {
-			s.logger.Warn("LLM topic filter failed, returning all topics", zap.Error(err))
-		}
-		return topics, nil
+		return nil, err
 	}
 
 	topicMap := make(map[string]types.Topic)
@@ -261,52 +262,33 @@ func (s *chapterService) queryAndFilterDocumentsForHotSearch(ctx context.Context
 	var err error
 
 	if len(tags) == 0 {
-		if s.logger != nil {
-			s.logger.Debug("SearchHotChapters: no tag filter results; listing documents as fallback", zap.Int("limit", docCap))
-		}
-		docs, err = s.docRepo.ListAll(ctx, docCap)
-		if err != nil {
-			return nil, fmt.Errorf("list all documents: %w", err)
-		}
-	} else {
-		docs, err = s.docRepo.ListByTags(ctx, tags, docCap)
-		if err != nil {
-			return nil, fmt.Errorf("list documents by tags: %w", err)
-		}
+		return nil, nil
+	}
+	docs, err = s.docRepo.ListByTags(ctx, tags, docCap)
+	if err != nil {
+		return nil, fmt.Errorf("list documents by tags: %w", err)
 	}
 
 	if len(docs) == 0 {
 		return nil, nil
 	}
 
-	var hotDocs, coldDocs []types.Document
+	var hotDocs []types.Document
 	for _, doc := range docs {
 		if doc.Status == types.DocStatusHot || doc.Status == types.DocStatusWarming {
 			hotDocs = append(hotDocs, doc)
-		} else {
-			coldDocs = append(coldDocs, doc)
 		}
 	}
 
-	var filteredDocs []types.Document
-
-	if len(hotDocs) > 0 {
-		hotFiltered, err := s.filterHotDocumentsForHotSearch(ctx, query, hotDocs)
-		if err != nil {
-			if s.logger != nil {
-				s.logger.Warn("LLM document filter failed for hot docs", zap.Error(err))
-			}
-			filteredDocs = append(filteredDocs, hotDocs...)
-		} else {
-			filteredDocs = append(filteredDocs, hotFiltered...)
-		}
+	if len(hotDocs) == 0 {
+		return nil, nil
 	}
 
-	if len(coldDocs) > 0 {
-		filteredDocs = append(filteredDocs, filterColdDocumentsByKeywords(query, coldDocs)...)
+	filtered, err := s.filterHotDocumentsForHotSearch(ctx, query, hotDocs)
+	if err != nil {
+		return nil, err
 	}
-
-	return filteredDocs, nil
+	return filtered, nil
 }
 
 func (s *chapterService) filterHotDocumentsForHotSearch(ctx context.Context, query string, docs []types.Document) ([]types.Document, error) {
@@ -332,37 +314,6 @@ func (s *chapterService) filterHotDocumentsForHotSearch(ctx context.Context, que
 	return filteredDocs, nil
 }
 
-func filterColdDocumentsByKeywords(query string, docs []types.Document) []types.Document {
-	keywords := types.ExtractKeywords(query, 10)
-	var filteredDocs []types.Document
-	for _, doc := range docs {
-		if matchesColdDocumentKeywords(doc, keywords) {
-			filteredDocs = append(filteredDocs, doc)
-		}
-	}
-	return filteredDocs
-}
-
-func matchesColdDocumentKeywords(doc types.Document, keywords []string) bool {
-	contentLower := strings.ToLower(doc.Content)
-	titleLower := strings.ToLower(doc.Title)
-	for _, keyword := range keywords {
-		keywordLower := strings.ToLower(keyword)
-		if strings.Contains(titleLower, keywordLower) || strings.Contains(contentLower, keywordLower) {
-			return true
-		}
-	}
-	for _, tag := range doc.Tags {
-		tagLower := strings.ToLower(tag)
-		for _, keyword := range keywords {
-			if strings.Contains(tagLower, strings.ToLower(keyword)) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func (s *chapterService) queryAndFilterChaptersForHotSearch(ctx context.Context, query string, docs []types.Document) ([]types.Chapter, map[string]float64, error) {
 	if len(docs) == 0 {
 		return nil, nil, nil
@@ -370,11 +321,6 @@ func (s *chapterService) queryAndFilterChaptersForHotSearch(ctx context.Context,
 
 	var allChapters []types.Chapter
 	for _, doc := range docs {
-		if doc.Status != types.DocStatusHot && doc.Status != types.DocStatusWarming {
-			ch := createColdPseudoChapter(doc)
-			allChapters = append(allChapters, *ch)
-			continue
-		}
 		chapters, err := s.chapterRepo.ListByDocument(ctx, doc.ID)
 		if err != nil {
 			if s.logger != nil {
@@ -391,14 +337,7 @@ func (s *chapterService) queryAndFilterChaptersForHotSearch(ctx context.Context,
 
 	filterResults, err := s.relCore.FilterChapters(ctx, query, allChapters)
 	if err != nil {
-		if s.logger != nil {
-			s.logger.Warn("LLM chapter filter failed, returning all chapters", zap.Error(err))
-		}
-		m := make(map[string]float64, len(allChapters))
-		for _, ch := range allChapters {
-			m[ch.Path] = 0.5
-		}
-		return allChapters, m, nil
+		return nil, nil, err
 	}
 
 	chapterMap := make(map[string]types.Chapter)
@@ -422,17 +361,4 @@ func (s *chapterService) queryAndFilterChaptersForHotSearch(ctx context.Context,
 		}
 	}
 	return filtered, relByPath, nil
-}
-
-func createColdPseudoChapter(doc types.Document) *types.Chapter {
-	return &types.Chapter{
-		ID:         doc.ID + "_cold",
-		DocumentID: doc.ID,
-		Path:       doc.ID + "/full",
-		Title:      doc.Title,
-		Summary:    doc.Content,
-		Content:    doc.Content,
-		CreatedAt:  doc.CreatedAt,
-		UpdatedAt:  doc.UpdatedAt,
-	}
 }

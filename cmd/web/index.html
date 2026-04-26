@@ -4,15 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TierSum - Knowledge Base</title>
-    <base href="/" />
+    <base href="/ui/" />
 
     <!-- Vendored ESM (served from this app): works offline and in restricted previews where external CDNs fail. -->
     <script type="importmap">
     {
         "imports": {
-            "vue": "/js/vendor/vue.esm-browser.prod.js",
-            "@vue/devtools-api": "/js/vendor/vue-devtools-api.esm.js",
-            "vue-router": "/js/vendor/vue-router.esm-browser.js"
+            "vue": "/ui/js/vendor/vue.esm-browser.prod.js",
+            "@vue/devtools-api": "/ui/js/vendor/vue-devtools-api.esm.js",
+            "vue-router": "/ui/js/vendor/vue-router.esm-browser.js"
         }
     }
     </script>
@@ -24,7 +24,7 @@
     <link href="https://cdn.jsdelivr.net/npm/daisyui@4.12.10/dist/full.min.css" rel="stylesheet" type="text/css" />
 
     <!-- Markdown body (marked HTML): vendored github-markdown-css dark theme (no @tailwindcss/typography). -->
-    <link rel="stylesheet" href="/css/github-markdown-dark.min.css" />
+    <link rel="stylesheet" href="/ui/css/github-markdown-dark.min.css" />
 
     <!-- Tailwind Config -->
     <script>
@@ -149,7 +149,24 @@
         .markdown-body strong {
             color: #f1f5f9 !important;
         }
-        
+
+        /* Citation reference markers */
+        .citation-ref {
+            display: inline-block;
+            vertical-align: super;
+            font-size: 0.65em;
+            font-weight: 600;
+            line-height: 1;
+            color: #22d3ee;
+            background-color: rgba(34, 211, 238, 0.12);
+            border: 1px solid rgba(34, 211, 238, 0.25);
+            border-radius: 4px;
+            padding: 1px 4px;
+            margin: 0 1px;
+            cursor: default;
+            user-select: none;
+        }
+
         /* Force body background to dark */
         html, body {
             background-color: #020617 !important;
@@ -160,10 +177,10 @@
     <div id="app">
         <div id="app-boot" style="padding:2rem;font-family:system-ui,sans-serif;background:#020617;color:#e2e8f0;min-height:100vh;">
             <p style="margin:0 0 0.5rem 0"><strong>TierSum</strong> is loading…</p>
-            <p style="margin:0;font-size:0.875rem;opacity:0.85">If this never disappears, open DevTools → Console / Network (check <code>/js/main.js</code> and <code>/js/vendor/*.js</code> return 200).</p>
+            <p style="margin:0;font-size:0.875rem;opacity:0.85">If this never disappears, open DevTools → Console / Network (check <code>/ui/js/main.js</code> and <code>/ui/js/vendor/*.js</code> return 200).</p>
         </div>
     </div>
 
-    <script type="module" src="/js/main.js"></script>
+    <script type="module" src="/ui/js/main.js"></script>
 </body>
 </html>

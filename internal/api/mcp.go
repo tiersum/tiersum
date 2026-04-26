@@ -93,11 +93,9 @@ func (s *MCPServer) registerTools() {
 		mcp.WithString("content", mcp.Required(), mcp.Description("Document body")),
 		mcp.WithString("format", mcp.Required(), mcp.Description("markdown or md"), mcp.Enum("markdown", "md")),
 		mcp.WithString("tags", mcp.Description("Optional: JSON array string e.g. [\"a\",\"b\"]")),
-		mcp.WithString("summary", mcp.Description("Optional pre-built document summary")),
-		mcp.WithString("chapters", mcp.Description("Optional JSON array of ChapterInfo")),
-		mcp.WithString("ingest_mode", mcp.Description("auto (default) | hot | cold — hot/cold tier on ingest"), mcp.Enum("auto", "hot", "cold")),
-		mcp.WithBoolean("force_hot", mcp.Description("Deprecated: use ingest_mode=hot")),
-		mcp.WithString("embedding", mcp.Description("Optional JSON array of numbers (float32 embedding)")),
+		mcp.WithString("summary", mcp.Description("Optional pre-built document summary (skips LLM summary generation when provided)")),
+		mcp.WithString("chapters", mcp.Description("Optional JSON array of ChapterInfo (skips LLM chapter extraction when provided)")),
+		mcp.WithString("ingest_mode", mcp.Description("hot (default) | cold — ingest tier: LLM semantic chapter extraction & summary vs Markdown syntax chapter extraction"), mcp.Enum("hot", "cold")),
 	), s.handleAPIv1DocumentsPost)
 
 	s.mcp.AddTool(mcp.NewTool("api_v1_documents_list",
@@ -117,7 +115,7 @@ func (s *MCPServer) registerTools() {
 	s.mcp.AddTool(mcp.NewTool("api_v1_query_progressive_post",
 		mcp.WithDescription(descPrefix+"POST /api/v1/query/progressive — tracing matches REST: set traceparent / force-sample headers or ?debug_trace=1 on POST /mcp/message; optional tool args traceparent and force_sample when JSON-only clients cannot set HTTP"),
 		mcp.WithString("question", mcp.Required(), mcp.Description("User question")),
-		mcp.WithNumber("max_results", mcp.Description("1–100; omit or 0 for default 100")),
+		mcp.WithNumber("max_results", mcp.Description("1–100; omit or 0 for default 15")),
 		mcp.WithString("traceparent", mcp.Description("Optional W3C traceparent (same as HTTP traceparent header)")),
 		mcp.WithBoolean("force_sample", mcp.Description("Optional: same as REST telemetry.force_sample (e.g. debug_trace query on /mcp/message); used when there is no recording parent span from the HTTP request")),
 	), s.handleAPIv1QueryProgressivePost)
@@ -153,10 +151,6 @@ func (s *MCPServer) registerTools() {
 		mcp.WithString("q", mcp.Required(), mcp.Description("Comma-separated keywords (same as query param `q`)")),
 		mcp.WithNumber("max_results", mcp.Description("Default 100, max 500")),
 	), s.handleAPIv1ColdDocSourceGet)
-
-	s.mcp.AddTool(mcp.NewTool("api_v1_quota_get",
-		mcp.WithDescription(descPrefix+"GET /api/v1/quota"),
-	), s.handleAPIv1QuotaGet)
 
 	s.mcp.AddTool(mcp.NewTool("api_v1_metrics_get",
 		mcp.WithDescription("Same as GET /metrics — Prometheus text exposition at the root path (no API key); format in the tool response body."),
@@ -474,15 +468,6 @@ func (s *MCPServer) handleAPIv1ColdDocSourceGet(ctx context.Context, request mcp
 	terms := argStringList(args, "q")
 	maxRaw := optionalMaxResultsQueryString(args, "max_results")
 	status, body := s.api.ExecuteSearchColdChapterHits(ctx, terms, maxRaw)
-	return mcpJSONResult(status, body)
-}
-
-func (s *MCPServer) handleAPIv1QuotaGet(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	if res, err := s.mcpReadGate(ctx, "GET /api/v1/quota"); res != nil {
-		return res, err
-	}
-	_ = toolArgs(request)
-	status, body := s.api.ExecuteGetQuotaSnapshot()
 	return mcpJSONResult(status, body)
 }
 

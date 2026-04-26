@@ -8,6 +8,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/config"
@@ -16,13 +19,11 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// NewDocumentService constructs service.IDocumentService with ingest dependencies.
 func NewDocumentService(
 	docRepo storage.IDocumentRepository,
 	cold storage.IColdIndex,
 	tagRepo storage.ITagRepository,
 	chapterRepo storage.IChapterRepository,
-	quota interface{ CheckAndConsume() bool },
 	hotIngestSink service.IHotIngestWorkSink,
 	logger *zap.Logger,
 ) service.IDocumentService {
@@ -34,7 +35,6 @@ func NewDocumentService(
 		cold:          cold,
 		tags:          tagRepo,
 		chapters:      chapterRepo,
-		quota:         quota,
 		hotIngestSink: hotIngestSink,
 		logger:        logger,
 	}
@@ -45,12 +45,19 @@ type documentService struct {
 	cold          storage.IColdIndex
 	tags          storage.ITagRepository
 	chapters      storage.IChapterRepository
-	quota         interface{ CheckAndConsume() bool }
 	hotIngestSink service.IHotIngestWorkSink
 	logger        *zap.Logger
 }
 
 func (s *documentService) CreateDocument(ctx context.Context, req types.CreateDocumentRequest) (*types.CreateDocumentResponse, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "CreateDocument", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("title", req.Title))
+	span.SetAttributes(attribute.String("ingest_mode", req.IngestMode))
+	span.SetAttributes(attribute.Bool("force_hot", req.ForceHot))
+	span.SetAttributes(attribute.Int("content_len", len(req.Content)))
+
 	if s.docs == nil {
 		return nil, errors.New("document repository not configured")
 	}
@@ -63,7 +70,7 @@ func (s *documentService) CreateDocument(ctx context.Context, req types.CreateDo
 		return nil, fmt.Errorf("%w: format is required", service.ErrIngestValidation)
 	}
 
-	hot := resolveHotIngest(req, s.quota)
+	hot := resolveHotIngest(req)
 	tags := dedupeTagNames(req.Tags)
 	if !hot {
 		tags = nil
@@ -102,15 +109,20 @@ func (s *documentService) CreateDocument(ctx context.Context, req types.CreateDo
 			return nil, err
 		}
 	} else if s.cold != nil {
-		// To avoid "DB row without index" inconsistency, index first, then persist.
-		coldDoc := *doc
-		coldDoc.Tags = nil
-		if err := s.cold.AddDocument(ctx, &coldDoc); err != nil {
-			return nil, fmt.Errorf("cold index add document: %w", err)
-		}
 		if err := s.docs.Create(ctx, doc); err != nil {
-			_ = s.cold.RemoveDocument(doc.ID)
 			return nil, fmt.Errorf("persist document: %w", err)
+		}
+		if s.chapters != nil {
+			coldChapters := s.cold.MarkdownChapters(doc.ID, doc.Title, doc.Content)
+			if len(coldChapters) > 0 {
+				if err := s.chapters.ReplaceByDocument(ctx, doc.ID, coldChapters); err != nil {
+					s.logger.Error("failed to persist cold chapters",
+						zap.String("doc_id", doc.ID),
+						zap.Error(err))
+				} else {
+					chapterCount = len(coldChapters)
+				}
+			}
 		}
 	} else {
 		if err := s.docs.Create(ctx, doc); err != nil {
@@ -161,30 +173,10 @@ func validateCreateIngest(req types.CreateDocumentRequest) error {
 	return nil
 }
 
-// resolveHotIngest decides hot vs cold from ingest mode. Auto uses prebuilt summary+chapters, then content length vs hot threshold.
-// For auto hot (no prebuilt chapters), a successful quota CheckAndConsume is required when quota is non-nil.
-func resolveHotIngest(req types.CreateDocumentRequest, quota interface{ CheckAndConsume() bool }) bool {
-	mode := req.EffectiveIngestMode()
-	switch strings.ToLower(mode) {
-	case types.DocumentIngestModeHot:
-		return true
-	case types.DocumentIngestModeCold:
-		return false
-	default:
-		// Prebuilt analysis implies no ingest-time LLM cost; allow hot without consuming quota.
-		if strings.TrimSpace(req.Summary) != "" && len(req.Chapters) > 0 {
-			return true
-		}
-		// Auto hot (LLM path) requires quota; without it, degrade to cold.
-		if quota == nil || !quota.CheckAndConsume() {
-			return false
-		}
-		return len(req.Content) > config.HotContentThreshold()
-	}
+func resolveHotIngest(req types.CreateDocumentRequest) bool {
+	return req.EffectiveIngestMode() == types.DocumentIngestModeHot
 }
 
-// mergeOrderedTagLists merges tag lists in order (first list, then second), deduplicating case-insensitively;
-// the first spelling encountered for a logical tag is kept (sync ingest and async hot ingest stay aligned).
 func mergeOrderedTagLists(first, second []string) []string {
 	seen := make(map[string]struct{}, len(first)+len(second))
 	out := make([]string, 0, len(first)+len(second))
@@ -241,7 +233,6 @@ func materializePrebuiltChapters(docID string, infos []types.ChapterInfo) []type
 }
 
 func chapterPathForPrebuilt(docID string, idx int, _ string) string {
-	// Stable unique path per ingest slot (avoids collisions when titles repeat).
 	return fmt.Sprintf("%s/__ingest/%d", docID, idx+1)
 }
 
@@ -267,6 +258,11 @@ func (s *documentService) syncCatalogTags(ctx context.Context, tagNames []string
 }
 
 func (s *documentService) GetDocument(ctx context.Context, id string) (*types.Document, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "GetDocument", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", id))
+
 	if s.docs == nil {
 		return nil, errors.New("document repository not configured")
 	}
@@ -274,6 +270,10 @@ func (s *documentService) GetDocument(ctx context.Context, id string) (*types.Do
 }
 
 func (s *documentService) CountDocumentsByStatus(ctx context.Context) (types.DocumentStatusCounts, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "CountDocumentsByStatus", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	if s.docs == nil {
 		return types.DocumentStatusCounts{}, errors.New("document repository not configured")
 	}
@@ -281,6 +281,11 @@ func (s *documentService) CountDocumentsByStatus(ctx context.Context) (types.Doc
 }
 
 func (s *documentService) ListDocuments(ctx context.Context, limit int) ([]types.Document, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "ListDocuments", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.Int("limit", limit))
+
 	if limit <= 0 {
 		limit = 200
 	}
@@ -301,6 +306,12 @@ func (s *documentService) ListDocuments(ctx context.Context, limit int) ([]types
 }
 
 func (s *documentService) ListHotDocumentsWithSummariesByTags(ctx context.Context, tags []string, limit int) ([]types.Document, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "ListHotDocumentsWithSummariesByTags", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.Int("tag_count", len(tags)))
+	span.SetAttributes(attribute.Int("limit", limit))
+
 	if s.docs == nil {
 		return nil, errors.New("document repository not configured")
 	}

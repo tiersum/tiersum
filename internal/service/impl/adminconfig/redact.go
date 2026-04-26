@@ -242,4 +242,3 @@ func redactURLUserinfo(s string) string {
 	}
 	return urlUserinfoPattern.ReplaceAllString(s, "${1}*:*${4}")
 }
-

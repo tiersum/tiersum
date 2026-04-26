@@ -15,6 +15,8 @@ export const DocumentDetailPage = {
             loadError: null,
             viewMode: 'summary',
             selectedNav: 'overview',
+            promoting: false,
+            promoteError: null,
             /** Poll while hot ingest has not written document.summary yet. */
             hotPollTimer: null,
             hotPollBusy: false
@@ -51,7 +53,7 @@ export const DocumentDetailPage = {
                 return this.docSummaryText || '_' + this.$t('docNoSummary') + '_';
             }
             const ch = this.activeChapter;
-            return (ch?.summary || '').trim() || '_' + this.$t('docNoContent') + '_';
+            return (ch?.summary || '').trim() || '_' + this.$t('docNoChapterSummary') + '_';
         },
         chapterContentMarkdown() {
             if (this.selectedNav === 'overview') return '';
@@ -145,13 +147,7 @@ export const DocumentDetailPage = {
                 this.setDefaultChapterNav();
                 return;
             }
-            let decoded = want;
-            try {
-                decoded = decodeURIComponent(want);
-            } catch {
-                /* keep want */
-            }
-            decoded = decoded.trim();
+            const decoded = want.trim();
             this.viewMode = 'summary';
 
             if (decoded === 'overview') {
@@ -222,11 +218,24 @@ export const DocumentDetailPage = {
         },
         goBack() {
             this.$router.push('/library');
+        },
+        async promoteToHot() {
+            if (this.promoting) return;
+            this.promoting = true;
+            this.promoteError = null;
+            try {
+                await apiClient.promoteDocument(this.id);
+                this.promoting = false;
+                await this.load();
+            } catch (e) {
+                this.promoteError = e.message || String(e);
+                this.promoting = false;
+            }
         }
     },
     template: `
         <div class="min-h-screen bg-slate-950">
-            <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
                 <button type="button" @click="goBack" class="btn btn-ghost btn-sm text-slate-400 mb-6 gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
@@ -244,6 +253,9 @@ export const DocumentDetailPage = {
                 </div>
 
                 <div v-else-if="doc">
+                    <div v-if="promoteError" role="alert" class="alert alert-error border border-red-900/60 bg-red-950/50 text-red-100 mb-4">
+                        <span class="text-sm">{{ promoteError }}</span>
+                    </div>
                     <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
                         <div class="min-w-0">
                             <h1 class="text-2xl sm:text-3xl font-bold text-slate-100 mb-2 break-words">{{ doc.title }}</h1>
@@ -259,26 +271,38 @@ export const DocumentDetailPage = {
                                     <span class="inline-block h-2.5 w-2.5 rounded-full bg-sky-400 animate-pulse shrink-0" aria-hidden="true"></span>
                                     {{ $t('docGenerating') }}
                                 </span>
-                                <span v-if="doc.tags?.length" class="text-slate-500">{{ doc.tags.join(', ') }}</span>
+                                <span v-if="doc.tags?.length" class="flex flex-wrap gap-1.5 mt-1 sm:mt-0">
+                                    <span v-for="t in doc.tags" :key="t" class="badge badge-sm badge-primary badge-outline">{{ t }}</span>
+                                </span>
                             </div>
                             <p class="text-xs text-slate-500 font-mono break-all mt-2 max-w-3xl" :title="doc.id">
                                 <span class="text-slate-600">{{ $t('docDocumentId') }}</span>
                                 {{ doc.id }}
                             </p>
                         </div>
-                        <div class="shrink-0 join">
-                            <button type="button"
-                                class="btn btn-sm join-item"
-                                :class="viewMode === 'summary' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
-                                @click="setViewMode('summary')">
-                                {{ $t('docChapters') }}
+                        <div class="flex items-center gap-2 shrink-0">
+                            <button v-if="doc.status === 'cold'"
+                                type="button"
+                                @click="promoteToHot"
+                                :disabled="promoting"
+                                class="btn btn-sm btn-outline border-amber-600 text-amber-400 hover:bg-amber-950/30">
+                                <span v-if="promoting" class="loading loading-spinner loading-sm"></span>
+                                {{ $t('docPromoteToHot') }}
                             </button>
-                            <button type="button"
-                                class="btn btn-sm join-item"
-                                :class="viewMode === 'source' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
-                                @click="setViewMode('source')">
-                                {{ $t('docOriginal') }}
-                            </button>
+                            <div class="join">
+                                <button type="button"
+                                    class="btn btn-sm join-item"
+                                    :class="viewMode === 'summary' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
+                                    @click="setViewMode('summary')">
+                                    {{ $t('docChapters') }}
+                                </button>
+                                <button type="button"
+                                    class="btn btn-sm join-item"
+                                    :class="viewMode === 'source' ? 'btn-primary' : 'btn-ghost border border-slate-700'"
+                                    @click="setViewMode('source')">
+                                    {{ $t('docOriginal') }}
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -325,7 +349,18 @@ export const DocumentDetailPage = {
                                         {{ selectedNav === 'overview' ? $t('docDocumentSummary') : (activeChapter?.title || $t('docSection')) }}
                                     </h2>
                                     <div class="border-t border-slate-800 pt-4">
-                                        <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(summaryBodyMarkdown)"></div>
+                                        <div v-if="selectedNav !== 'overview'" class="mb-6">
+                                            <div class="flex items-center justify-between mb-2">
+                                                <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide">{{ $t('docChapterSummary') }}</h3>
+                                                <span v-if="!docSummaryText" class="text-xs text-slate-500">{{ $t('docNoChapterSummary') }}</span>
+                                            </div>
+                                            <div class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+                                                <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(summaryBodyMarkdown)"></div>
+                                            </div>
+                                        </div>
+                                        <div v-else>
+                                            <div class="markdown-body max-w-none px-0 py-0 text-[15px]" v-html="renderMd(summaryBodyMarkdown)"></div>
+                                        </div>
                                         <div v-if="selectedNav !== 'overview'" class="mt-6">
                                             <div class="flex items-center justify-between mb-2">
                                                 <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-wide">{{ $t('docContent') }}</h3>

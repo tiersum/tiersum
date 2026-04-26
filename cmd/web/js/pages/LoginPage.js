@@ -12,7 +12,10 @@ export const LoginPage = {
     },
     async mounted() {
         // If a persistent device token cookie exists, try passwordless re-login first.
-        await this.tryDeviceLogin();
+        // Only try once; if it fails the user stays on the login form.
+        if (this.$route.query.auto !== '0') {
+            await this.tryDeviceLogin();
+        }
     },
     methods: {
         fingerprint() {
@@ -24,7 +27,7 @@ export const LoginPage = {
             this.loading = true;
             try {
                 await apiClient.deviceLogin(this.fingerprint());
-                this.$router.replace('/');
+                this.$router.replace('/search');
             } catch {
                 // Expected when no device cookie / invalid token.
             } finally {
@@ -37,9 +40,8 @@ export const LoginPage = {
             try {
                 await apiClient.login(this.accessToken.trim(), this.fingerprint(), {
                     remember_me: this.rememberMe,
-                    device_name: this.deviceName
                 });
-                this.$router.replace('/');
+                this.$router.replace('/search');
             } catch (e) {
                 this.err = e.message || String(e);
             } finally {

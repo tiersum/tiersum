@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/tiersum/tiersum/internal/client"
 )
@@ -27,11 +29,12 @@ type OpenAIProvider struct {
 
 // NewOpenAIProvider creates a new OpenAI provider
 func NewOpenAIProvider() *OpenAIProvider {
+	timeout := viper.GetDuration("llm.openai.timeout")
 	return &OpenAIProvider{
 		apiKey:  viper.GetString("llm.openai.api_key"),
 		baseURL: viper.GetString("llm.openai.base_url"),
 		model:   viper.GetString("llm.openai.model"),
-		client:  &http.Client{},
+		client:  &http.Client{Timeout: timeout},
 	}
 }
 
@@ -97,43 +100,70 @@ type openAIResponse struct {
 		Message string `json:"message"`
 		Type    string `json:"type"`
 	} `json:"error,omitempty"`
+	Usage *struct {
+		PromptTokens     int `json:"prompt_tokens"`
+		CompletionTokens int `json:"completion_tokens"`
+		TotalTokens      int `json:"total_tokens"`
+	} `json:"usage,omitempty"`
 }
 
-var (
-	onlyTemperatureRe = regexp.MustCompile(`(?i)invalid temperature:\s*only\s*([0-9]*\.?[0-9]+)\s*is allowed`)
-)
-
 // Generate implements ILLMProvider.Generate
-func (p *OpenAIProvider) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
+func (p *OpenAIProvider) Generate(ctx context.Context, messages []client.LLMMessage, maxTokens int) (string, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/client/llm")
+	ctx, span := tr.Start(ctx, "OpenAIProvider.Generate", trace.WithSpanKind(trace.SpanKindClient))
+	defer span.End()
+	span.SetAttributes(attribute.String("model", p.model))
+	span.SetAttributes(attribute.Int("max_tokens", maxTokens))
+	span.SetAttributes(attribute.Int("messages", len(messages)))
+
+	sysMsg := viper.GetString("llm.prompts.system_message")
+	if strings.TrimSpace(sysMsg) == "" {
+		err := fmt.Errorf("config llm.prompts.system_message is required")
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return "", err
+	}
 	temperature := p.resolveTemperature()
+
+	msgs := make([]message, 0, len(messages)+1)
+	// Prepend system message if caller did not supply one.
+	if len(messages) == 0 || messages[0].Role != client.LLMMessageRoleSystem {
+		msgs = append(msgs, message{Role: "system", Content: sysMsg})
+	}
+	for _, m := range messages {
+		msgs = append(msgs, message{Role: string(m.Role), Content: m.Content})
+	}
+
 	reqBody := openAIRequest{
-		Model: p.model,
-		Messages: []message{
-			{Role: "system", Content: "You are a concise assistant. Respond briefly and accurately."},
-			{Role: "user", Content: prompt},
-		},
+		Model:              p.model,
+		Messages:           msgs,
 		MaxTokens:          maxTokens,
 		Temperature:        temperature,
-		ResponseFormat:     openAIResponseFormat(p.baseURL, p.model),
 		ChatTemplateKwargs: openAIThinkOffChatTemplate(p.baseURL, p.model),
 		Thinking:           openAIThinkingField(p.baseURL, p.model),
 	}
-	// Retry once when the backend enforces a single temperature value for this model.
-	out, body, result, err := p.doChatCompletion(ctx, reqBody)
+	out, _, result, err := p.doChatCompletion(ctx, reqBody)
 	if err != nil {
-		if onlyTemp, ok := parseOnlyTemperature(err.Error()); ok {
-			reqBody.Temperature = onlyTemp
-			out2, _, _, err2 := p.doChatCompletion(ctx, reqBody)
-			if err2 == nil {
-				return out2, nil
-			}
-			return "", err2
-		}
+		span.SetAttributes(attribute.String("error_message", err.Error()))
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		return "", err
 	}
-	_ = body
-	_ = result
+	p.recordUsage(span, result)
 	return out, nil
+}
+
+func (p *OpenAIProvider) recordUsage(span trace.Span, result openAIResponse) {
+	if result.Usage != nil {
+		span.SetAttributes(
+			attribute.Int("llm_prompt_tokens", result.Usage.PromptTokens),
+			attribute.Int("llm_completion_tokens", result.Usage.CompletionTokens),
+			attribute.Int("llm_total_tokens", result.Usage.TotalTokens),
+		)
+	} else {
+		span.SetAttributes(attribute.Bool("usage_missing", true))
+	}
 }
 
 func (p *OpenAIProvider) resolveTemperature() float64 {
@@ -151,18 +181,6 @@ func (p *OpenAIProvider) resolveTemperature() float64 {
 		}
 	}
 	return t
-}
-
-func parseOnlyTemperature(errMsg string) (float64, bool) {
-	m := onlyTemperatureRe.FindStringSubmatch(errMsg)
-	if len(m) != 2 {
-		return 0, false
-	}
-	f, err := strconv.ParseFloat(m[1], 64)
-	if err != nil {
-		return 0, false
-	}
-	return f, true
 }
 
 func (p *OpenAIProvider) doChatCompletion(ctx context.Context, reqBody openAIRequest) (string, []byte, openAIResponse, error) {
@@ -257,18 +275,6 @@ func openAIThinkOffChatTemplate(baseURL, model string) map[string]any {
 	}
 	if strings.Contains(u, "siliconflow.cn") {
 		return map[string]any{"enable_thinking": false}
-	}
-	return nil
-}
-
-// openAIResponseFormat returns response_format for providers that support json_object (e.g. Moonshot Kimi)
-// to reduce token waste from prose around the JSON.
-func openAIResponseFormat(baseURL, model string) map[string]any {
-	u := strings.ToLower(baseURL)
-	m := strings.ToLower(model)
-	// Moonshot Kimi supports json_object response format.
-	if strings.Contains(u, "moonshot") || strings.Contains(u, "moonshot.cn") || strings.Contains(m, "kimi") {
-		return map[string]any{"type": "json_object"}
 	}
 	return nil
 }

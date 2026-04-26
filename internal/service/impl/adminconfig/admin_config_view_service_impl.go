@@ -25,4 +25,3 @@ func (s *adminConfigViewService) RedactedSnapshot(ctx context.Context, actor *se
 }
 
 var _ service.IAdminConfigViewService = (*adminConfigViewService)(nil)
-

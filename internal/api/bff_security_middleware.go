@@ -102,4 +102,3 @@ func refererAllowed(referer string, reqHost string) bool {
 	}
 	return false
 }
-

@@ -103,14 +103,18 @@ type fakeLLM struct {
 	err error
 }
 
-func (f *fakeLLM) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
+func (f *fakeLLM) Generate(ctx context.Context, messages []client.LLMMessage, maxTokens int) (string, error) {
 	_ = ctx
-	_ = prompt
+	_ = messages
 	_ = maxTokens
 	return f.out, f.err
 }
 
 var _ client.ILLMProvider = (*fakeLLM)(nil)
+
+func dummyAnswerPrompt() string {
+	return "--- References ---\n%s\n--- User question ---\n%s"
+}
 
 func TestProgressiveQuery_MergeAndDedupe(t *testing.T) {
 	docRepo := &fakeDocRepo{}
@@ -124,7 +128,7 @@ func TestProgressiveQuery_MergeAndDedupe(t *testing.T) {
 			{DocumentID: "d2", Path: "d2/p9", Title: "T9", Content: "C9", Score: 0.70, Source: "cold"},
 		},
 	}
-	svc := NewQueryService(docRepo, chapterSvc, nil, zap.NewNop())
+	svc := NewQueryService(docRepo, chapterSvc, nil, dummyAnswerPrompt(), zap.NewNop())
 
 	resp, err := svc.ProgressiveQuery(context.Background(), types.ProgressiveQueryRequest{Question: "q", MaxResults: 10})
 	require.NoError(t, err)
@@ -153,7 +157,7 @@ func TestProgressiveQuery_ColdIndexUnavailable_IsNotFatal(t *testing.T) {
 		},
 		coldErr: service.ErrColdIndexUnavailable,
 	}
-	svc := NewQueryService(docRepo, chapterSvc, nil, zap.NewNop())
+	svc := NewQueryService(docRepo, chapterSvc, nil, dummyAnswerPrompt(), zap.NewNop())
 
 	resp, err := svc.ProgressiveQuery(context.Background(), types.ProgressiveQueryRequest{Question: "q", MaxResults: 10})
 	require.NoError(t, err)
@@ -169,7 +173,7 @@ func TestProgressiveQuery_GeneratesAnswerWhenLLMConfigured(t *testing.T) {
 		},
 	}
 	llm := &fakeLLM{out: "answer"}
-	svc := NewQueryService(docRepo, chapterSvc, llm, zap.NewNop())
+	svc := NewQueryService(docRepo, chapterSvc, llm, dummyAnswerPrompt(), zap.NewNop())
 
 	resp, err := svc.ProgressiveQuery(context.Background(), types.ProgressiveQueryRequest{Question: "q", MaxResults: 10})
 	require.NoError(t, err)
@@ -190,7 +194,7 @@ func TestProgressiveQuery_TracksDocAccessAndQueuesPromotion(t *testing.T) {
 			{DocumentID: "cold1", Path: "cold1/full", Title: "T", Content: "H", Score: 0.9, Status: types.DocStatusCold, Source: "hot", QueryCount: 2},
 		},
 	}
-	svc := NewQueryService(docRepo, chapterSvc, nil, zap.NewNop())
+	svc := NewQueryService(docRepo, chapterSvc, nil, dummyAnswerPrompt(), zap.NewNop())
 
 	_, err := svc.ProgressiveQuery(context.Background(), types.ProgressiveQueryRequest{Question: "q", MaxResults: 10})
 	require.NoError(t, err)
@@ -220,7 +224,7 @@ func TestProgressiveQuery_AnswerGenerationFailureIsSoft(t *testing.T) {
 		},
 	}
 	llm := &fakeLLM{out: "", err: errors.New("boom")}
-	svc := NewQueryService(docRepo, chapterSvc, llm, zap.NewNop())
+	svc := NewQueryService(docRepo, chapterSvc, llm, dummyAnswerPrompt(), zap.NewNop())
 
 	resp, err := svc.ProgressiveQuery(context.Background(), types.ProgressiveQueryRequest{Question: "q", MaxResults: 10})
 	require.NoError(t, err)

@@ -29,6 +29,10 @@ func NewTagRepo(db shared.SQLDB, driver string) *TagRepo {
 
 // Create implements ITagRepository.Create
 func (r *TagRepo) Create(ctx context.Context, tag *types.Tag) error {
+	ctx, span := shared.WithRepoSpan(ctx, "TagRepo.Create")
+	if span != nil {
+		defer span.End()
+	}
 	if tag.ID == "" {
 		tag.ID = uuid.New().String()
 	}
@@ -50,6 +54,10 @@ func (r *TagRepo) Create(ctx context.Context, tag *types.Tag) error {
 
 // GetByName implements ITagRepository.GetByName
 func (r *TagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "TagRepo.GetByName")
+	if span != nil {
+		defer span.End()
+	}
 	ph := shared.Placeholder(r.driver, 1, "")
 	query := fmt.Sprintf(`SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE name = %s`, ph)
 
@@ -73,6 +81,10 @@ func (r *TagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error
 
 // List implements ITagRepository.List
 func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "TagRepo.List")
+	if span != nil {
+		defer span.End()
+	}
 	query := `SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags ORDER BY name`
 
 	rows, err := r.db.QueryContext(ctx, query)
@@ -98,6 +110,10 @@ func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
 
 // ListByTopic implements ITagRepository.ListByTopic
 func (r *TagRepo) ListByTopic(ctx context.Context, topicID string) ([]types.Tag, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "TagRepo.ListByTopic")
+	if span != nil {
+		defer span.End()
+	}
 	ph := shared.Placeholder(r.driver, 1, "")
 	query := fmt.Sprintf(`SELECT id, name, topic_id, document_count, created_at, updated_at FROM tags WHERE topic_id = %s ORDER BY name`, ph)
 
@@ -124,6 +140,10 @@ func (r *TagRepo) ListByTopic(ctx context.Context, topicID string) ([]types.Tag,
 
 // ListByTopicIDs implements ITagRepository.ListByTopicIDs
 func (r *TagRepo) ListByTopicIDs(ctx context.Context, topicIDs []string, limit int) ([]types.Tag, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "TagRepo.ListByTopicIDs")
+	if span != nil {
+		defer span.End()
+	}
 	if len(topicIDs) == 0 {
 		return []types.Tag{}, nil
 	}
@@ -159,6 +179,10 @@ func (r *TagRepo) ListByTopicIDs(ctx context.Context, topicIDs []string, limit i
 
 // IncrementDocumentCount implements ITagRepository.IncrementDocumentCount
 func (r *TagRepo) IncrementDocumentCount(ctx context.Context, tagName string) error {
+	ctx, span := shared.WithRepoSpan(ctx, "TagRepo.IncrementDocumentCount")
+	if span != nil {
+		defer span.End()
+	}
 	ph1 := shared.Placeholder(r.driver, 1, "")
 	ph2 := shared.Placeholder(r.driver, 2, "")
 	query := fmt.Sprintf(`UPDATE tags SET document_count = document_count + 1, updated_at = %s WHERE name = %s`, ph1, ph2)
@@ -172,6 +196,10 @@ func (r *TagRepo) IncrementDocumentCount(ctx context.Context, tagName string) er
 
 // DeleteAll implements ITagRepository.DeleteAll
 func (r *TagRepo) DeleteAll(ctx context.Context) error {
+	ctx, span := shared.WithRepoSpan(ctx, "TagRepo.DeleteAll")
+	if span != nil {
+		defer span.End()
+	}
 	query := `DELETE FROM tags`
 	_, err := r.db.ExecContext(ctx, query)
 	if err != nil {
@@ -182,6 +210,10 @@ func (r *TagRepo) DeleteAll(ctx context.Context) error {
 
 // GetCount implements ITagRepository.GetCount
 func (r *TagRepo) GetCount(ctx context.Context) (int, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "TagRepo.GetCount")
+	if span != nil {
+		defer span.End()
+	}
 	query := `SELECT COUNT(*) FROM tags`
 
 	var count int

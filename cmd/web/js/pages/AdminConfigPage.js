@@ -29,7 +29,7 @@ export const AdminConfigPage = {
         }
     },
     template: `
-        <div class="max-w-5xl mx-auto px-4 py-8">
+        <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
             <h1 class="text-2xl font-bold text-slate-100 mb-2">{{ $t('configTitle') }}</h1>
             <p class="text-slate-500 text-sm mb-6">{{ $t('configDesc') }}</p>
             <p class="text-slate-400 text-sm mb-4">

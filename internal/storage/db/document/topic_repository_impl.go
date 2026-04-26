@@ -29,6 +29,10 @@ func NewTopicRepo(db shared.SQLDB, driver string) *TopicRepo {
 
 // Create implements ITopicRepository.Create
 func (r *TopicRepo) Create(ctx context.Context, topic *types.Topic) error {
+	ctx, span := shared.WithRepoSpan(ctx, "TopicRepo.Create")
+	if span != nil {
+		defer span.End()
+	}
 	if topic.ID == "" {
 		topic.ID = uuid.New().String()
 	}
@@ -48,6 +52,10 @@ func (r *TopicRepo) Create(ctx context.Context, topic *types.Topic) error {
 
 // GetByID implements ITopicRepository.GetByID
 func (r *TopicRepo) GetByID(ctx context.Context, id string) (*types.Topic, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "TopicRepo.GetByID")
+	if span != nil {
+		defer span.End()
+	}
 	ph := shared.Placeholder(r.driver, 1, "")
 	query := fmt.Sprintf(`SELECT id, name, description, tag_names, created_at, updated_at FROM topics WHERE id = %s`, ph)
 
@@ -69,6 +77,10 @@ func (r *TopicRepo) GetByID(ctx context.Context, id string) (*types.Topic, error
 
 // List implements ITopicRepository.List
 func (r *TopicRepo) List(ctx context.Context) ([]types.Topic, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "TopicRepo.List")
+	if span != nil {
+		defer span.End()
+	}
 	query := `SELECT id, name, description, tag_names, created_at, updated_at FROM topics ORDER BY name`
 
 	rows, err := r.db.QueryContext(ctx, query)
@@ -92,6 +104,10 @@ func (r *TopicRepo) List(ctx context.Context) ([]types.Topic, error) {
 
 // DeleteAll implements ITopicRepository.DeleteAll
 func (r *TopicRepo) DeleteAll(ctx context.Context) error {
+	ctx, span := shared.WithRepoSpan(ctx, "TopicRepo.DeleteAll")
+	if span != nil {
+		defer span.End()
+	}
 	query := `DELETE FROM topics`
 	_, err := r.db.ExecContext(ctx, query)
 	if err != nil {
@@ -102,6 +118,10 @@ func (r *TopicRepo) DeleteAll(ctx context.Context) error {
 
 // GetCount implements ITopicRepository.GetCount
 func (r *TopicRepo) GetCount(ctx context.Context) (int, error) {
+	ctx, span := shared.WithRepoSpan(ctx, "TopicRepo.GetCount")
+	if span != nil {
+		defer span.End()
+	}
 	query := `SELECT COUNT(*) FROM topics`
 
 	var count int

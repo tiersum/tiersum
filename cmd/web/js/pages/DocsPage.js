@@ -8,7 +8,7 @@ export const DocsPage = {
     },
     template: `
         <div class="min-h-screen bg-slate-950">
-            <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-16">
+            <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-10 pb-16">
                 <div class="flex flex-col lg:flex-row gap-8">
                     <!-- Sidebar -->
                     <aside class="lg:w-64 shrink-0">
@@ -152,9 +152,9 @@ make run</code></pre>
                                     <h3 class="text-lg font-semibold text-slate-100 mb-4">4. First Document</h3>
                                     <p class="text-slate-400 mb-4">Navigate to the Library page and click "Add Document". Paste Markdown content and choose an ingest mode:</p>
                                     <ul class="list-disc pl-5 space-y-1 text-slate-400">
-                                        <li><strong class="text-slate-200">Auto</strong> — Let TierSum decide based on content length and quota</li>
-                                        <li><strong class="text-slate-200">Hot</strong> — Force full LLM analysis (better queries, uses quota)</li>
-                                        <li><strong class="text-slate-200">Cold</strong> — Index only (faster ingest, BM25 + vector search)</li>
+                                        <li><strong class="text-slate-200">Auto</strong> — Let TierSum decide based on content length</li>
+                                        <li><strong class="text-slate-200">Hot</strong> — LLM semantic chapter extraction: full LLM analysis (summaries, tags, chapter analysis) powers progressive query with pre-shaped semantic layer</li>
+                                        <li><strong class="text-slate-200">Cold</strong> — Markdown syntax chapter extraction: content split by headings into natural chapters, indexed with BM25 inverted index + HNSW vector hybrid search. Both tiers share chapter-level granularity (not arbitrary chunks)</li>
                                     </ul>
                                 </div>
                             </div>
@@ -183,23 +183,23 @@ make run</code></pre>
                                         <div class="p-4 rounded-lg bg-amber-500/10 border border-amber-500/20">
                                             <div class="flex items-center gap-2 mb-2">
                                                 <span class="badge badge-warning badge-sm">Hot</span>
-                                                <span class="text-amber-200 font-semibold">Full LLM Analysis</span>
+                                                <span class="text-amber-200 font-semibold">LLM Semantic Chapter Extraction</span>
                                             </div>
-                                            <p class="text-slate-400 text-sm">Generates document summary, chapter summaries, and catalog tags. Best for frequently queried documents. Counts against hourly quota.</p>
+                                            <p class="text-slate-400 text-sm">LLM analyzes content to extract chapter summaries, document summary, and catalog tags. The pre-built summaries power progressive query's multi-stage LLM ranking (tags → documents → chapters). Best for frequently queried documents.</p>
                                         </div>
                                         <div class="p-4 rounded-lg bg-sky-500/10 border border-sky-500/20">
                                             <div class="flex items-center gap-2 mb-2">
                                                 <span class="badge badge-info badge-sm">Cold</span>
-                                                <span class="text-sky-200 font-semibold">Index Only</span>
+                                                <span class="text-sky-200 font-semibold">Markdown Syntax Chapter Extraction</span>
                                             </div>
-                                            <p class="text-slate-400 text-sm">Splits into chapters and indexes with BM25 + vector search. No LLM calls on ingest. Best for large archives and cost-sensitive deployments.</p>
+                                            <p class="text-slate-400 text-sm">Splits content by Markdown headings into natural chapters, indexed with BM25 inverted index (Bleve) + HNSW vector hybrid search. No LLM calls on ingest. Both tiers share the same chapter-level granularity — no fixed-size chunking. Best for large archives and cost-sensitive deployments.</p>
                                         </div>
                                         <div class="p-4 rounded-lg bg-slate-700/30 border border-slate-600/30">
                                             <div class="flex items-center gap-2 mb-2">
                                                 <span class="badge badge-ghost badge-sm">Auto</span>
                                                 <span class="text-slate-200 font-semibold">Smart Selection</span>
                                             </div>
-                                            <p class="text-slate-400 text-sm">Chooses hot if content length > 5000 chars and quota allows; otherwise cold. Recommended for most use cases.</p>
+                                            <p class="text-slate-400 text-sm">Hot if content length > 5000 chars (LLM semantic chapter extraction with summaries, tags, progressive query); otherwise cold (Markdown syntax chapter extraction with BM25 + vector hybrid search). Both paths preserve chapter-level semantic integrity — no arbitrary chunking. Recommended for most use cases.</p>
                                         </div>
                                     </div>
                                 </div>
@@ -265,27 +265,15 @@ X-API-Key: tsk_live_xxx
                             <div>
                                 <h1 class="text-3xl font-bold text-slate-100 mb-4">Hot / Cold Tiering</h1>
                                 <p class="text-slate-400 mb-6">
-                                    TierSum's core cost optimization mechanism. Documents can be hot (fully analyzed) or cold (indexed only).
+                                    TierSum's core cost optimization mechanism. Documents can be hot (LLM semantic chapter extraction) or cold (Markdown syntax chapter extraction).
                                 </p>
                             </div>
 
                             <div class="card bg-slate-900/50 border border-slate-800">
                                 <div class="card-body">
                                     <h3 class="text-lg font-semibold text-slate-100 mb-4">Promotion</h3>
-                                    <p class="text-slate-400">
-                                        Cold documents with <code class="text-slate-300">query_count >= 3</code> are automatically queued for promotion.
-                                        A background job runs every 5 minutes to promote queued documents to hot,
-                                        running full LLM analysis.
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div class="card bg-slate-900/50 border border-slate-800">
-                                <div class="card-body">
-                                    <h3 class="text-lg font-semibold text-slate-100 mb-4">Quota Management</h3>
-                                    <p class="text-slate-400">
-                                        Hot ingest is rate-limited to control LLM costs. Default: 100 documents per hour.
-                                        Check current quota at <code class="text-slate-300">GET /api/v1/quota</code>.
+                                    <p class="text-slate-400 leading-relaxed">
+                                        Cold documents can be promoted to hot manually from the document detail page or automatically when they accumulate enough queries.
                                     </p>
                                 </div>
                             </div>
@@ -376,7 +364,7 @@ Authorization: Bearer tsk_live_xxx</code></pre>
                                     <p class="text-slate-400 text-sm mb-4">Run a progressive query. Requires <code class="text-slate-300">read</code> scope.</p>
                                     <pre class="bg-slate-950 rounded-lg p-4 text-sm text-slate-300 overflow-x-auto font-mono"><code>{
   "question": "string",
-  "max_results": 100
+  "max_results": 15
 }</code></pre>
                                 </div>
                             </div>

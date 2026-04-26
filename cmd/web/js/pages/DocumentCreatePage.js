@@ -9,7 +9,7 @@ export const DocumentCreatePage = {
                 content: '',
                 format: 'markdown',
                 tags: [],
-                ingest_mode: 'auto'
+                ingest_mode: 'hot'
             },
             tagInput: '',
             submitting: false,
@@ -54,10 +54,7 @@ export const DocumentCreatePage = {
                 if (this.newDoc.tags.length) {
                     payload.tags = [...this.newDoc.tags];
                 }
-                const mode = (this.newDoc.ingest_mode || 'auto').toLowerCase();
-                if (mode === 'hot' || mode === 'cold') {
-                    payload.ingest_mode = mode;
-                }
+                payload.ingest_mode = (this.newDoc.ingest_mode || 'hot').toLowerCase();
                 const created = await apiClient.createDocument(payload);
                 const id = created?.id || created?.ID;
                 if (id) {
@@ -147,7 +144,7 @@ export const DocumentCreatePage = {
     },
     template: `
         <div class="min-h-screen bg-slate-950">
-            <main class="max-w-[1800px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-16">
+            <main class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-6 pb-16">
                 <div v-if="errorMessage" role="alert" class="alert alert-error border border-red-900/60 bg-red-950/50 text-red-100 mb-4 flex flex-row items-start justify-between gap-3">
                     <span class="text-sm leading-snug pt-0.5">{{ errorMessage }}</span>
                     <button type="button" class="btn btn-ghost btn-xs shrink-0 text-red-200" @click="clearError">{{ $t('dismiss') }}</button>
@@ -166,7 +163,6 @@ export const DocumentCreatePage = {
                         <label class="label cursor-pointer gap-2 py-0 flex-nowrap">
                             <span class="label-text text-slate-400 text-sm whitespace-nowrap">{{ $t('createIngest') }}</span>
                             <select v-model="newDoc.ingest_mode" class="select select-bordered select-sm bg-slate-800/80 border-slate-700 text-slate-100 min-w-[11rem]">
-                                <option value="auto">{{ $t('createAuto') }}</option>
                                 <option value="hot">{{ $t('createHot') }}</option>
                                 <option value="cold">{{ $t('createCold') }}</option>
                             </select>

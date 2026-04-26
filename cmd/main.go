@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -36,8 +35,6 @@ import (
 )
 
 //go:embed web/*
-//go:embed web/site/*
-//go:embed web/site/*.md
 var webFS embed.FS
 
 var (
@@ -260,23 +257,33 @@ func registerMCPRoutes(r *gin.Engine, deps *ServerDeps, traceMw gin.HandlerFunc)
 	}
 }
 
-// registerStaticRoutes registers static file serving routes (embedded web assets)
+// registerStaticRoutes registers static file serving routes for the Vue SPA under /ui/.
 func registerStaticRoutes(r *gin.Engine, deps *ServerDeps) {
-	deps.Logger.Info("Registering static file routes with embedded files")
+	deps.Logger.Info("Registering static file routes under /ui/")
 
 	h := StaticFileServer()
-	// Serve site markdown files directly
-	r.GET("/site/*filepath", h)
-	// Explicit root + SPA fallback: some setups only hit NoRoute for unknown paths, not for "/".
-	r.GET("/", h)
-	r.HEAD("/", h)
-	r.NoRoute(h)
+	// Vue SPA assets and routes served under /ui/.
+	r.GET("/ui/*filepath", h)
+	// Redirect /ui (without trailing slash) to /ui/ so the SPA shell loads.
+	r.GET("/ui", func(c *gin.Context) {
+		c.Redirect(http.StatusMovedPermanently, "/ui/")
+	})
 }
 
 // StaticFileServer returns a gin handler for serving embedded static files.
+// All requests arrive under /ui/; the /ui prefix is stripped before filesystem lookup.
 func StaticFileServer() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
+
+		// Strip /ui prefix so that /ui/js/main.js looks up web/js/main.js.
+		const uiPrefix = "/ui"
+		if strings.HasPrefix(path, uiPrefix) {
+			path = strings.TrimPrefix(path, uiPrefix)
+			if path == "" {
+				path = "/"
+			}
+		}
 
 		if strings.HasPrefix(path, "/api/") ||
 			strings.HasPrefix(path, "/bff/") ||
@@ -294,12 +301,11 @@ func StaticFileServer() gin.HandlerFunc {
 		filePath := "web" + path
 		data, err := webFS.ReadFile(filePath)
 		if err != nil {
-			// SPA fallback: serve index.html for Vue Router paths
-			// Don't fallback for .md files (they should 404 if not found)
 			if strings.HasSuffix(path, ".md") {
 				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "not found"})
 				return
 			}
+			// SPA fallback: serve index.html for Vue Router paths
 			data, err = webFS.ReadFile("web/index.html")
 			if err != nil {
 				c.Next()
@@ -336,11 +342,6 @@ func staticContentType(path string) string {
 	default:
 		return "application/octet-stream"
 	}
-}
-
-// WebFS returns the embedded filesystem for the web UI assets.
-func WebFS() fs.FS {
-	return webFS
 }
 
 // startServer starts the HTTP server with graceful shutdown
@@ -476,15 +477,12 @@ func initSchema(sqlDB *sql.DB, driver string) error {
 func loadColdDocuments(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index, logger *zap.Logger) error {
 	start := time.Now()
 
-	// Create a simple cache for repository
-	cacheStore := &noopCache{}
-
-	// Create document repository
-	docRepo := document.NewDocumentRepo(sqlDB, driver, cacheStore)
-
-	// Query all cold documents
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+
+	cacheStore := &noopCache{}
+	docRepo := document.NewDocumentRepo(sqlDB, driver, cacheStore)
+	chapterRepo := document.NewChapterRepo(sqlDB, driver, cacheStore)
 
 	coldDocs, err := docRepo.ListByStatus(ctx, types.DocStatusCold, 0)
 	if err != nil {
@@ -496,10 +494,23 @@ func loadColdDocuments(sqlDB *sql.DB, driver string, coldIndex *coldindex.Index,
 		return nil
 	}
 
-	logger.Info("Loading cold documents into cold index", zap.Int("count", len(coldDocs)))
+	logger.Info("Loading cold documents into cold index from chapters table", zap.Int("count", len(coldDocs)))
 
-	if err := coldIndex.RebuildFromDocuments(ctx, coldDocs); err != nil {
-		return fmt.Errorf("failed to rebuild index: %w", err)
+	for i := range coldDocs {
+		doc := &coldDocs[i]
+		chapters, err := chapterRepo.ListByDocument(ctx, doc.ID)
+		if err != nil {
+			return fmt.Errorf("list chapters for %s: %w", doc.ID, err)
+		}
+		if len(chapters) == 0 {
+			logger.Warn("cold document has no chapters in DB, skipping", zap.String("doc_id", doc.ID))
+			continue
+		}
+		for _, ch := range chapters {
+			if err := coldIndex.AddChapter(ctx, doc.ID, ch.Path, ch.Title, ch.Content); err != nil {
+				logger.Error("add chapter to cold index", zap.String("doc_id", doc.ID), zap.String("path", ch.Path), zap.Error(err))
+			}
+		}
 	}
 
 	logger.Info("Cold documents loaded successfully",

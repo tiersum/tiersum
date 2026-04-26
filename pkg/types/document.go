@@ -1,7 +1,6 @@
 package types
 
 import (
-	"regexp"
 	"strings"
 	"time"
 )
@@ -50,12 +49,10 @@ type Chapter struct {
 
 // ChapterInfo represents a chapter/section in a document
 type ChapterInfo struct {
-	Title       string `json:"title"`        // Chapter title
-	Level       int    `json:"level"`        // Header level (1=#, 2=##, 3=###)
-	Summary     string `json:"summary"`      // Chapter summary
-	Content     string `json:"content"`      // Chapter original content
-	StartOffset int    `json:"start_offset"` // Start position in document
-	EndOffset   int    `json:"end_offset"`   // End position in document
+	Title   string `json:"title"`   // Chapter title
+	Level   int    `json:"level"`   // Header level (1=#, 2=##, 3=###)
+	Summary string `json:"summary"` // Chapter summary
+	Content string `json:"content"` // Chapter original content
 }
 
 // DocumentAnalysisResult holds LLM analysis results for a document
@@ -88,18 +85,19 @@ type Tag struct {
 
 // DocumentIngestMode selects how the platform chooses hot vs cold on ingest.
 const (
-	DocumentIngestModeAuto = "auto"
 	DocumentIngestModeHot  = "hot"
 	DocumentIngestModeCold = "cold"
 )
 
-// NormalizeDocumentIngestMode returns auto, hot, or cold (unknown values become auto).
+// NormalizeDocumentIngestMode returns hot or cold (unknown values become hot).
 func NormalizeDocumentIngestMode(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
-	case DocumentIngestModeHot, DocumentIngestModeCold:
-		return strings.ToLower(strings.TrimSpace(s))
+	case DocumentIngestModeHot:
+		return DocumentIngestModeHot
+	case DocumentIngestModeCold:
+		return DocumentIngestModeCold
 	default:
-		return DocumentIngestModeAuto
+		return DocumentIngestModeHot
 	}
 }
 
@@ -118,8 +116,8 @@ type CreateDocumentRequest struct {
 	Content string   `json:"content" binding:"required"`
 	Format  string   `json:"format" binding:"required,oneof=markdown md"`
 	Tags    []string `json:"tags,omitempty"`
-	// IngestMode: auto = platform rules (length, quota, prebuilt summary); hot = always hot; cold = always cold.
-	IngestMode string `json:"ingest_mode,omitempty" binding:"omitempty,oneof=auto hot cold AUTO HOT COLD"`
+	// IngestMode: hot = LLM semantic chapter extraction & summary; cold = Markdown syntax chapter extraction.
+	IngestMode string `json:"ingest_mode,omitempty" binding:"omitempty,oneof=hot cold HOT COLD"`
 	// ForceHot is deprecated: use ingest_mode "hot". When ingest_mode is empty and ForceHot is true, behavior is hot.
 	ForceHot bool `json:"force_hot,omitempty"`
 	// Summary is pre-generated document summary (from external agent)
@@ -130,7 +128,7 @@ type CreateDocumentRequest struct {
 	Embedding []float32 `json:"embedding,omitempty"`
 }
 
-// EffectiveIngestMode resolves ingest tier: non-empty ingest_mode wins (case-insensitive); else legacy force_hot; else auto.
+// EffectiveIngestMode resolves ingest tier: non-empty ingest_mode wins (case-insensitive); else legacy force_hot; else hot.
 func (r CreateDocumentRequest) EffectiveIngestMode() string {
 	if strings.TrimSpace(r.IngestMode) != "" {
 		return NormalizeDocumentIngestMode(r.IngestMode)
@@ -138,49 +136,7 @@ func (r CreateDocumentRequest) EffectiveIngestMode() string {
 	if r.ForceHot {
 		return DocumentIngestModeHot
 	}
-	return DocumentIngestModeAuto
-}
-
-// ExtractKeywords extracts keywords from content using simple regex patterns
-// Returns lowercase words with length > 4, limited to maxKeywords
-func ExtractKeywords(content string, maxKeywords int) []string {
-	// Regex to match words with length > 4 (letters only)
-	re := regexp.MustCompile(`[a-zA-Z]{5,}`)
-	matches := re.FindAllString(content, -1)
-
-	// Use map to deduplicate and count frequency
-	wordFreq := make(map[string]int)
-	for _, word := range matches {
-		word = strings.ToLower(word)
-		wordFreq[word]++
-	}
-
-	// Convert to slice and sort by frequency (simple approach)
-	type wordCount struct {
-		word  string
-		count int
-	}
-	counts := make([]wordCount, 0, len(wordFreq))
-	for word, count := range wordFreq {
-		counts = append(counts, wordCount{word, count})
-	}
-
-	// Sort by frequency (higher first) - simple bubble sort for small lists
-	for i := 0; i < len(counts); i++ {
-		for j := i + 1; j < len(counts); j++ {
-			if counts[j].count > counts[i].count {
-				counts[i], counts[j] = counts[j], counts[i]
-			}
-		}
-	}
-
-	// Take top keywords
-	result := make([]string, 0, maxKeywords)
-	for i := 0; i < len(counts) && i < maxKeywords; i++ {
-		result = append(result, counts[i].word)
-	}
-
-	return result
+	return DocumentIngestModeHot
 }
 
 // DocumentStatusCounts aggregates document rows by hot/cold/warming status (full-table SQL aggregate).

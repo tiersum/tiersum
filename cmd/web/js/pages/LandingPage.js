@@ -6,7 +6,7 @@ export const LandingPage = {
             <!-- Hero -->
             <section class="relative overflow-hidden">
                 <div class="absolute inset-0 bg-gradient-to-br from-blue-950/40 via-slate-950 to-emerald-950/20"></div>
-                <div class="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
+                <div class="relative max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-20 sm:py-28">
                     <div class="text-center max-w-3xl mx-auto">
                         <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-300 text-xs font-medium mb-6">
                             <span class="relative flex h-2 w-2">
@@ -39,7 +39,7 @@ export const LandingPage = {
 
             <!-- Features Grid -->
             <section class="py-16 sm:py-24 border-t border-slate-800">
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
                     <div class="text-center mb-16">
                         <h2 class="text-3xl font-bold text-slate-100 mb-4">{{ $t('landingBuiltFor') }}</h2>
                         <p class="text-slate-400 max-w-2xl mx-auto">
@@ -136,7 +136,7 @@ export const LandingPage = {
 
             <!-- How It Works -->
             <section class="py-16 sm:py-24 border-t border-slate-800">
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
                     <div class="text-center mb-16">
                         <h2 class="text-3xl font-bold text-slate-100 mb-4">{{ $t('landingHowItWorks') }}</h2>
                         <p class="text-slate-400 max-w-2xl mx-auto">
@@ -171,7 +171,7 @@ export const LandingPage = {
 
             <!-- Tech Stack -->
             <section class="py-16 sm:py-24 border-t border-slate-800">
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
                     <div class="text-center mb-16">
                         <h2 class="text-3xl font-bold text-slate-100 mb-4">{{ $t('landingTechStack') }}</h2>
                         <p class="text-slate-400 max-w-2xl mx-auto">
@@ -310,7 +310,7 @@ make run</pre>
 
             <!-- Footer -->
             <footer class="border-t border-slate-800 py-8">
-                <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+                <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8">
                     <div class="flex flex-col sm:flex-row items-center justify-between gap-4">
                         <div class="flex items-center gap-2">
                             <svg class="w-5 h-5 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">

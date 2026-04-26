@@ -186,6 +186,13 @@ CREATE TABLE IF NOT EXISTS api_key_audit (
     called_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_api_key_audit_key_time ON api_key_audit(api_key_id, called_at);
+
+CREATE TABLE IF NOT EXISTS deleted_documents (
+    id TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_deleted_documents_created ON deleted_documents(created_at);
 `
 
 const postgresBaseSchema = `
@@ -367,6 +374,13 @@ CREATE TABLE IF NOT EXISTS api_key_audit (
     called_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_api_key_audit_key_time ON api_key_audit(api_key_id, called_at);
+
+CREATE TABLE IF NOT EXISTS deleted_documents (
+    id BIGSERIAL PRIMARY KEY,
+    document_id UUID NOT NULL,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_deleted_documents_created ON deleted_documents(created_at);
 
 CREATE OR REPLACE FUNCTION update_updated_at_column()
 RETURNS TRIGGER AS $$

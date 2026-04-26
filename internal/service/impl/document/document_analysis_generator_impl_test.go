@@ -8,7 +8,7 @@ import (
 )
 
 func TestGenerateAnalysis_NilProviderMarkdownChapters(t *testing.T) {
-	a := NewDocumentAnalysisGenerator(nil, nil)
+	a := NewDocumentAnalysisGenerator(nil, "dummy template %s %s", nil)
 	md := "# One\nbody1\n\n## Two\nbody2\n"
 	res, err := a.GenerateAnalysis(context.Background(), "T", md)
 	require.Error(t, err)
@@ -16,7 +16,7 @@ func TestGenerateAnalysis_NilProviderMarkdownChapters(t *testing.T) {
 }
 
 func TestGenerateAnalysis_NilProviderEmptyContent(t *testing.T) {
-	a := NewDocumentAnalysisGenerator(nil, nil)
+	a := NewDocumentAnalysisGenerator(nil, "dummy template %s %s", nil)
 	res, err := a.GenerateAnalysis(context.Background(), "OnlyTitle", "")
 	require.Error(t, err)
 	require.Nil(t, res)

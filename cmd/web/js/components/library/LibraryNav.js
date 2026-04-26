@@ -103,7 +103,7 @@ export const LibraryNav = {
                                     v-for="topic in topics"
                                     :key="topic.id"
                                     type="button"
-                                    :class="topicClass(browseMode === '${BROWSE_TOPIC}' && selectedTopic?.id === topic.id)"
+                                    :class="topicClass(browseMode === BROWSE_TOPIC && selectedTopic?.id === topic.id)"
                                     @click="onSelectTopic(topic)"
                                 >
                                     <div class="flex items-center justify-between gap-2">

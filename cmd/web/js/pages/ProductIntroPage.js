@@ -44,10 +44,10 @@ export const ProductIntroPage = {
                             <strong class="text-slate-100">Hot and cold both stay chapter-centric:</strong> retrieval, ranking, and what you read back are built on <strong>whole markdown chapters</strong>, preserving semantic integrity whether the doc is fully analyzed or cost-optimized.
                         </p>
                         <p>
-                            <strong class="text-emerald-300/90">Hot</strong> documents are the ingest-time path described above: chapter-level summaries and tags form the <strong class="text-slate-200">pre-shaped layer</strong> progressive query uses. They count against a configurable hourly quota so costs stay predictable.
+                            <strong class="text-emerald-300/90">Hot</strong> documents use <strong class="text-slate-200">LLM semantic chapter extraction</strong>: chapter-level summaries and tags are produced on ingest, forming the pre-shaped layer progressive query uses — narrowing <em>tags → documents → chapters</em> with LLM scoring at each hop, like skimming an outline before opening the right section.
                         </p>
                         <p>
-                            <strong class="text-sky-300/90">Cold</strong> documents skip heavy LLM work on ingest but use the same <strong class="text-slate-200">chapter-sized</strong> index for BM25 and optional semantic ranking — hits return <em>entire sections</em>, not arbitrary snippets. Frequently used cold docs can be promoted toward hot automatically.
+                            <strong class="text-sky-300/90">Cold</strong> documents use <strong class="text-slate-200">Markdown syntax chapter extraction</strong>: content is split by Markdown headings into natural chapters (not fixed-size chunks), then indexed with BM25 inverted index + HNSW vector hybrid search. No LLM calls on ingest. Both tiers share chapter-level granularity, preserving semantic integrity. Frequently used cold docs can be promoted toward hot automatically or manually.
                         </p>
                     </section>
 
@@ -102,10 +102,10 @@ export const ProductIntroPage = {
                             <strong class="text-slate-100">热与冷都以章节为中心：</strong>检索、排序与展示都建立在 <strong>完整 Markdown 章节</strong> 上，沿标题结构保持语义边界，避免任意碎片破坏语境。
                         </p>
                         <p>
-                            <strong class="text-emerald-300/90">热文档</strong>即上文「入库时预写摘要与标签」的路径；渐进式查询主要依托这一层展开，通常受<strong class="text-slate-200">每小时配额</strong>约束以控制成本。
+                            <strong class="text-emerald-300/90">热文档</strong>使用 <strong class="text-slate-200">LLM 语义分析章节抽取</strong>：入库时通过 LLM 提取章节摘要、文档摘要与标签，形成渐进式查询依赖的预摘要语义层——沿 <strong class="text-slate-200">标签 → 文档 → 章节</strong> 逐步收窄，每一步由 LLM 评分。
                         </p>
                         <p>
-                            <strong class="text-sky-300/90">冷文档</strong>入库时几乎不做完整 LLM 分析，但同样按 <strong class="text-slate-200">章节</strong> 建索引，用 <strong class="text-slate-200">BM25 + 向量</strong> 混合检索，命中返回<strong class="text-slate-200">整章正文</strong>；查询次数达到阈值后可自动向「热」晋升。
+                            <strong class="text-sky-300/90">冷文档</strong>使用 <strong class="text-slate-200">Markdown 语法章节抽取</strong>：按 Markdown 标题将内容拆分为自然章节（非固定尺寸切块），使用 BM25 倒排索引 + HNSW 向量混合检索，入库时无 LLM 调用。冷热两档保持一致章节粒度，保证语义完整性。查询次数达到阈值后可通过手动或自动方式升级为热文档。
                         </p>
                     </section>
 

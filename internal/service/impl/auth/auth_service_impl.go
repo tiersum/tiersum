@@ -9,6 +9,9 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/service"
@@ -100,10 +103,18 @@ type authService struct {
 }
 
 func (s *authService) IsSystemInitialized(ctx context.Context) (bool, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/auth")
+	ctx, span := tr.Start(ctx, "IsSystemInitialized", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	return s.programAuth.IsSystemInitialized(ctx)
 }
 
 func (s *authService) ValidateAPIKey(ctx context.Context, bearerToken string) (*service.APIKeyPrincipal, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/auth")
+	ctx, span := tr.Start(ctx, "ValidateAPIKey", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	return s.programAuth.ValidateAPIKey(ctx, bearerToken)
 }
 
@@ -112,10 +123,21 @@ func (s *authService) APIKeyMeetsScope(principal *service.APIKeyPrincipal, requi
 }
 
 func (s *authService) RecordAPIKeyUse(ctx context.Context, keyID, method, path, clientIP string) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/auth")
+	ctx, span := tr.Start(ctx, "RecordAPIKeyUse", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("method", method))
+	span.SetAttributes(attribute.String("path", path))
+
 	return s.programAuth.RecordAPIKeyUse(ctx, keyID, method, path, clientIP)
 }
 
 func (s *authService) Bootstrap(ctx context.Context, adminUsername string) (*service.BootstrapResult, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/auth")
+	ctx, span := tr.Start(ctx, "Bootstrap", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("admin_username", adminUsername))
+
 	init, err := s.IsSystemInitialized(ctx)
 	if err != nil {
 		return nil, err
@@ -208,6 +230,10 @@ func (s *authService) persistNewBrowserSession(ctx context.Context, userID, fpHa
 }
 
 func (s *authService) LoginWithAccessToken(ctx context.Context, accessTokenPlain string, fp service.FingerprintInput, remoteIP, userAgent string) (string, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/auth")
+	ctx, span := tr.Start(ctx, "LoginWithAccessToken", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	accessTokenPlain = strings.TrimSpace(accessTokenPlain)
 	if accessTokenPlain == "" {
 		return "", service.ErrAuthInvalidAccessToken
@@ -260,6 +286,10 @@ func (s *authService) LoginWithAccessToken(ctx context.Context, accessTokenPlain
 }
 
 func (s *authService) ValidateBrowserSession(ctx context.Context, sessionCookiePlain, remoteIP, userAgent string) (*service.BrowserPrincipal, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/auth")
+	ctx, span := tr.Start(ctx, "ValidateBrowserSession", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	sessionCookiePlain = strings.TrimSpace(sessionCookiePlain)
 	if sessionCookiePlain == "" {
 		return nil, service.ErrAuthInvalidSession

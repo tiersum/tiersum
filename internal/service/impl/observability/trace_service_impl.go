@@ -47,4 +47,3 @@ func (s *traceService) ListSpansByTraceID(ctx context.Context, traceID string) (
 }
 
 var _ service.ITraceService = (*traceService)(nil)
-

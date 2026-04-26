@@ -4,6 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/tiersum/tiersum/internal/telemetry"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 )
 
@@ -33,10 +37,26 @@ func StartChannelConsumer[T any](
 				return
 			case item := <-ch:
 				runCtx, cancel := context.WithTimeout(ctx, timeout)
-				err := handle(runCtx, item)
-				cancel()
-				if err != nil {
-					onErr(logger, item, err)
+				if telemetry.GlobalTracerActive() {
+					tr := otel.Tracer("github.com/tiersum/tiersum/job")
+					runCtx, span := tr.Start(runCtx, "queue."+consumerName, trace.WithSpanKind(trace.SpanKindInternal))
+					span.SetAttributes(attribute.String("queue", consumerName))
+					err := handle(runCtx, item)
+					if err != nil {
+						span.RecordError(err)
+						span.SetAttributes(attribute.Bool("error", true))
+					}
+					span.End()
+					cancel()
+					if err != nil {
+						onErr(logger, item, err)
+					}
+				} else {
+					err := handle(runCtx, item)
+					cancel()
+					if err != nil {
+						onErr(logger, item, err)
+					}
 				}
 			}
 		}

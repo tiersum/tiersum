@@ -38,4 +38,3 @@ func (s *observabilityService) ColdIndexInvertedStats() types.ColdIndexInvertedS
 }
 
 var _ service.IObservabilityService = (*observabilityService)(nil)
-

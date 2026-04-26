@@ -17,12 +17,16 @@ export const DocumentList = {
     emits: ['update:search-query', 'open-doc', 'clear-catalog-tag', 'select-catalog-tag'],
     data() {
         return {
-            localSearch: ''
+            localSearch: '',
+            searchTimeout: null
         };
     },
     watch: {
         localSearch(val) {
-            this.$emit('update:search-query', val);
+            if (this.searchTimeout) clearTimeout(this.searchTimeout);
+            this.searchTimeout = setTimeout(() => {
+                this.$emit('update:search-query', val);
+            }, 200);
         }
     },
     methods: {
@@ -84,7 +88,7 @@ export const DocumentList = {
                 </div>
 
                 <!-- Tag chips (topic mode only) -->
-                <div v-if="browseMode === '${BROWSE_TOPIC}' && selectedTopic" class="space-y-2">
+                <div v-if="browseMode === BROWSE_TOPIC && selectedTopic" class="space-y-2">
                     <div v-if="tagsLoading" class="flex gap-2">
                         <div v-for="i in 4" :key="'tc'+i" class="h-7 w-20 bg-slate-800 rounded-full animate-pulse"></div>
                     </div>

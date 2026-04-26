@@ -9,17 +9,23 @@ type LLMFilterResult struct {
 
 // ProgressiveQueryRequest is the body for POST /query/progressive (question + optional max_results cap).
 type ProgressiveQueryRequest struct {
-	Question   string `json:"question" binding:"required"`                   // User query
-	MaxResults int    `json:"max_results" binding:"omitempty,min=1,max=100"` // Max documents to consider, default 100
+	Question       string `json:"question" binding:"required"`                   // User query
+	MaxResults     int    `json:"max_results" binding:"omitempty,min=1,max=100"` // Max documents to consider, default 15
+	AnswerLanguage string `json:"answer_language,omitempty"`                     // Optional language for the final LLM answer (e.g. "zh", "en")
 }
 
 // ProgressiveQueryResponse is the JSON body returned by progressive query (answer, trace steps, merged hits).
 type ProgressiveQueryResponse struct {
 	Question string `json:"question"`
 	// Answer is GitHub-Flavored Markdown from the LLM (prompt requires full reply as renderable Markdown; citations [^N^]).
-	Answer  string                 `json:"answer,omitempty"`
-	Steps   []ProgressiveQueryStep `json:"steps"`
-	Results []QueryItem            `json:"results"`
+	// Deprecated: kept for backward compatibility; use AnswerFromReferences and AnswerFromKnowledge.
+	Answer string `json:"answer,omitempty"`
+	// AnswerFromReferences is the evidence-based answer derived solely from the provided reference excerpts.
+	AnswerFromReferences string `json:"answer_from_references,omitempty"`
+	// AnswerFromKnowledge is the concise supplementary answer from the LLM's own knowledge (≤200 chars).
+	AnswerFromKnowledge string                 `json:"answer_from_knowledge,omitempty"`
+	Steps               []ProgressiveQueryStep `json:"steps"`
+	Results             []QueryItem            `json:"results"`
 	// TraceID is the OpenTelemetry trace id (hex) when the incoming request context carries a recording span (same trace as HTTP middleware when sampled).
 	TraceID string `json:"trace_id,omitempty"`
 }

@@ -18,7 +18,6 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
-// parseMaxResultsFromString mirrors query param max_results parsing used by REST handlers.
 func parseMaxResultsFromString(raw string, defaultVal, maxVal int) int {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -34,7 +33,6 @@ func parseMaxResultsFromString(raw string, defaultVal, maxVal int) int {
 	return n
 }
 
-// ExecuteCreateDocument matches POST /api/v1/documents (after request validation).
 func (h *Handler) ExecuteCreateDocument(ctx context.Context, req types.CreateDocumentRequest) (int, any) {
 	doc, err := h.DocService.CreateDocument(ctx, req)
 	if err != nil {
@@ -48,7 +46,6 @@ func (h *Handler) ExecuteCreateDocument(ctx context.Context, req types.CreateDoc
 	return http.StatusCreated, doc
 }
 
-// ExecuteListDocuments matches GET /api/v1/documents (max_results optional string like the query param).
 func (h *Handler) ExecuteListDocuments(ctx context.Context, maxResultsQuery string) (int, any) {
 	limit := parseMaxResultsFromString(maxResultsQuery, 200, 1000)
 	docs, err := h.DocService.ListDocuments(ctx, limit)
@@ -62,7 +59,6 @@ func (h *Handler) ExecuteListDocuments(ctx context.Context, maxResultsQuery stri
 	return http.StatusOK, gin.H{"documents": docs}
 }
 
-// ExecuteGetDocument matches GET /api/v1/documents/:id.
 func (h *Handler) ExecuteGetDocument(ctx context.Context, id string) (int, any) {
 	doc, err := h.DocService.GetDocument(ctx, id)
 	if err != nil {
@@ -75,7 +71,17 @@ func (h *Handler) ExecuteGetDocument(ctx context.Context, id string) (int, any) 
 	return http.StatusOK, doc
 }
 
-// ExecuteListDocumentChaptersByDocumentID matches GET /api/v1/documents/:id/chapters.
+func (h *Handler) ExecutePromoteDocument(ctx context.Context, docID string) (int, any) {
+	if h.MaintenanceService == nil {
+		return http.StatusServiceUnavailable, gin.H{"error": "maintenance service not available"}
+	}
+	if err := h.MaintenanceService.ManualPromoteColdDocument(ctx, docID); err != nil {
+		h.Logger.Error("failed to promote document", zap.String("id", docID), zap.Error(err))
+		return http.StatusBadRequest, gin.H{"error": err.Error()}
+	}
+	return http.StatusOK, gin.H{"message": "promotion started", "document_id": docID}
+}
+
 func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, docID string) (int, any) {
 	if docID == "" {
 		return http.StatusBadRequest, gin.H{"error": "document id is required"}
@@ -89,9 +95,6 @@ func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, d
 		return http.StatusNotFound, gin.H{"error": "document not found"}
 	}
 
-	// Cold documents: persisted DB chapter rows (if any) are not the source of truth for the detail UI.
-	// Use the same markdown chapter split as the cold index so merged sections (e.g. ##2 + ###2.1 + ###2.2)
-	// return full text including all subsections; stale or partial persisted chapter rows would omit e.g. 2.2 tables.
 	if doc.Status == types.DocStatusCold {
 		out := make([]gin.H, 0)
 		mdChapters, ferr := h.ChaptersService.ExtractChaptersFromMarkdown(ctx, doc)
@@ -140,13 +143,12 @@ func (h *Handler) ExecuteListDocumentChaptersByDocumentID(ctx context.Context, d
 	return http.StatusOK, gin.H{"document_id": docID, "chapters": out}
 }
 
-// ExecuteProgressiveQuery matches POST /api/v1/query/progressive (request must satisfy binding rules).
 func (h *Handler) ExecuteProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (int, any) {
 	if h.QueryService == nil {
 		return http.StatusServiceUnavailable, gin.H{"error": "query service not available"}
 	}
 	if req.MaxResults == 0 {
-		req.MaxResults = 100
+		req.MaxResults = 15
 	}
 	response, err := h.QueryService.ProgressiveQuery(ctx, req)
 	if telemetry.GlobalTracerActive() {
@@ -163,7 +165,6 @@ func (h *Handler) ExecuteProgressiveQuery(ctx context.Context, req types.Progres
 	return http.StatusOK, response
 }
 
-// ExecuteListTopics matches GET /api/v1/topics.
 func (h *Handler) ExecuteListTopics(ctx context.Context) (int, any) {
 	if h.TopicService == nil {
 		return http.StatusServiceUnavailable, gin.H{"error": "topic service not available"}
@@ -179,7 +180,6 @@ func (h *Handler) ExecuteListTopics(ctx context.Context) (int, any) {
 	return http.StatusOK, gin.H{"topics": topics}
 }
 
-// ExecuteRegroupTagsIntoTopics matches POST /api/v1/topics/regroup.
 func (h *Handler) ExecuteRegroupTagsIntoTopics(ctx context.Context) (int, any) {
 	if h.TopicService == nil {
 		return http.StatusServiceUnavailable, gin.H{"error": "topic service not available"}
@@ -191,7 +191,6 @@ func (h *Handler) ExecuteRegroupTagsIntoTopics(ctx context.Context) (int, any) {
 	return http.StatusOK, gin.H{"message": "topic regrouping completed"}
 }
 
-// ExecuteListTags matches GET /api/v1/tags (topic_ids optional; max_results optional string like the query param).
 func (h *Handler) ExecuteListTags(ctx context.Context, topicIDs []string, maxResultsQuery string) (int, any) {
 	byTopicLimit := 0
 	listAllCap := 0
@@ -218,7 +217,6 @@ func (h *Handler) ExecuteListTags(ctx context.Context, topicIDs []string, maxRes
 	return http.StatusOK, gin.H{"tags": tags}
 }
 
-// ExecuteListHotDocumentSummariesByTags matches GET /api/v1/hot/doc_summaries.
 func (h *Handler) ExecuteListHotDocumentSummariesByTags(ctx context.Context, tags []string, maxResultsQuery string) (int, any) {
 	if len(tags) == 0 {
 		return http.StatusBadRequest, gin.H{"error": "tags query parameter is required (comma-separated)"}
@@ -246,7 +244,6 @@ func (h *Handler) ExecuteListHotDocumentSummariesByTags(ctx context.Context, tag
 	return http.StatusOK, gin.H{"items": items}
 }
 
-// ExecuteListHotDocumentChaptersByDocumentIDs matches GET /api/v1/hot/doc_chapters.
 func (h *Handler) ExecuteListHotDocumentChaptersByDocumentIDs(ctx context.Context, docIDs []string, maxResultsQuery string) (int, any) {
 	if len(docIDs) == 0 {
 		return http.StatusBadRequest, gin.H{"error": "doc_ids query parameter is required (comma-separated)"}
@@ -279,7 +276,6 @@ func (h *Handler) ExecuteListHotDocumentChaptersByDocumentIDs(ctx context.Contex
 	return http.StatusOK, gin.H{"documents": docsOut}
 }
 
-// ExecuteSearchColdChapterHits matches GET /api/v1/cold/chapter_hits.
 func (h *Handler) ExecuteSearchColdChapterHits(ctx context.Context, terms []string, maxResultsQuery string) (int, any) {
 	if len(terms) == 0 {
 		return http.StatusBadRequest, gin.H{"error": "q query parameter is required (comma-separated keywords)"}
@@ -313,7 +309,6 @@ func (h *Handler) ExecuteSearchColdChapterHits(ctx context.Context, terms []stri
 	return http.StatusOK, gin.H{"items": items}
 }
 
-// ExecuteGetMonitoringSnapshot matches GET …/monitoring (e.g. /api/v1 or /bff/v1) — JSON snapshot for dashboards (not Prometheus format).
 func (h *Handler) ExecuteGetMonitoringSnapshot(ctx context.Context) (int, any) {
 	docCounts := map[string]int{
 		"total":   0,
@@ -328,20 +323,6 @@ func (h *Handler) ExecuteGetMonitoringSnapshot(ctx context.Context) (int, any) {
 		docCounts["hot"] = counts.Hot
 		docCounts["cold"] = counts.Cold
 		docCounts["warming"] = counts.Warming
-	}
-
-	var quota any
-	if h.Quota == nil {
-		quota = gin.H{"used": 0, "total": 100, "reset_at": nil}
-	} else {
-		used, total, resetAt := h.Quota.GetQuota()
-		var resetStr any
-		if !resetAt.IsZero() {
-			resetStr = resetAt.UTC().Format(time.RFC3339)
-		} else {
-			resetStr = nil
-		}
-		quota = gin.H{"used": used, "total": total, "reset_at": resetStr}
 	}
 
 	coldApprox := 0
@@ -402,28 +383,9 @@ func (h *Handler) ExecuteGetMonitoringSnapshot(ctx context.Context) (int, any) {
 			"http_tracing_active":       telemetry.GlobalTracerActive(),
 			"progressive_debug_allowed": viper.GetBool("query.allow_progressive_debug"),
 		},
-		"quota": quota,
 	}
 }
 
-// ExecuteGetQuotaSnapshot matches GET /api/v1/quota.
-func (h *Handler) ExecuteGetQuotaSnapshot() (int, any) {
-	if h.Quota == nil {
-		return http.StatusOK, gin.H{
-			"used":     0,
-			"total":    100,
-			"reset_at": nil,
-		}
-	}
-	used, total, resetAt := h.Quota.GetQuota()
-	return http.StatusOK, gin.H{
-		"used":     used,
-		"total":    total,
-		"reset_at": resetAt,
-	}
-}
-
-// ExecuteListTraceSummaries matches GET /api/v1/traces.
 func (h *Handler) ExecuteListTraceSummaries(ctx context.Context, limit, offset int) (int, any) {
 	if h.TraceService == nil {
 		return http.StatusOK, gin.H{"traces": []types.OtelTraceSummary{}}
@@ -439,7 +401,6 @@ func (h *Handler) ExecuteListTraceSummaries(ctx context.Context, limit, offset i
 	return http.StatusOK, gin.H{"traces": tr}
 }
 
-// ExecuteGetTraceSpans matches GET /api/v1/traces/:trace_id.
 func (h *Handler) ExecuteGetTraceSpans(ctx context.Context, traceID string) (int, any) {
 	traceID = strings.TrimSpace(traceID)
 	if traceID == "" {

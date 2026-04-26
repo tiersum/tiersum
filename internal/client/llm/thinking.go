@@ -52,8 +52,8 @@ func NewThinkStripProvider(inner client.ILLMProvider) client.ILLMProvider {
 	return &thinkStripProvider{inner: inner}
 }
 
-func (p *thinkStripProvider) Generate(ctx context.Context, prompt string, maxTokens int) (string, error) {
-	s, err := p.inner.Generate(ctx, prompt, maxTokens)
+func (p *thinkStripProvider) Generate(ctx context.Context, messages []client.LLMMessage, maxTokens int) (string, error) {
+	s, err := p.inner.Generate(ctx, messages, maxTokens)
 	if err != nil || !disableThinkEnabled() {
 		return s, err
 	}

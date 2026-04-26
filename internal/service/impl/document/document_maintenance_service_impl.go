@@ -2,9 +2,13 @@ package document
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/config"
@@ -17,6 +21,9 @@ import (
 // NewDocumentMaintenanceService constructs the maintenance service implementation.
 func NewDocumentMaintenanceService(
 	docRepo storage.IDocumentRepository,
+	chapterRepo storage.IChapterRepository,
+	coldIndex storage.IColdIndex,
+	deletedDocRepo storage.IDeletedDocumentRepository,
 	persister IDocumentAnalysisPersister,
 	analyzer IDocumentAnalysisGenerator,
 	logger *zap.Logger,
@@ -25,21 +32,32 @@ func NewDocumentMaintenanceService(
 		logger = zap.NewNop()
 	}
 	return &documentMaintenanceService{
-		docRepo:      docRepo,
-		persister:    persister,
-		analyzer:     analyzer,
-		logger:       logger,
+		docRepo:        docRepo,
+		chapterRepo:    chapterRepo,
+		coldIndex:      coldIndex,
+		deletedDocRepo: deletedDocRepo,
+		persister:      persister,
+		analyzer:       analyzer,
+		logger:         logger,
 	}
 }
 
 type documentMaintenanceService struct {
-	docRepo      storage.IDocumentRepository
-	persister    IDocumentAnalysisPersister
-	analyzer     IDocumentAnalysisGenerator
-	logger       *zap.Logger
+	docRepo         storage.IDocumentRepository
+	chapterRepo     storage.IChapterRepository
+	coldIndex       storage.IColdIndex
+	deletedDocRepo  storage.IDeletedDocumentRepository
+	persister       IDocumentAnalysisPersister
+	analyzer        IDocumentAnalysisGenerator
+	logger          *zap.Logger
+	lastColdRefresh time.Time
 }
 
 func (s *documentMaintenanceService) RunColdPromotionSweep(ctx context.Context) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "RunColdPromotionSweep", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	start := time.Now()
 	s.logger.Info("running document promotion job")
 
@@ -72,6 +90,11 @@ func (s *documentMaintenanceService) RunColdPromotionSweep(ctx context.Context) 
 }
 
 func (s *documentMaintenanceService) PromoteColdDocumentByID(ctx context.Context, docID string) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "PromoteColdDocumentByID", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", docID))
+
 	doc, err := s.docRepo.GetByID(ctx, docID)
 	if err != nil {
 		return err
@@ -86,8 +109,33 @@ func (s *documentMaintenanceService) PromoteColdDocumentByID(ctx context.Context
 	return s.promoteDocument(ctx, doc)
 }
 
+func (s *documentMaintenanceService) ManualPromoteColdDocument(ctx context.Context, docID string) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "ManualPromoteColdDocument", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", docID))
+
+	doc, err := s.docRepo.GetByID(ctx, docID)
+	if err != nil {
+		return fmt.Errorf("get document: %w", err)
+	}
+	if doc == nil {
+		return fmt.Errorf("document %s not found", docID)
+	}
+	if doc.Status != types.DocStatusCold {
+		return fmt.Errorf("document %s is not cold (status=%s)", docID, doc.Status)
+	}
+	return s.promoteDocument(ctx, doc)
+}
+
 func (s *documentMaintenanceService) promoteDocument(ctx context.Context, doc *types.Document) error {
-	s.logger.Info("promoting document to hot", zap.String("doc_id", doc.ID), zap.String("title", doc.Title), zap.Int("query_count", doc.QueryCount))
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "promoteDocument", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("doc_id", doc.ID))
+	span.SetAttributes(attribute.String("title", doc.Title))
+
+	s.logger.Info("promoting document to hot", zap.String("doc_id", doc.ID), zap.String("title", doc.Title))
 
 	if err := s.docRepo.UpdateStatus(ctx, doc.ID, types.DocStatusWarming); err != nil {
 		return err
@@ -105,12 +153,23 @@ func (s *documentMaintenanceService) promoteDocument(ctx context.Context, doc *t
 		s.logger.Error("failed to update document status to hot", zap.String("doc_id", doc.ID), zap.Error(err))
 	}
 
+	// Remove promoted document from the cold index — it is no longer cold.
+	if s.coldIndex != nil {
+		if err := s.coldIndex.RemoveDocument(doc.ID); err != nil {
+			s.logger.Warn("remove promoted doc from cold index", zap.String("doc_id", doc.ID), zap.Error(err))
+		}
+	}
+
 	s.logger.Info("document promoted successfully", zap.String("doc_id", doc.ID), zap.Int("chapters", len(analysis.Chapters)))
 	metrics.RecordDocumentPromotion(string(types.DocStatusCold), string(types.DocStatusHot))
 	return nil
 }
 
 func (s *documentMaintenanceService) RecalculateDocumentHotScores(ctx context.Context) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "RecalculateDocumentHotScores", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	s.logger.Info("running hot score update job")
 	docs, err := s.docRepo.ListAll(ctx, 10000)
 	if err != nil {
@@ -133,6 +192,96 @@ func (s *documentMaintenanceService) RecalculateDocumentHotScores(ctx context.Co
 	return nil
 }
 
+func (s *documentMaintenanceService) RefreshColdIndex(ctx context.Context) error {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "RefreshColdIndex", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
+	if s.coldIndex == nil || s.chapterRepo == nil {
+		return nil
+	}
+	start := time.Now()
+	firstRun := s.lastColdRefresh.IsZero()
+	now := time.Now()
+	since := s.lastColdRefresh
+	s.lastColdRefresh = now
+
+	s.logger.Info("cold index refresh started",
+		zap.Bool("first_run", firstRun),
+		zap.Time("since", since),
+		zap.Int("chapter_count_before", s.coldIndex.ApproxEntries()))
+
+	// Phase 1: Process tombstone entries — remove deleted documents from the cold index.
+	// s.lastColdRefresh advances on each run, so the same tombstone is never processed twice.
+	tombstoneCount := 0
+	if s.deletedDocRepo != nil {
+		tombstones, err := s.deletedDocRepo.ListSince(ctx, since, 5000)
+		if err != nil {
+			return fmt.Errorf("list tombstones: %w", err)
+		}
+		for _, t := range tombstones {
+			s.logger.Debug("removing deleted document from cold index", zap.String("doc_id", t.DocumentID))
+			if err := s.coldIndex.RemoveDocument(t.DocumentID); err != nil {
+				s.logger.Warn("remove deleted doc from cold index", zap.String("doc_id", t.DocumentID), zap.Error(err))
+			}
+		}
+		tombstoneCount = len(tombstones)
+	}
+
+	// Phase 2: Index new/updated cold documents from the chapters table.
+	coldDocs, err := s.docRepo.ListByStatus(ctx, types.DocStatusCold, 5000)
+	if err != nil {
+		return fmt.Errorf("list cold docs: %w", err)
+	}
+
+	s.logger.Info("cold index refresh phase 2",
+		zap.Int("cold_docs_total", len(coldDocs)),
+		zap.Int("tombstones", tombstoneCount))
+
+	skipped := 0
+	indexed := 0
+	chapterCount := 0
+	for i := range coldDocs {
+		doc := &coldDocs[i]
+
+		if doc.CreatedAt.Before(since) && doc.UpdatedAt.Before(since) {
+			skipped++
+			continue
+		}
+		if err := s.coldIndex.RemoveDocument(doc.ID); err != nil {
+			s.logger.Warn("remove from cold index", zap.String("doc_id", doc.ID), zap.Error(err))
+		}
+
+		chapters, err := s.chapterRepo.ListByDocument(ctx, doc.ID)
+		if err != nil {
+			return fmt.Errorf("list chapters for %s: %w", doc.ID, err)
+		}
+		if len(chapters) == 0 {
+			s.logger.Warn("cold document has no chapters", zap.String("doc_id", doc.ID),
+				zap.Time("created_at", doc.CreatedAt), zap.Time("updated_at", doc.UpdatedAt))
+		}
+		for _, ch := range chapters {
+			if err := s.coldIndex.AddChapter(ctx, doc.ID, ch.Path, ch.Title, ch.Content); err != nil {
+				s.logger.Error("add chapter to cold index",
+					zap.String("doc_id", doc.ID),
+					zap.String("path", ch.Path),
+					zap.Error(err))
+			}
+		}
+		indexed++
+		chapterCount += len(chapters)
+	}
+
+	s.logger.Info("cold index refresh completed",
+		zap.Int("processed", indexed),
+		zap.Int("skipped", skipped),
+		zap.Int("chapters_added", chapterCount),
+		zap.Int("chapter_count_after", s.coldIndex.ApproxEntries()),
+		zap.Duration("duration", time.Since(start)))
+
+	return nil
+}
+
 func calculateHotScore(queryCount int, lastQueryAt *time.Time, now time.Time) float64 {
 	if queryCount == 0 {
 		return 0
@@ -149,4 +298,3 @@ func calculateHotScore(queryCount int, lastQueryAt *time.Time, now time.Time) fl
 }
 
 var _ service.IDocumentMaintenanceService = (*documentMaintenanceService)(nil)
-

@@ -188,4 +188,3 @@ func sessionRequestLooksConsistent(sessionIPPrefix, sessionUANorm, remoteIP, use
 	return sa == ca || (len(ca) >= len(sessionUANorm) && ca[:len(sessionUANorm)] == sessionUANorm) ||
 		(len(sessionUANorm) >= len(ca) && sa[:len(ca)] == ca)
 }
-

@@ -106,27 +106,26 @@ Use chapter-first splitting...
                             </div>
                             <h2 class="text-2xl font-bold text-slate-100 mb-4">Hot / Cold Tiering</h2>
                             <p class="text-slate-400 leading-relaxed mb-4">
-                                Not all documents need full LLM analysis. TierSum lets you choose the right ingest path
-                                for each document, balancing query quality against cost.
+                                Choose the right ingest path for each document: LLM semantic chapter extraction (full analysis with summaries, tags, progressive query) or Markdown syntax chapter extraction (BM25 inverted + vector hybrid search). Both use chapter-level granularity — not arbitrary chunks.
                             </p>
                             <ul class="space-y-2 text-slate-400">
                                 <li class="flex items-start gap-2">
                                     <svg class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                                     </svg>
-                                    Hot: Full LLM summaries + tags on ingest
+                                    Hot: LLM semantic chapter extraction (progressive query)
                                 </li>
                                 <li class="flex items-start gap-2">
                                     <svg class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                                     </svg>
-                                    Cold: BM25 + vector hybrid search
+                                    Cold: Markdown syntax chapter extraction (BM25 + vector)
                                 </li>
                                 <li class="flex items-start gap-2">
                                     <svg class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                                     </svg>
-                                    Auto mode picks based on content + quota
+                                    Auto mode picks based on content length
                                 </li>
                                 <li class="flex items-start gap-2">
                                     <svg class="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

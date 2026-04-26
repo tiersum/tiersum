@@ -35,8 +35,8 @@ type IColdTextEmbedder interface {
 }
 
 var (
-	numberedHeadingMulti  = regexp.MustCompile(`^(\d+(?:\.\d+)+)\s+(\S.*)$`)
-	numberedHeadingSingle = regexp.MustCompile(`^(\d+)\.\s+(\S.*)$`)
+	numberedHeadingMulti   = regexp.MustCompile(`^(\d+(?:\.\d+)+)\s+(\S.*)$`)
+	numberedHeadingSingle  = regexp.MustCompile(`^(\d+)\.\s+(\S.*)$`)
 	chineseNumberedHeading = regexp.MustCompile(`^([一二三四五六七八九十百]+)、(.+)$`)
 	chineseParenHeading    = regexp.MustCompile(`^（([一二三四五六七八九十百]+)）(.+)$`)
 )

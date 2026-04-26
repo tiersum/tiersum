@@ -19,10 +19,11 @@ export function canAccessObservabilityBFF(role) {
     return isBrowserAdminRole(role);
 }
 
+/** Redirect helper: never force a page reload (avoids races with Vue Router guards).
+ *  Auth flow is driven by router.beforeEach in main.js; this helper only logs. */
 function redirectAuth(endpoint, status, errBody) {
-    const path = typeof window !== 'undefined' ? window.location.pathname : '';
     if (status === 403 && errBody && errBody.code === 'SYSTEM_NOT_INITIALIZED') {
-        if (!path.startsWith('/init')) window.location.assign('/init');
+        console.warn('System not initialized; router guard will redirect to /init');
         return;
     }
     if (status === 401 && endpoint.startsWith('/bff/v1')) {
@@ -34,7 +35,7 @@ function redirectAuth(endpoint, status, errBody) {
             '/bff/v1/auth/logout'
         ];
         if (open.some((p) => endpoint.startsWith(p))) return;
-        if (!path.startsWith('/login') && !path.startsWith('/init') && !path.startsWith('/site/')) window.location.assign('/login');
+        console.warn('Unauthorized BFF request; router guard will redirect to /login');
     }
 }
 
@@ -249,10 +250,14 @@ export const apiClient = {
     getDocument: (id) => apiClient.request(`/bff/v1/documents/${id}`),
     getDocumentChapters: (id) => apiClient.request(`/bff/v1/documents/${id}/chapters`).then((r) => r.chapters || []),
     createDocument: (data) => apiClient.request('/bff/v1/documents', { method: 'POST', body: JSON.stringify(data) }),
+    promoteDocument: (id) => apiClient.request(`/bff/v1/documents/${id}/promote`, { method: 'POST', body: '{}' }),
 
     progressiveQuery: (question, options = {}) => {
-        const max = options.max_results != null ? options.max_results : 100;
+        const max = options.max_results != null ? options.max_results : 15;
         const payload = { question, max_results: max };
+        if (options.language) {
+            payload.answer_language = options.language;
+        }
         let path = '/bff/v1/query/progressive';
         if (options.trace) {
             path += '?debug_trace=1';

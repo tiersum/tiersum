@@ -4,6 +4,9 @@ import (
 	"context"
 	"strings"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
@@ -21,11 +24,15 @@ func NewChapterService(
 	topicRepo storage.ITopicRepository,
 	coldIndex storage.IColdIndex,
 	llm client.ILLMProvider,
+	filterDocsPrompt string,
+	filterChapsPrompt string,
+	filterTopicsPrompt string,
+	filterTagsPrompt string,
 	logger *zap.Logger,
 ) service.IChapterService {
 	var rel *hotProgressiveLLMCore
 	if llm != nil {
-		rel = newHotProgressiveLLMCore(llm, logger)
+		rel = newHotProgressiveLLMCore(llm, logger, filterDocsPrompt, filterChapsPrompt, filterTopicsPrompt, filterTagsPrompt)
 	}
 	return &chapterService{
 		chapterRepo: chapterRepo,
@@ -51,14 +58,24 @@ type chapterService struct {
 }
 
 func (s *chapterService) ListChaptersByDocumentID(ctx context.Context, documentID string) ([]types.Chapter, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "ListChaptersByDocumentID", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("document_id", documentID))
+
 	return s.chapterRepo.ListByDocument(ctx, documentID)
 }
 
 func (s *chapterService) ExtractChaptersFromMarkdown(ctx context.Context, doc *types.Document) ([]types.Chapter, error) {
-	_ = ctx
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "ExtractChaptersFromMarkdown", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+
 	if doc == nil {
 		return nil, nil
 	}
+	span.SetAttributes(attribute.String("doc_id", doc.ID))
+
 	if s.coldIndex != nil {
 		return s.coldIndex.MarkdownChapters(doc.ID, doc.Title, doc.Content), nil
 	}
@@ -77,6 +94,11 @@ func (s *chapterService) ExtractChaptersFromMarkdown(ctx context.Context, doc *t
 }
 
 func (s *chapterService) ListChaptersByDocumentIDs(ctx context.Context, docIDs []string) (map[string][]types.Chapter, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "ListChaptersByDocumentIDs", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.Int("doc_count", len(docIDs)))
+
 	out := make(map[string][]types.Chapter, len(docIDs))
 	for _, id := range docIDs {
 		out[id] = nil
@@ -92,6 +114,12 @@ func (s *chapterService) ListChaptersByDocumentIDs(ctx context.Context, docIDs [
 }
 
 func (s *chapterService) SearchColdChapterHits(ctx context.Context, query string, limit int) ([]types.ColdSearchHit, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "SearchColdChapterHits", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", query))
+	span.SetAttributes(attribute.Int("limit", limit))
+
 	if s.coldIndex == nil {
 		return nil, service.ErrColdIndexUnavailable
 	}
@@ -116,6 +144,12 @@ func (s *chapterService) SearchColdChapterHits(ctx context.Context, query string
 // SearchHotChapters runs the legacy progressive hot pipeline inside the chapter service:
 // catalog tags (if tag count >= threshold, LLM topic pick then tag filter; else direct LLM tag filter) → documents (LLM for hot/warming, keyword for cold) → chapters (LLM), returned as ranked hits.
 func (s *chapterService) SearchHotChapters(ctx context.Context, query string, limit int) ([]types.HotSearchHit, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "SearchHotChapters", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", query))
+	span.SetAttributes(attribute.Int("limit", limit))
+
 	return s.searchHotChaptersProgressive(ctx, query, limit)
 }
 

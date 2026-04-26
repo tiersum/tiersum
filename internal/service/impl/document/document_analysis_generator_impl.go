@@ -8,9 +8,13 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
+	"github.com/tiersum/tiersum/pkg/metrics"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -19,16 +23,17 @@ import (
 const llmInputMaxRunes = 50000
 
 // NewDocumentAnalysisGenerator constructs an IDocumentAnalysisGenerator implementation.
-func NewDocumentAnalysisGenerator(provider client.ILLMProvider, logger *zap.Logger) IDocumentAnalysisGenerator {
+func NewDocumentAnalysisGenerator(provider client.ILLMProvider, analyzePrompt string, logger *zap.Logger) IDocumentAnalysisGenerator {
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	return &documentAnalyzer{provider: provider, logger: logger}
+	return &documentAnalyzer{provider: provider, analyzePrompt: analyzePrompt, logger: logger}
 }
 
 type documentAnalyzer struct {
-	provider client.ILLMProvider
-	logger   *zap.Logger
+	provider      client.ILLMProvider
+	analyzePrompt string
+	logger        *zap.Logger
 }
 
 // GenerateAnalysis runs a single LLM call, parses JSON into summary/tags/chapters.
@@ -36,6 +41,12 @@ type documentAnalyzer struct {
 // If the content exceeds the LLM input limit, it returns an error so callers can
 // fall back to cold-index handling.
 func (a *documentAnalyzer) GenerateAnalysis(ctx context.Context, title string, content string) (*types.DocumentAnalysisResult, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/document")
+	ctx, span := tr.Start(ctx, "GenerateAnalysis", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("title", title))
+	span.SetAttributes(attribute.Int("content_len", len(content)))
+
 	if a.provider == nil {
 		return nil, fmt.Errorf("llm provider not configured")
 	}
@@ -56,42 +67,20 @@ func (a *documentAnalyzer) GenerateAnalysis(ctx context.Context, title string, c
 		maxTokens = 8000
 	}
 
-	prompt := fmt.Sprintf(`Analyze the following document and provide a JSON response.
+	docContent := fmt.Sprintf("Title: %s\n\nFull Content:\n%s", title, content)
+	msgs := []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: a.analyzePrompt},
+		{Role: client.LLMMessageRoleUser, Content: docContent},
+	}
 
-Title: %s
-
-Full Content:
-%s
-
-Please analyze this document and return a JSON object with the following structure:
-{
-  "summary": "document summary (max 300 chars)",
-  "tags": ["tag1", "tag2", ...],
-  "chapters": [
-    {
-      "title": "chapter title",
-      "summary": "chapter summary (max 150 chars, may be empty)",
-      "content": "chapter original content (verbatim or trimmed)"
-    }
-  ]
-}
-
-Guidelines:
-- Return ONLY the JSON object, no other text.
-- Do NOT wrap the JSON in markdown code fences.
-- Tags should be relevant keywords (lowercase, no spaces use-hyphens).
-- Include at most 12 objects in "chapters".
-- For EVERY chapter object you MUST include "title", "summary", and "content".
-- "summary" may be empty when no short summary is appropriate; otherwise keep it within 150 characters.
-- "content" should contain the chapter's original text. You may lightly trim trailing whitespace but preserve meaning.
-- If the document has no clear chapters, create a single chapter spanning the full content (summary may be empty).
-`, title, content)
-
-	out, err := a.provider.Generate(ctx, prompt, maxTokens)
+	out, err := a.provider.Generate(ctx, msgs, maxTokens)
 	if err != nil {
 		a.logger.Warn("AnalyzeDocument: llm generate failed", zap.Error(err))
 		return nil, err
 	}
+	inputTokens := estimateTokensForAnalyze(a.analyzePrompt + docContent)
+	outputTokens := estimateTokensForAnalyze(out)
+	metrics.RecordLLMTokens(metrics.PathDocAnalyze, inputTokens, outputTokens)
 	out = strings.TrimSpace(out)
 	res, perr := parseAnalysisJSON(out)
 	if perr != nil {
@@ -197,3 +186,17 @@ func titleOrDefault(t string) string {
 }
 
 var _ IDocumentAnalysisGenerator = (*documentAnalyzer)(nil)
+
+func estimateTokensForAnalyze(text string) int {
+	if text == "" {
+		return 0
+	}
+	chineseCount := 0
+	for _, r := range text {
+		if r > 127 {
+			chineseCount++
+		}
+	}
+	englishChars := len(text) - chineseCount
+	return chineseCount + englishChars/4
+}

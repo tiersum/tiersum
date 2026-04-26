@@ -8,6 +8,9 @@ import (
 	"strings"
 
 	"github.com/spf13/viper"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/client"
@@ -21,88 +24,144 @@ type hotProgressiveLLMConfig struct {
 
 // hotProgressiveLLMCore holds LLM prompts for progressive hot search (tags, topics, documents, chapters).
 type hotProgressiveLLMCore struct {
-	provider client.ILLMProvider
-	logger   *zap.Logger
-	config   hotProgressiveLLMConfig
+	provider           client.ILLMProvider
+	logger             *zap.Logger
+	config             hotProgressiveLLMConfig
+	filterDocsPrompt   string
+	filterChapsPrompt  string
+	filterTopicsPrompt string
+	filterTagsPrompt   string
 }
 
-func newHotProgressiveLLMCore(provider client.ILLMProvider, logger *zap.Logger) *hotProgressiveLLMCore {
+func newHotProgressiveLLMCore(provider client.ILLMProvider, logger *zap.Logger, filterDocs, filterChaps, filterTopics, filterTags string) *hotProgressiveLLMCore {
 	cfg := hotProgressiveLLMConfig{
 		ParagraphSummaryMax: viper.GetInt("summarization.paragraph_summary_max"),
 	}
 	if cfg.ParagraphSummaryMax == 0 {
 		cfg.ParagraphSummaryMax = 300
 	}
-	return &hotProgressiveLLMCore{provider: provider, logger: logger, config: cfg}
+	return &hotProgressiveLLMCore{
+		provider:           provider,
+		logger:             logger,
+		config:             cfg,
+		filterDocsPrompt:   filterDocs,
+		filterChapsPrompt:  filterChaps,
+		filterTopicsPrompt: filterTopics,
+		filterTagsPrompt:   filterTags,
+	}
 }
 
 func (c *hotProgressiveLLMCore) FilterDocuments(ctx context.Context, query string, docs []types.Document) ([]types.LLMFilterResult, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "FilterDocuments", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", query))
+	span.SetAttributes(attribute.Int("input_doc_count", len(docs)))
+	if len(docs) > 0 {
+		ids := make([]string, 0, min(10, len(docs)))
+		for i := 0; i < min(10, len(docs)); i++ {
+			ids = append(ids, docs[i].ID)
+		}
+		span.SetAttributes(attribute.String("input_doc_ids", joinFirstN(ids, 10)))
+	}
+
 	if len(docs) == 0 {
 		return nil, nil
 	}
 	var docList strings.Builder
-	for i, d := range docs {
-		docList.WriteString(fmt.Sprintf("[%d] Title: %s\nTags: %v\nSummary: %s\n\n",
-			i, d.Title, d.Tags, truncateStringForHotLLM(d.Content, c.config.ParagraphSummaryMax)))
+	for _, d := range docs {
+		docList.WriteString(fmt.Sprintf("ID: %s\nTitle: %s\nTags: %v\nSummary: %s\n\n",
+			d.ID, d.Title, d.Tags, truncateStringForHotLLM(d.Content, c.config.ParagraphSummaryMax)))
 	}
-	prompt := fmt.Sprintf(`Given the query: "%s"
-
-Evaluate the relevance of each document below. Return a JSON array of objects with fields "id" (document ID) and "relevance" (0.0-1.0 score).
-Only include documents with relevance >= 0.5. Sort by relevance descending.
-
-Documents:
-%s
-
-Response format (JSON only):
-[
-  {"id": "doc_id", "relevance": 0.95},
-  ...
-]`, query, docList.String())
-	metrics.RecordLLMCall(metrics.PathDocFilter, estimateTokensForHotLLM(prompt))
-	resp, err := c.provider.Generate(ctx, prompt, 1500)
+	dataContent := fmt.Sprintf("Query: %s\n\nDocuments:\n%s", query, docList.String())
+	msgs := []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: c.filterDocsPrompt},
+		{Role: client.LLMMessageRoleUser, Content: dataContent},
+	}
+	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM filter failed", zap.Error(err))
-		return c.fallbackFilterDocuments(docs), nil
+		return nil, err
 	}
-	return c.parseFilterResults(resp), nil
+	metrics.RecordLLMTokens(metrics.PathDocFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
+	results := c.parseFilterResults(resp)
+	if len(results) > 0 {
+		ids := make([]string, 0, min(10, len(results)))
+		for i := 0; i < min(10, len(results)); i++ {
+			ids = append(ids, results[i].ID)
+		}
+		span.SetAttributes(attribute.Int("output_result_count", len(results)))
+		span.SetAttributes(attribute.String("output_result_ids", joinFirstN(ids, 10)))
+	}
+	return results, nil
 }
 
 func (c *hotProgressiveLLMCore) FilterChapters(ctx context.Context, query string, chapters []types.Chapter) ([]types.LLMFilterResult, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "FilterChapters", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", query))
+	span.SetAttributes(attribute.Int("input_chapter_count", len(chapters)))
+	if len(chapters) > 0 {
+		paths := make([]string, 0, min(10, len(chapters)))
+		for i := 0; i < min(10, len(chapters)); i++ {
+			paths = append(paths, chapters[i].Path)
+		}
+		span.SetAttributes(attribute.String("input_paths", joinFirstN(paths, 10)))
+	}
+
 	if len(chapters) == 0 {
 		return nil, nil
 	}
 	var chapterList strings.Builder
-	for i, ch := range chapters {
-		body := ch.Summary
-		if strings.TrimSpace(body) == "" {
-			body = ch.Content
+	for _, ch := range chapters {
+		body := strings.TrimSpace(ch.Summary)
+		if body == "" {
+			continue
 		}
-		chapterList.WriteString(fmt.Sprintf("[%d] Path: %s\nSummary: %s\n\n",
-			i, ch.Path, truncateStringForHotLLM(body, c.config.ParagraphSummaryMax)))
+		chapterList.WriteString(fmt.Sprintf("Path: %s\nSummary: %s\n\n",
+			ch.Path, truncateStringForHotLLM(body, c.config.ParagraphSummaryMax)))
 	}
-	prompt := fmt.Sprintf(`Given the query: "%s"
-
-Evaluate the relevance of each chapter below. Return a JSON array of objects with fields "id" (the path) and "relevance" (0.0-1.0 score).
-Only include chapters with relevance >= 0.5. Sort by relevance descending.
-
-Chapters:
-%s
-
-Response format (JSON only):
-[
-  {"id": "doc_id/chapter_title", "relevance": 0.88},
-  ...
-]`, query, chapterList.String())
-	metrics.RecordLLMCall(metrics.PathChapterFilter, estimateTokensForHotLLM(prompt))
-	resp, err := c.provider.Generate(ctx, prompt, 1500)
+	if chapterList.Len() == 0 {
+		return nil, nil
+	}
+	dataContent := fmt.Sprintf("Query: %s\n\nChapters:\n%s", query, chapterList.String())
+	msgs := []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: c.filterChapsPrompt},
+		{Role: client.LLMMessageRoleUser, Content: dataContent},
+	}
+	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM chapter filter failed", zap.Error(err))
-		return c.fallbackFilterChapters(chapters), nil
+		return nil, err
 	}
-	return c.parseFilterResults(resp), nil
+	metrics.RecordLLMTokens(metrics.PathChapterFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
+	results := c.parseFilterResults(resp)
+	if len(results) > 0 {
+		ids := make([]string, 0, min(10, len(results)))
+		for i := 0; i < min(10, len(results)); i++ {
+			ids = append(ids, results[i].ID)
+		}
+		span.SetAttributes(attribute.Int("output_result_count", len(results)))
+		span.SetAttributes(attribute.String("output_result_ids", joinFirstN(ids, 10)))
+	}
+	return results, nil
 }
 
 func (c *hotProgressiveLLMCore) FilterTopicsByQuery(ctx context.Context, query string, topics []types.Topic) ([]types.LLMFilterResult, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "FilterTopicsByQuery", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", query))
+	span.SetAttributes(attribute.Int("input_topic_count", len(topics)))
+	if len(topics) > 0 {
+		ids := make([]string, 0, min(10, len(topics)))
+		for i := 0; i < min(10, len(topics)); i++ {
+			ids = append(ids, topics[i].ID)
+		}
+		span.SetAttributes(attribute.String("input_topic_ids", joinFirstN(ids, 10)))
+	}
+
 	if len(topics) == 0 {
 		return nil, nil
 	}
@@ -111,31 +170,43 @@ func (c *hotProgressiveLLMCore) FilterTopicsByQuery(ctx context.Context, query s
 		topicList.WriteString(fmt.Sprintf("[%d] ID: %s\nName: %s\nDescription: %s\nTag names: %v\n\n",
 			i, g.ID, g.Name, g.Description, g.TagNames))
 	}
-	prompt := fmt.Sprintf(`Given the user query: "%s"
-
-Select the 1-3 most relevant topics from the list below. These topics narrow the search for relevant documents.
-Return a JSON array of objects with fields "id" (topic ID) and "relevance" (0.0-1.0 score).
-Only include topics with relevance >= 0.5. Sort by relevance descending.
-Select at most 3 topics.
-
-Available topics:
-%s
-
-Response format (JSON only):
-[
-  {"id": "topic_id", "relevance": 0.95},
-  {"id": "another_topic_id", "relevance": 0.82}
-]`, query, topicList.String())
-	metrics.RecordLLMCall(metrics.PathTopicFilter, estimateTokensForHotLLM(prompt))
-	resp, err := c.provider.Generate(ctx, prompt, 1500)
+	dataContent := fmt.Sprintf("Query: %s\n\nAvailable topics:\n%s", query, topicList.String())
+	msgs := []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: c.filterTopicsPrompt},
+		{Role: client.LLMMessageRoleUser, Content: dataContent},
+	}
+	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM topic filter failed", zap.Error(err))
-		return c.fallbackFilterTopics(topics), nil
+		return nil, err
 	}
-	return c.parseFilterResults(resp), nil
+	metrics.RecordLLMTokens(metrics.PathTopicFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
+	results := c.parseFilterResults(resp)
+	if len(results) > 0 {
+		ids := make([]string, 0, min(10, len(results)))
+		for i := 0; i < min(10, len(results)); i++ {
+			ids = append(ids, results[i].ID)
+		}
+		span.SetAttributes(attribute.Int("output_result_count", len(results)))
+		span.SetAttributes(attribute.String("output_result_ids", joinFirstN(ids, 10)))
+	}
+	return results, nil
 }
 
 func (c *hotProgressiveLLMCore) FilterTagsByQuery(ctx context.Context, query string, tags []types.Tag) ([]types.TagFilterResult, error) {
+	tr := otel.Tracer("github.com/tiersum/tiersum/service/catalog")
+	ctx, span := tr.Start(ctx, "FilterTagsByQuery", trace.WithSpanKind(trace.SpanKindInternal))
+	defer span.End()
+	span.SetAttributes(attribute.String("query", query))
+	span.SetAttributes(attribute.Int("input_tag_count", len(tags)))
+	if len(tags) > 0 {
+		names := make([]string, 0, min(10, len(tags)))
+		for i := 0; i < min(10, len(tags)); i++ {
+			names = append(names, tags[i].Name)
+		}
+		span.SetAttributes(attribute.String("input_tags", joinFirstN(names, 10)))
+	}
+
 	if len(tags) == 0 {
 		return nil, nil
 	}
@@ -143,26 +214,27 @@ func (c *hotProgressiveLLMCore) FilterTagsByQuery(ctx context.Context, query str
 	for _, tag := range tags {
 		tagList.WriteString(fmt.Sprintf("- %s (used in %d documents)\n", tag.Name, tag.DocumentCount))
 	}
-	prompt := fmt.Sprintf(`Given the user query: "%s"
-
-Select the most relevant tags from the list below. Return a JSON array of objects with fields "tag" and "relevance" (0.0-1.0 score).
-Only include tags with relevance >= 0.5. Sort by relevance descending.
-
-Available tags:
-%s
-
-Response format (JSON only):
-[
-  {"tag": "tag-name", "relevance": 0.95},
-  {"tag": "another-tag", "relevance": 0.82}
-]`, query, tagList.String())
-	metrics.RecordLLMCall(metrics.PathTagFilter, estimateTokensForHotLLM(prompt))
-	resp, err := c.provider.Generate(ctx, prompt, 1500)
+	dataContent := fmt.Sprintf("Query: %s\n\nAvailable tags:\n%s", query, tagList.String())
+	msgs := []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: c.filterTagsPrompt},
+		{Role: client.LLMMessageRoleUser, Content: dataContent},
+	}
+	resp, err := c.provider.Generate(ctx, msgs, 1500)
 	if err != nil {
 		c.logger.Error("LLM tag filter failed", zap.Error(err))
-		return c.fallbackTagFilter(tags), nil
+		return nil, err
 	}
-	return c.parseTagFilterResults(resp), nil
+	metrics.RecordLLMTokens(metrics.PathTagFilter, estimateTokensForHotLLM(dataContent), estimateTokensForHotLLM(resp))
+	results := c.parseTagFilterResults(resp)
+	if len(results) > 0 {
+		names := make([]string, 0, min(10, len(results)))
+		for i := 0; i < min(10, len(results)); i++ {
+			names = append(names, results[i].Tag)
+		}
+		span.SetAttributes(attribute.Int("output_result_count", len(results)))
+		span.SetAttributes(attribute.String("output_tags", joinFirstN(names, 10)))
+	}
+	return results, nil
 }
 
 func (c *hotProgressiveLLMCore) parseFilterResults(response string) []types.LLMFilterResult {
@@ -176,30 +248,6 @@ func (c *hotProgressiveLLMCore) parseFilterResults(response string) []types.LLMF
 	if err := json.Unmarshal([]byte(jsonStr), &results); err != nil {
 		c.logger.Warn("failed to parse filter results", zap.Error(err))
 		return nil
-	}
-	return results
-}
-
-func (c *hotProgressiveLLMCore) fallbackFilterDocuments(docs []types.Document) []types.LLMFilterResult {
-	results := make([]types.LLMFilterResult, len(docs))
-	for i, doc := range docs {
-		results[i] = types.LLMFilterResult{ID: doc.ID, Relevance: 0.5}
-	}
-	return results
-}
-
-func (c *hotProgressiveLLMCore) fallbackFilterChapters(chapters []types.Chapter) []types.LLMFilterResult {
-	results := make([]types.LLMFilterResult, len(chapters))
-	for i, ch := range chapters {
-		results[i] = types.LLMFilterResult{ID: ch.Path, Relevance: 0.5}
-	}
-	return results
-}
-
-func (c *hotProgressiveLLMCore) fallbackFilterTopics(topics []types.Topic) []types.LLMFilterResult {
-	results := make([]types.LLMFilterResult, len(topics))
-	for i, g := range topics {
-		results[i] = types.LLMFilterResult{ID: g.ID, Relevance: 0.5}
 	}
 	return results
 }
@@ -219,14 +267,6 @@ func (c *hotProgressiveLLMCore) parseTagFilterResults(response string) []types.T
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Relevance > results[j].Relevance
 	})
-	return results
-}
-
-func (c *hotProgressiveLLMCore) fallbackTagFilter(tags []types.Tag) []types.TagFilterResult {
-	results := make([]types.TagFilterResult, len(tags))
-	for i, tag := range tags {
-		results[i] = types.TagFilterResult{Tag: tag.Name, Relevance: 0.5}
-	}
 	return results
 }
 
@@ -253,4 +293,11 @@ func estimateTokensForHotLLM(text string) int {
 		return chineseCount + englishChars/4
 	}
 	return charCount / 4
+}
+
+func joinFirstN(items []string, n int) string {
+	if len(items) > n {
+		items = items[:n]
+	}
+	return strings.Join(items, ",")
 }

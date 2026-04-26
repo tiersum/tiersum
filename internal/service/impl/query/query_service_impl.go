@@ -44,7 +44,7 @@ const (
 
 	defaultProgressiveAnswerMaxReferences = 12
 	defaultProgressiveAnswerExcerptBytes  = 3500
-	defaultProgressiveAnswerOutTokens     = 900
+	defaultProgressiveAnswerOutTokens     = 4096
 )
 
 // Progressive-query span attributes use a consistent prefix:
@@ -192,41 +192,40 @@ func truncateUTF8ForPrompt(s string, maxBytes int) string {
 	return utf8SafePrefix(s, maxBytes) + "\n…(truncated)"
 }
 
-func buildProgressiveAnswerPrompt(question string, items []types.QueryItem) string {
+func buildProgressiveAnswerMessages(answerTemplate, question string, items []types.QueryItem, language string) []client.LLMMessage {
 	maxRefs := progressiveAnswerMaxReferences()
 	n := len(items)
 	if n > maxRefs {
 		n = maxRefs
 	}
-	var b strings.Builder
-	b.WriteString("Answer the user's question using ONLY the numbered reference excerpts below. ")
-	b.WriteString("If the excerpts do not contain enough information, say so briefly. ")
-	b.WriteString("Write in the same language as the user's question when possible.\n\n")
-	b.WriteString("Output format (required): Your entire reply MUST be valid GitHub-Flavored Markdown suitable for direct rendering. ")
-	b.WriteString("Use headings (##, ###), bullet or numbered lists, **bold**, and `inline code` where it improves clarity; use fenced code blocks only for actual code or verbatim snippets. ")
-	b.WriteString("You may use Markdown tables when comparing items. Do not wrap the whole answer in a single outer code fence. ")
-	b.WriteString("Do not output HTML unless it appears inside a fenced code block as an example.\n\n")
-	b.WriteString("Citations: when you refer to a reference, include the marker [^N^] where N is the reference index (1-based), e.g. [^1^].\n\n")
-	b.WriteString("--- References ---\n")
+	var refs strings.Builder
+	refs.WriteString("--- References ---\n")
 	for i := 0; i < n; i++ {
 		it := items[i]
 		excerpt := truncateUTF8ForPrompt(it.Content, progressiveAnswerExcerptMaxBytes())
-		fmt.Fprintf(&b, "\n### Reference [^%d^]\n", i+1)
-		fmt.Fprintf(&b, "Title: %s\n", it.Title)
-		fmt.Fprintf(&b, "Document ID: %s\n", it.ID)
-		fmt.Fprintf(&b, "Path: %s\n", it.Path)
+		fmt.Fprintf(&refs, "\n### Reference [^%d^]\n", i+1)
+		fmt.Fprintf(&refs, "Title: %s\n", it.Title)
+		fmt.Fprintf(&refs, "Document ID: %s\n", it.ID)
+		fmt.Fprintf(&refs, "Path: %s\n", it.Path)
 		if it.Status != "" {
-			fmt.Fprintf(&b, "Document status: %s\n", it.Status)
+			fmt.Fprintf(&refs, "Document status: %s\n", it.Status)
 		}
-		fmt.Fprintf(&b, "Relevance (0-1): %.4f\n", it.Relevance)
-		b.WriteString("Excerpt:\n")
-		b.WriteString(excerpt)
-		b.WriteByte('\n')
+		fmt.Fprintf(&refs, "Relevance (0-1): %.4f\n", it.Relevance)
+		refs.WriteString("Excerpt:\n")
+		refs.WriteString(excerpt)
+		refs.WriteByte('\n')
 	}
-	b.WriteString("\n--- User question ---\n")
-	b.WriteString(strings.TrimSpace(question))
-	b.WriteByte('\n')
-	return b.String()
+
+	systemContent := answerTemplate
+	if language != "" {
+		systemContent = answerTemplate + "\n\nPlease answer in " + language + "."
+	}
+
+	return []client.LLMMessage{
+		{Role: client.LLMMessageRoleSystem, Content: systemContent},
+		{Role: client.LLMMessageRoleUser, Content: refs.String()},
+		{Role: client.LLMMessageRoleUser, Content: strings.TrimSpace(question)},
+	}
 }
 
 // NewQueryService constructs the query service implementation.
@@ -234,12 +233,14 @@ func NewQueryService(
 	docRepo storage.IDocumentRepository,
 	chapterSearch service.IChapterHybridSearch,
 	llm client.ILLMProvider,
+	answerPrompt string,
 	logger *zap.Logger,
 ) service.IQueryService {
 	return &queryService{
 		docRepo:       docRepo,
 		chapterSearch: chapterSearch,
 		llm:           llm,
+		answerPrompt:  answerPrompt,
 		logger:        logger,
 	}
 }
@@ -248,6 +249,7 @@ type queryService struct {
 	docRepo       storage.IDocumentRepository
 	chapterSearch service.IChapterHybridSearch
 	llm           client.ILLMProvider
+	answerPrompt  string
 	logger        *zap.Logger
 }
 
@@ -255,7 +257,7 @@ type queryService struct {
 // Runs IChapterHybridSearch.SearchHotChapters and SearchColdChapterHits in parallel, merges hits, then optional LLM answer.
 func (s *queryService) ProgressiveQuery(ctx context.Context, req types.ProgressiveQueryRequest) (*types.ProgressiveQueryResponse, error) {
 	if req.MaxResults == 0 {
-		req.MaxResults = 100
+		req.MaxResults = 15
 	}
 
 	response := &types.ProgressiveQueryResponse{
@@ -290,7 +292,7 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 	if wantTrace {
 		tracer = otel.Tracer(ProgressiveTracerScope)
 		runCtx, rootSpan = tracer.Start(ctx, "progressive_query",
-			trace.WithAttributes(attribute.String("tier.request.question", TruncateTraceStr(req.Question, 512))))
+			trace.WithAttributes(attribute.String("tier_request_question", TruncateTraceStr(req.Question, 512))))
 		runCtx = WithProgressiveDebugTracer(runCtx, tracer)
 		defer rootSpan.End()
 	}
@@ -357,27 +359,32 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 
 	if wantTrace {
 		_, mergeSpan := tracer.Start(runCtx, "merge_results", trace.WithAttributes(
-			attribute.Int("tier.request.merge_inputs.hot_items", len(hotRes.results)),
-			attribute.Int("tier.request.merge_inputs.cold_items", len(coldRes.results)),
-			attribute.Int("tier.response.merged_items", len(mergedResults)),
+			attribute.Int("tier_request_merge_inputs_hot_items", len(hotRes.results)),
+			attribute.Int("tier_request_merge_inputs_cold_items", len(coldRes.results)),
+			attribute.Int("tier_response_merged_items", len(mergedResults)),
 		))
 		mergeSpan.SetStatus(codes.Ok, "")
 		mergeSpan.End()
 
 		ansCtx, ansSpan := tracer.Start(runCtx, "synthesize_answer", trace.WithAttributes(
-			attribute.String("tier.request.question", TruncateTraceStr(req.Question, TraceMaxReqBytes)),
-			attribute.Int("tier.request.reference_items", len(mergedResults)),
+			attribute.String("tier_request_question", TruncateTraceStr(req.Question, TraceMaxReqBytes)),
+			attribute.Int("tier_request_reference_items", len(mergedResults)),
 		))
 		ansCtx = trace.ContextWithSpan(ansCtx, ansSpan)
 		ansCtx = WithProgressiveDebugTracer(ansCtx, tracer)
-		response.Answer = s.generateProgressiveAnswer(ansCtx, req.Question, mergedResults)
-		if response.Answer != "" {
-			ansSpan.SetAttributes(attribute.String("tier.response.answer", TruncateTraceStr(response.Answer, TraceMaxRespBytes)))
+		response.AnswerFromReferences, response.AnswerFromKnowledge = s.generateProgressiveAnswer(ansCtx, req.Question, mergedResults, req.AnswerLanguage)
+		response.Answer = response.AnswerFromReferences // backward compatibility
+		if response.AnswerFromReferences != "" {
+			ansSpan.SetAttributes(attribute.String("tier_response_answer", TruncateTraceStr(response.AnswerFromReferences, TraceMaxRespBytes)))
+		}
+		if response.AnswerFromKnowledge != "" {
+			ansSpan.SetAttributes(attribute.String("tier_response_knowledge", TruncateTraceStr(response.AnswerFromKnowledge, 200)))
 		}
 		ansSpan.SetStatus(codes.Ok, "")
 		ansSpan.End()
 	} else {
-		response.Answer = s.generateProgressiveAnswer(ctx, req.Question, mergedResults)
+		response.AnswerFromReferences, response.AnswerFromKnowledge = s.generateProgressiveAnswer(ctx, req.Question, mergedResults, req.AnswerLanguage)
+		response.Answer = response.AnswerFromReferences // backward compatibility
 	}
 
 	if traceIDStr != "" {
@@ -389,7 +396,7 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 		zap.Int("hot_results", len(hotRes.results)),
 		zap.Int("cold_results", len(coldRes.results)),
 		zap.Int("total_results", len(mergedResults)),
-		zap.Bool("has_answer", response.Answer != ""),
+		zap.Bool("has_answer", response.AnswerFromReferences != ""),
 		zap.String("otel_trace_id", traceIDStr),
 	)
 
@@ -400,18 +407,38 @@ func (s *queryService) ProgressiveQuery(ctx context.Context, req types.Progressi
 	return response, nil
 }
 
-func (s *queryService) generateProgressiveAnswer(ctx context.Context, question string, items []types.QueryItem) string {
+func (s *queryService) generateProgressiveAnswer(ctx context.Context, question string, items []types.QueryItem, language string) (refsAnswer, knowledgeAnswer string) {
 	if s.llm == nil || len(items) == 0 {
-		return ""
+		return "", ""
 	}
-	prompt := buildProgressiveAnswerPrompt(question, items)
+	msgs := buildProgressiveAnswerMessages(s.answerPrompt, question, items, language)
 	maxTok := progressiveAnswerCompletionMaxTokens()
-	ans, err := s.llm.Generate(ctx, prompt, maxTok)
+	ans, err := s.llm.Generate(ctx, msgs, maxTok)
 	if err != nil {
 		s.logger.Warn("progressive query: answer generation failed", zap.Error(err))
-		return ""
+		return "AI 应答生成失败，请参考右侧召回的章节。", ""
 	}
-	return strings.TrimSpace(ans)
+	ans = strings.TrimSpace(ans)
+	var inputText strings.Builder
+	for _, m := range msgs {
+		inputText.WriteString(m.Content)
+	}
+	metrics.RecordLLMTokens(metrics.PathAnswerGen, estimateQueryTokens(inputText.String()), estimateQueryTokens(ans))
+	return parseDualPartAnswer(ans)
+}
+
+// parseDualPartAnswer splits the LLM output into the evidence-based part and the knowledge supplement.
+// It expects the separator "---PART:KNOWLEDGE---" between the two sections.
+func parseDualPartAnswer(raw string) (refsAnswer, knowledgeAnswer string) {
+	const sep = "---PART:KNOWLEDGE---"
+	idx := strings.Index(raw, sep)
+	if idx == -1 {
+		// No separator found: treat everything as the reference-based answer.
+		return raw, ""
+	}
+	refsAnswer = strings.TrimSpace(raw[:idx])
+	knowledgeAnswer = strings.TrimSpace(raw[idx+len(sep):])
+	return refsAnswer, knowledgeAnswer
 }
 
 func (s *queryService) queryHotPath(ctx context.Context, question string, half int) ([]types.QueryItem, []types.ProgressiveQueryStep, error) {
@@ -423,8 +450,8 @@ func (s *queryService) queryHotPath(ctx context.Context, question string, half i
 		hits, e = s.chapterSearch.SearchHotChapters(c, question, half)
 		if sp != nil && e == nil {
 			sp.SetAttributes(
-				attribute.String("tier.request.question", TruncateTraceStr(question, TraceMaxReqBytes)),
-				attribute.Int("tier.response.hot_chapter_hits", len(hits)),
+				attribute.String("tier_request_question", TruncateTraceStr(question, TraceMaxReqBytes)),
+				attribute.Int("tier_response_hot_chapter_hits", len(hits)),
 			)
 		}
 		return e
@@ -538,8 +565,8 @@ func (s *queryService) queryColdPath(ctx context.Context, question string, half 
 	err := WithOptionalSpan(ctx, "cold_index_search", func(c context.Context, sp trace.Span) error {
 		if sp != nil {
 			sp.SetAttributes(
-				attribute.String("tier.request.question", TruncateTraceStr(question, TraceMaxReqBytes)),
-				attribute.Int("tier.request.cold_search_max_results", half),
+				attribute.String("tier_request_question", TruncateTraceStr(question, TraceMaxReqBytes)),
+				attribute.Int("tier_request_cold_search_max_results", half),
 			)
 		}
 		var e error
@@ -548,14 +575,14 @@ func (s *queryService) queryColdPath(ctx context.Context, question string, half 
 			if sp != nil {
 				sp.SetAttributes(
 					attribute.Bool("tier.response.cold_index_skipped", true),
-					attribute.String("tier.response.cold_index_skip_reason", "no_index"),
+					attribute.String("tier_response_cold_index_skip_reason", "no_index"),
 				)
 			}
 			searchResults = nil
 			return nil
 		}
 		if sp != nil && e == nil {
-			sp.SetAttributes(attribute.Int("tier.response.cold_index_hits", len(searchResults)))
+			sp.SetAttributes(attribute.Int("tier_response_cold_index_hits", len(searchResults)))
 		}
 		return e
 	})
@@ -620,3 +647,17 @@ func extractTitleFromPath(path string) string {
 }
 
 var _ service.IQueryService = (*queryService)(nil)
+
+func estimateQueryTokens(text string) int {
+	if text == "" {
+		return 0
+	}
+	chineseCount := 0
+	for _, r := range text {
+		if r > 127 {
+			chineseCount++
+		}
+	}
+	englishChars := len(text) - chineseCount
+	return chineseCount + englishChars/4
+}

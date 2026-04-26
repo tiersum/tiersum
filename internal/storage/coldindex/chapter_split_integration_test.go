@@ -329,15 +329,15 @@ func TestSplitMarkdown_LargeDocument(t *testing.T) {
 // TestSplitMarkdown_MergeBehavior tests chapter merging behavior
 func TestSplitMarkdown_MergeBehavior(t *testing.T) {
 	md := loadTestMarkdown(t, "technical_guide.md")
-	
+
 	// With large maxTokens, should merge where possible
 	segsLarge := SplitMarkdown("k8s", "K8s", md, 2000)
-	
+
 	// With small maxTokens, should split more
 	segsSmall := SplitMarkdown("k8s", "K8s", md, 128)
-	
+
 	// Large budget should produce fewer or equal segments
-	assert.LessOrEqual(t, len(segsLarge), len(segsSmall), 
+	assert.LessOrEqual(t, len(segsLarge), len(segsSmall),
 		"larger token budget should not produce more segments")
 }
 
@@ -349,7 +349,7 @@ func TestSplitMarkdown_PathStructure(t *testing.T) {
 
 	// All paths should start with docID
 	for _, s := range segs {
-		assert.True(t, strings.HasPrefix(s.Path, "doc-123/"), 
+		assert.True(t, strings.HasPrefix(s.Path, "doc-123/"),
 			"path should start with docID: %s", s.Path)
 	}
 
@@ -733,7 +733,7 @@ func TestSplitMarkdown_AllFiles(t *testing.T) {
 			for _, s := range segs {
 				assert.NotEmpty(t, s.Path, "segment should have path")
 				assert.NotEmpty(t, s.Text, "segment should have text")
-			assert.True(t, strings.HasPrefix(s.Path, "test/"), "path should start with docID")
+				assert.True(t, strings.HasPrefix(s.Path, "test/"), "path should start with docID")
 			}
 		})
 	}

@@ -21,9 +21,9 @@ llm:
   openai:
     api_key: ${MOONSHOT_API_KEY}
     base_url: https://api.moonshot.cn/v1
-    model: kimi-k2.5
+    model: kimi-k2.6
     max_tokens: 2000
-    temperature: 0.3
+    temperature: 0.6
 
   anthropic:
     api_key: ${ANTHROPIC_API_KEY}
@@ -37,6 +37,112 @@ llm:
     model: llama3.2
     timeout: 60s
 
+  prompts:
+    system_message: "You are a concise assistant. Respond briefly and accurately."
+
+    analyze_document: |
+      Analyze the document I will provide and return a JSON response.
+
+      Required JSON structure:
+      {
+        "summary": "document summary (max 300 chars)",
+        "tags": ["tag1", "tag2", ...],
+        "chapters": [
+          {
+            "title": "1. Chapter title",
+            "summary": "chapter summary (max 150 chars)",
+            "content": "### 1.1 Sub-section\nBody text...\n\n### 1.2 Sub-section\nBody text..."
+          }
+        ]
+      }
+
+      Chapter Organization Rules:
+      1. First-level chapters (roughly equivalent to Markdown ## headings) must be at most 12.
+      2. Keep the original heading text intact (including any existing numbers or punctuation). Prepend a new unified sequential number. Examples:
+         - Original: "Kafka 核心设计原则" -> New: "1. Kafka 核心设计原则"
+         - Original: "2. 磁盘文件组织" -> New: "2. 2. 磁盘文件组织"
+      3. ONLY first-level chapters have a "summary" field. Sub-sections do NOT have summaries.
+      4. Sub-sections (### headings and below) must NOT become separate chapters. Include them inside their parent chapter's "content" field.
+      5. Inside "content", keep the original sub-heading text intact and prepend a new hierarchical number. Preserve original Markdown heading markers (###, ####, etc.). Examples:
+         - Original: "### 顺序写" -> New: "### 1.1 顺序写"
+         - Original: "### 2.1 稀疏索引" -> New: "### 2.3 2.1 稀疏索引"
+      6. The "content" field must contain the full rewritten text of the entire first-level chapter, including all its sub-sections with re-numbered headings and their body text.
+      7. If the document has no clear structure, create a single chapter: title "1. Overview", summary may be empty, content contains the full text.
+
+      Additional Guidelines:
+      - Return ONLY the JSON object, no other text.
+      - Do NOT wrap the JSON in markdown code fences.
+      - Tags should be relevant keywords (lowercase, no spaces use-hyphens).
+      - "summary" may be empty when no short summary is appropriate; otherwise keep it within 150 characters.
+
+    answer_synthesis: |
+      You must produce a two-part answer. The two parts are separated by the exact literal marker ---PART:KNOWLEDGE--- on its own line.
+
+      PART 1 — Evidence-based answer (from the provided references only):
+      Answer the user's question using ONLY the numbered reference excerpts I will provide. Length is unlimited; be as detailed and comprehensive as the references allow, but avoid unnecessary verbosity. Stay concise and to the point. Every factual claim, technical detail, or specific assertion MUST be supported by a citation.
+
+      Evidence and attribution rules (strict):
+      1. Each paragraph or bullet point must end with one or more citation markers showing which references support it.
+      2. Use the citation format [^N^] where N is the 1-based reference index, e.g. [^1^] or [^1^][^2^].
+      3. If a claim is supported by multiple references, cite all of them.
+      4. If you must infer or generalize beyond the provided excerpts, explicitly label it as "(inferred)" and provide the closest supporting citation.
+      5. Never present information as fact without a corresponding citation.
+
+      PART 2 — Supplementary knowledge (from your own training data):
+      After the separator ---PART:KNOWLEDGE---, provide a brief supplementary answer based on your own knowledge. This part must be concise and strictly limited to 200 characters or fewer, but do not pad or expand to reach the limit; only include genuinely useful additions. It should only add context that is NOT covered by the references. Always provide a brief supplementary insight after the separator, even when the references seem comprehensive. Only skip this part if there is absolutely nothing relevant to add.
+
+      Output format (required):
+      - Part 1 MUST be valid GitHub-Flavored Markdown suitable for direct rendering. Use headings (##, ###), bullet or numbered lists, **bold**, and `inline code` where it improves clarity; use fenced code blocks only for actual code or verbatim snippets. You may use Markdown tables when comparing items.
+      - Do not wrap the whole answer in a single outer code fence.
+      - Do not output HTML unless it appears inside a fenced code block as an example.
+      - Do NOT include any metadata or explanatory text outside the Markdown content.
+      - Do NOT wrap your answer in JSON.
+      - The separator ---PART:KNOWLEDGE--- must appear exactly once, on its own line, between Part 1 and Part 2.
+
+    filter_documents: |
+      Evaluate the relevance of each document I will provide against the query. Return a JSON array of objects with fields "id" (document ID) and "relevance" (0.0-1.0 score).
+      Only include documents with relevance >= 0.5. Sort by relevance descending.
+      CRITICAL: Use the exact "ID:" value from each document below. Do NOT use list indices or ordinal numbers as the id.
+
+      Response format (JSON only):
+      [
+        {"id": "doc_id", "relevance": 0.95},
+        ...
+      ]
+
+    filter_chapters: |
+      Evaluate the relevance of each chapter I will provide against the query. Return a JSON array of objects with fields "id" (the path) and "relevance" (0.0-1.0 score).
+      Only include chapters with relevance >= 0.5. Sort by relevance descending.
+      CRITICAL: Use the exact "Path:" value from each chapter below. Do NOT use list indices or ordinal numbers as the id.
+
+      Response format (JSON only):
+      [
+        {"id": "doc_id/chapter_title", "relevance": 0.88},
+        ...
+      ]
+
+    filter_topics: |
+      Select the 1-3 most relevant topics from the list I will provide. These topics narrow the search for relevant documents.
+      Return a JSON array of objects with fields "id" (topic ID) and "relevance" (0.0-1.0 score).
+      Only include topics with relevance >= 0.5. Sort by relevance descending.
+      Select at most 3 topics.
+
+      Response format (JSON only):
+      [
+        {"id": "topic_id", "relevance": 0.95},
+        {"id": "another_topic_id", "relevance": 0.82}
+      ]
+
+    filter_tags: |
+      Select the most relevant tags from the list I will provide. Return a JSON array of objects with fields "tag" and "relevance" (0.0-1.0 score).
+      Only include tags with relevance >= 0.5. Sort by relevance descending.
+
+      Response format (JSON only):
+      [
+        {"tag": "tag-name", "relevance": 0.95},
+        {"tag": "another-tag", "relevance": 0.82}
+      ]
+
 telemetry:
   enabled: true
   persist_to_db: true
@@ -47,7 +153,7 @@ telemetry:
 
 query:
   allow_progressive_debug: true
-  progressive_answer_max_tokens: 0
+  progressive_answer_max_tokens: 4096
   progressive_answer_max_references: 0
   progressive_answer_excerpt_max_bytes: 0
 
@@ -65,9 +171,6 @@ storage:
     dsn: ./data/tiersum.db
     max_connections: 20
     min_connections: 5
-
-quota:
-  per_hour: 100
 
 cold_index:
   markdown:
