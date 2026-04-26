@@ -27,7 +27,6 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/tiersum/tiersum/internal/storage"
-	"github.com/tiersum/tiersum/internal/storage/coldindex/coldvec"
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
@@ -435,18 +434,15 @@ func (idx *Index) AddDocument(ctx context.Context, doc *types.Document) error {
 		if text == "" {
 			continue
 		}
-		var vec []float32
-		if emb != nil {
-			v, err := emb.Embed(ctx, text)
-			if err != nil {
-				return fmt.Errorf("embed chapter text: %w", err)
-			}
-			if len(v) != types.ColdEmbeddingVectorDimension {
-				return fmt.Errorf("embed dimension mismatch: got %d, want %d", len(v), types.ColdEmbeddingVectorDimension)
-			}
-			vec = v
-		} else {
-			vec = GenerateSimpleEmbedding(text)
+		if emb == nil {
+			return fmt.Errorf("text embedder not configured")
+		}
+		vec, err := emb.Embed(ctx, text)
+		if err != nil {
+			return fmt.Errorf("embed chapter text: %w", err)
+		}
+		if len(vec) != types.ColdEmbeddingVectorDimension {
+			return fmt.Errorf("embed dimension mismatch: got %d, want %d", len(vec), types.ColdEmbeddingVectorDimension)
 		}
 		docIdx := &ChapterIndex{
 			DocumentID: doc.ID,
@@ -739,18 +735,15 @@ func (idx *Index) AddChapter(ctx context.Context, docID, path, title, content st
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	var vec []float32
-	if idx.textEmbedder != nil {
-		v, err := idx.textEmbedder.Embed(ctx, content)
-		if err != nil {
-			return fmt.Errorf("embed chapter content: %w", err)
-		}
-		if len(v) != types.ColdEmbeddingVectorDimension {
-			return fmt.Errorf("embed dimension mismatch: got %d, want %d", len(v), types.ColdEmbeddingVectorDimension)
-		}
-		vec = v
-	} else {
-		vec = GenerateSimpleEmbedding(content)
+	if idx.textEmbedder == nil {
+		return fmt.Errorf("text embedder not configured")
+	}
+	vec, err := idx.textEmbedder.Embed(ctx, content)
+	if err != nil {
+		return fmt.Errorf("embed chapter content: %w", err)
+	}
+	if len(vec) != types.ColdEmbeddingVectorDimension {
+		return fmt.Errorf("embed dimension mismatch: got %d, want %d", len(vec), types.ColdEmbeddingVectorDimension)
 	}
 
 	docIdx := &ChapterIndex{
@@ -910,11 +903,6 @@ func (idx *Index) RebuildFromDocuments(ctx context.Context, docs []types.Documen
 		zap.Duration("duration", time.Since(start)))
 
 	return nil
-}
-
-// GenerateSimpleEmbedding generates a simple embedding for a document (hash projection via coldvec).
-func GenerateSimpleEmbedding(content string) []float32 {
-	return coldvec.SimpleHashEmbedding(content, types.ColdEmbeddingVectorDimension)
 }
 
 // ComputeSimilarity computes cosine similarity between two vectors

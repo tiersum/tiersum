@@ -11,11 +11,21 @@ import (
 	"github.com/tiersum/tiersum/pkg/types"
 )
 
+type testEmbedder struct{}
+
+func (testEmbedder) Embed(_ context.Context, _ string) ([]float32, error) {
+	vec := make([]float32, types.ColdEmbeddingVectorDimension)
+	vec[0] = 1.0
+	return vec, nil
+}
+func (testEmbedder) Close() error { return nil }
+
 func TestIndex_AddDocument_coldChapters(t *testing.T) {
 	ctx := context.Background()
 	logger := zap.NewNop()
 	idx, err := NewIndex(logger)
 	require.NoError(t, err)
+	idx.SetTextEmbedder(testEmbedder{})
 	idx.SetColdChapterMaxTokens(512)
 
 	doc := &types.Document{
@@ -47,6 +57,7 @@ func TestIndex_SetColdChapterSplitter(t *testing.T) {
 	logger := zap.NewNop()
 	idx, err := NewIndex(logger)
 	require.NoError(t, err)
+	idx.SetTextEmbedder(testEmbedder{})
 	idx.SetColdChapterSplitter(testStubSplitter{})
 
 	doc := &types.Document{ID: "z1", Title: "T", Content: "# ignored\n"}

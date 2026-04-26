@@ -29,8 +29,7 @@ func resolveEmbeddingFilePath(p string) string {
 // NewTextEmbedderFromViper builds an IColdTextEmbedder from cold_index.embedding.* viper keys.
 //
 // provider:
-//   - "" or "auto" (default): try all-MiniLM-L6-v2 + ONNX Runtime; on init failure use simple hash embedding.
-//   - "simple": legacy hash/n-gram projection only (no ONNX).
+//   - "" or "auto" (default): try all-MiniLM-L6-v2 + ONNX Runtime; startup error if unavailable.
 //   - "minilm" or "all-minilm-l6-v2": MiniLM only; startup error if ONNX/model cannot load.
 func NewTextEmbedderFromViper(logger *zap.Logger) (IColdTextEmbedder, error) {
 	p := strings.ToLower(strings.TrimSpace(viper.GetString("cold_index.embedding.provider")))
@@ -43,9 +42,7 @@ func NewTextEmbedderFromViper(logger *zap.Logger) (IColdTextEmbedder, error) {
 	}
 
 	switch {
-	case p == "simple":
-		return NewSimple(), nil
-	case p == "minilm" || p == "all-minilm-l6-v2":
+	case p == "minilm" || p == "all-minilm-l6-v2" || p == "" || p == "auto":
 		e, err := tryMiniLM()
 		if err != nil {
 			return nil, fmt.Errorf("minilm embedder: %w", err)
@@ -54,23 +51,8 @@ func NewTextEmbedderFromViper(logger *zap.Logger) (IColdTextEmbedder, error) {
 			logMiniLMStartup(logger, rt, modelPath, tokPath)
 		}
 		return e, nil
-	case p == "" || p == "auto":
-		e, err := tryMiniLM()
-		if err != nil {
-			if logger != nil {
-				logger.Info("MiniLM embedder unavailable, using simple cold embeddings",
-					zap.String("onnx_runtime_path", rt),
-					zap.String("minilm_model_path", modelPath),
-					zap.Error(err))
-			}
-			return NewSimple(), nil
-		}
-		if logger != nil {
-			logMiniLMStartup(logger, rt, modelPath, tokPath)
-		}
-		return e, nil
 	default:
-		return nil, fmt.Errorf("unknown cold_index.embedding.provider %q (use auto, simple, or minilm)", p)
+		return nil, fmt.Errorf("unknown cold_index.embedding.provider %q (use auto or minilm)", p)
 	}
 }
 
