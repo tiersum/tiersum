@@ -100,7 +100,7 @@ func (r *APIKeyRepo) GetByID(ctx context.Context, id string) (*storage.APIKey, e
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, k.ID)
+	shared.SetSpanOutputString(span, "name", k.Name)
 	shared.SetSpanStatus(span, nil)
 	return k, nil
 }
@@ -118,7 +118,7 @@ func (r *APIKeyRepo) GetByKeyHash(ctx context.Context, keyHashHex string) (*stor
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, k.ID)
+	shared.SetSpanOutputString(span, "name", k.Name)
 	shared.SetSpanStatus(span, nil)
 	return k, nil
 }
@@ -139,7 +139,7 @@ func (r *APIKeyRepo) GetActiveByKeyHash(ctx context.Context, keyHashHex string) 
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, k.ID)
+	shared.SetSpanOutputString(span, "name", k.Name)
 	shared.SetSpanStatus(span, nil)
 	return k, nil
 }
@@ -168,7 +168,7 @@ func (r *APIKeyRepo) List(ctx context.Context) ([]storage.APIKey, error) {
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(out))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(k storage.APIKey) string { return k.ID }))
+	shared.SetSpanOutputStrings(span, "names", shared.CollectIDs(out, func(k storage.APIKey) string { return k.Name }))
 	shared.SetSpanStatus(span, nil)
 	return out, nil
 }

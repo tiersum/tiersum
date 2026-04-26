@@ -72,7 +72,7 @@ func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document,
 			if cached == nil {
 				// Cache invalidation marker: treat as miss.
 			} else if doc, ok := cached.(*types.Document); ok && doc != nil {
-				shared.SetSpanOutputID(span, doc.ID)
+				shared.SetSpanOutputString(span, "title", doc.Title)
 				shared.SetSpanStatus(span, nil)
 				return doc, nil
 			}
@@ -106,7 +106,7 @@ func (r *DocumentRepo) GetByID(ctx context.Context, id string) (*types.Document,
 	if r.cache != nil {
 		r.cache.Set("doc:"+id, doc)
 	}
-	shared.SetSpanOutputID(span, doc.ID)
+	shared.SetSpanOutputString(span, "title", doc.Title)
 	shared.SetSpanStatus(span, nil)
 	return doc, nil
 }
@@ -154,7 +154,7 @@ func (r *DocumentRepo) GetRecent(ctx context.Context, limit int) ([]*types.Docum
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(documents))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(documents, func(d *types.Document) string { return d.ID }))
+	shared.SetSpanOutputStrings(span, "titles", shared.CollectIDs(documents, func(d *types.Document) string { return d.Title }))
 	shared.SetSpanStatus(span, nil)
 	return documents, nil
 }
@@ -227,7 +227,7 @@ func (r *DocumentRepo) ListByTags(ctx context.Context, tags []string, limit int)
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(documents))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(documents, func(d types.Document) string { return d.ID }))
+	shared.SetSpanOutputStrings(span, "titles", shared.CollectIDs(documents, func(d types.Document) string { return d.Title }))
 	shared.SetSpanStatus(span, nil)
 	return documents, nil
 }
@@ -310,7 +310,7 @@ func (r *DocumentRepo) ListMetaByTagsAndStatuses(ctx context.Context, tags []str
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(documents))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(documents, func(d types.Document) string { return d.ID }))
+	shared.SetSpanOutputStrings(span, "titles", shared.CollectIDs(documents, func(d types.Document) string { return d.Title }))
 	shared.SetSpanStatus(span, nil)
 	return documents, nil
 }
@@ -484,7 +484,7 @@ func (r *DocumentRepo) ListByStatus(ctx context.Context, status types.DocumentSt
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(documents))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(documents, func(d types.Document) string { return d.ID }))
+	shared.SetSpanOutputStrings(span, "titles", shared.CollectIDs(documents, func(d types.Document) string { return d.Title }))
 	shared.SetSpanStatus(span, nil)
 	return documents, nil
 }
@@ -531,7 +531,7 @@ func (r *DocumentRepo) ListAll(ctx context.Context, limit int) ([]types.Document
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(documents))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(documents, func(d types.Document) string { return d.ID }))
+	shared.SetSpanOutputStrings(span, "titles", shared.CollectIDs(documents, func(d types.Document) string { return d.Title }))
 	shared.SetSpanStatus(span, nil)
 	return documents, nil
 }

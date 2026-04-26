@@ -85,11 +85,11 @@ func (r *PasskeyCredentialRepo) ListByUser(ctx context.Context, userID string) (
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(out))
-	ids := make([]string, 0, len(out))
+	names := make([]string, 0, len(out))
 	for _, c := range out {
-		ids = append(ids, c.ID)
+		names = append(names, c.DeviceName)
 	}
-	shared.SetSpanOutputIDs(span, ids)
+	shared.SetSpanOutputStrings(span, "device_names", names)
 	shared.SetSpanStatus(span, nil)
 	return out, nil
 }
@@ -107,7 +107,7 @@ func (r *PasskeyCredentialRepo) GetByID(ctx context.Context, id string) (*storag
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, c.ID)
+	shared.SetSpanOutputString(span, "device_name", c.DeviceName)
 	shared.SetSpanStatus(span, nil)
 	return c, nil
 }
@@ -125,7 +125,7 @@ func (r *PasskeyCredentialRepo) GetByCredentialID(ctx context.Context, credentia
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, c.ID)
+	shared.SetSpanOutputString(span, "device_name", c.DeviceName)
 	shared.SetSpanStatus(span, nil)
 	return c, nil
 }

@@ -79,7 +79,7 @@ func (r *TopicRepo) GetByID(ctx context.Context, id string) (*types.Topic, error
 	}
 
 	c.TagNames = shared.ParseStringArray(tagsStr)
-	shared.SetSpanOutputID(span, c.ID)
+	shared.SetSpanOutputString(span, "name", c.Name)
 	shared.SetSpanStatus(span, nil)
 	return &c, nil
 }
@@ -115,7 +115,7 @@ func (r *TopicRepo) List(ctx context.Context) ([]types.Topic, error) {
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(topics))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(topics, func(t types.Topic) string { return t.ID }))
+	shared.SetSpanOutputStrings(span, "names", shared.CollectIDs(topics, func(t types.Topic) string { return t.Name }))
 	shared.SetSpanStatus(span, nil)
 	return topics, nil
 }

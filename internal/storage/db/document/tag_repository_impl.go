@@ -83,7 +83,7 @@ func (r *TagRepo) GetByName(ctx context.Context, name string) (*types.Tag, error
 	if topicID.Valid {
 		t.TopicID = topicID.String
 	}
-	shared.SetSpanOutputID(span, t.ID)
+	shared.SetSpanOutputString(span, "name", t.Name)
 	shared.SetSpanStatus(span, nil)
 	return &t, nil
 }
@@ -121,7 +121,7 @@ func (r *TagRepo) List(ctx context.Context) ([]types.Tag, error) {
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(tags))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(tags, func(t types.Tag) string { return t.ID }))
+	shared.SetSpanOutputStrings(span, "names", shared.CollectIDs(tags, func(t types.Tag) string { return t.Name }))
 	shared.SetSpanStatus(span, nil)
 	return tags, nil
 }
@@ -161,7 +161,7 @@ func (r *TagRepo) ListByTopic(ctx context.Context, topicID string) ([]types.Tag,
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(tags))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(tags, func(t types.Tag) string { return t.ID }))
+	shared.SetSpanOutputStrings(span, "names", shared.CollectIDs(tags, func(t types.Tag) string { return t.Name }))
 	shared.SetSpanStatus(span, nil)
 	return tags, nil
 }
@@ -211,7 +211,7 @@ func (r *TagRepo) ListByTopicIDs(ctx context.Context, topicIDs []string, limit i
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(tags))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(tags, func(t types.Tag) string { return t.ID }))
+	shared.SetSpanOutputStrings(span, "names", shared.CollectIDs(tags, func(t types.Tag) string { return t.Name }))
 	shared.SetSpanStatus(span, nil)
 	return tags, nil
 }

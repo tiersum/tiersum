@@ -93,6 +93,26 @@ func SetSpanInputString(span trace.Span, key, value string) {
 	span.SetAttributes(attribute.String("input."+key, value))
 }
 
+// SetSpanOutputString records a generic string output field.
+func SetSpanOutputString(span trace.Span, key, value string) {
+	if span == nil || value == "" {
+		return
+	}
+	span.SetAttributes(attribute.String("output."+key, value))
+}
+
+// SetSpanOutputStrings records a list of string output values (truncated to max 20 to avoid span bloat).
+func SetSpanOutputStrings(span trace.Span, key string, values []string) {
+	if span == nil || len(values) == 0 {
+		return
+	}
+	const maxVals = 20
+	if len(values) > maxVals {
+		values = values[:maxVals]
+	}
+	span.SetAttributes(attribute.StringSlice("output."+key, values))
+}
+
 // CollectIDs extracts the ID field from a slice of items using the provided getter.
 func CollectIDs[T any](items []T, getID func(T) string) []string {
 	out := make([]string, 0, len(items))

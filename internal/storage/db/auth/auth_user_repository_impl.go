@@ -78,7 +78,7 @@ func (r *AuthUserRepo) GetByID(ctx context.Context, id string) (*storage.AuthUse
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, u.ID)
+	shared.SetSpanOutputString(span, "username", u.Username)
 	shared.SetSpanStatus(span, nil)
 	return u, nil
 }
@@ -95,7 +95,7 @@ func (r *AuthUserRepo) GetByUsername(ctx context.Context, username string) (*sto
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, u.ID)
+	shared.SetSpanOutputString(span, "username", u.Username)
 	shared.SetSpanStatus(span, nil)
 	return u, nil
 }
@@ -112,7 +112,7 @@ func (r *AuthUserRepo) GetByAccessTokenHash(ctx context.Context, hashHex string)
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, u.ID)
+	shared.SetSpanOutputString(span, "username", u.Username)
 	shared.SetSpanStatus(span, nil)
 	return u, nil
 }
@@ -197,7 +197,7 @@ func (r *AuthUserRepo) List(ctx context.Context) ([]storage.AuthUser, error) {
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(out))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(u storage.AuthUser) string { return u.ID }))
+	shared.SetSpanOutputStrings(span, "usernames", shared.CollectIDs(out, func(u storage.AuthUser) string { return u.Username }))
 	shared.SetSpanStatus(span, nil)
 	return out, nil
 }

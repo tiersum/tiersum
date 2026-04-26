@@ -70,7 +70,7 @@ func (r *DeviceTokenRepo) GetByTokenHash(ctx context.Context, tokenHash string) 
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, t.ID)
+	shared.SetSpanOutputString(span, "device_name", t.DeviceName)
 	shared.SetSpanStatus(span, nil)
 	return t, nil
 }
@@ -103,11 +103,11 @@ func (r *DeviceTokenRepo) ListByUser(ctx context.Context, userID string) ([]stor
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(out))
-	ids := make([]string, 0, len(out))
+	names := make([]string, 0, len(out))
 	for _, t := range out {
-		ids = append(ids, t.ID)
+		names = append(names, t.DeviceName)
 	}
-	shared.SetSpanOutputIDs(span, ids)
+	shared.SetSpanOutputStrings(span, "device_names", names)
 	shared.SetSpanStatus(span, nil)
 	return out, nil
 }

@@ -76,7 +76,7 @@ func (r *BrowserSessionRepo) GetByID(ctx context.Context, sessionID string) (*st
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, s.ID)
+	shared.SetSpanOutputString(span, "user_id", s.UserID)
 	shared.SetSpanStatus(span, nil)
 	return s, nil
 }
@@ -94,7 +94,7 @@ func (r *BrowserSessionRepo) GetBySessionTokenHash(ctx context.Context, sessionT
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, s.ID)
+	shared.SetSpanOutputString(span, "user_id", s.UserID)
 	shared.SetSpanStatus(span, nil)
 	return s, nil
 }
@@ -222,7 +222,7 @@ func (r *BrowserSessionRepo) ListByUser(ctx context.Context, userID string) ([]s
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(out))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(s storage.BrowserSession) string { return s.ID }))
+	shared.SetSpanOutputStrings(span, "session_ids", shared.CollectIDs(out, func(s storage.BrowserSession) string { return s.ID }))
 	shared.SetSpanStatus(span, nil)
 	return out, nil
 }
@@ -257,7 +257,7 @@ func (r *BrowserSessionRepo) ListAllWithUsername(ctx context.Context) ([]storage
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(out))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(r storage.BrowserSessionAdminListRow) string { return r.BrowserSession.ID }))
+	shared.SetSpanOutputStrings(span, "user_ids", shared.CollectIDs(out, func(r storage.BrowserSessionAdminListRow) string { return r.BrowserSession.UserID }))
 	shared.SetSpanStatus(span, nil)
 	return out, nil
 }

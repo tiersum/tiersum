@@ -75,6 +75,9 @@ func (r *ChapterRepo) ReplaceByDocument(ctx context.Context, documentID string, 
 	if r.cache != nil {
 		r.cache.Set("chapters:"+documentID, nil)
 	}
+	if len(chapters) > 0 {
+		shared.SetSpanOutputString(span, "first_path", chapters[0].Path)
+	}
 	shared.SetSpanStatus(span, nil)
 	return nil
 }
@@ -92,7 +95,7 @@ func (r *ChapterRepo) ListByDocument(ctx context.Context, documentID string) ([]
 				// Cache invalidation marker: treat as miss.
 			} else if out, ok := cached.([]types.Chapter); ok {
 				shared.SetSpanOutputCount(span, len(out))
-				shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(c types.Chapter) string { return c.ID }))
+				shared.SetSpanOutputStrings(span, "titles", shared.CollectIDs(out, func(c types.Chapter) string { return c.Title }))
 				shared.SetSpanStatus(span, nil)
 				return out, nil
 			}
@@ -123,7 +126,7 @@ func (r *ChapterRepo) ListByDocument(ctx context.Context, documentID string) ([]
 		r.cache.Set(cacheKey, out)
 	}
 	shared.SetSpanOutputCount(span, len(out))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(c types.Chapter) string { return c.ID }))
+	shared.SetSpanOutputStrings(span, "titles", shared.CollectIDs(out, func(c types.Chapter) string { return c.Title }))
 	shared.SetSpanStatus(span, nil)
 	return out, nil
 }
@@ -160,7 +163,7 @@ func (r *ChapterRepo) ListByDocumentIDs(ctx context.Context, documentIDs []strin
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(out))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(c types.Chapter) string { return c.ID }))
+	shared.SetSpanOutputStrings(span, "titles", shared.CollectIDs(out, func(c types.Chapter) string { return c.Title }))
 	shared.SetSpanStatus(span, nil)
 	return out, nil
 }
@@ -197,7 +200,7 @@ func (r *ChapterRepo) ListByIDs(ctx context.Context, chapterIDs []string) ([]typ
 		return nil, err
 	}
 	shared.SetSpanOutputCount(span, len(out))
-	shared.SetSpanOutputIDs(span, shared.CollectIDs(out, func(c types.Chapter) string { return c.ID }))
+	shared.SetSpanOutputStrings(span, "titles", shared.CollectIDs(out, func(c types.Chapter) string { return c.Title }))
 	shared.SetSpanStatus(span, nil)
 	return out, nil
 }

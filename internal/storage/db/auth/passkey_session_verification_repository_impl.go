@@ -50,7 +50,7 @@ func (r *PasskeySessionVerificationRepo) GetBySessionID(ctx context.Context, ses
 		shared.SetSpanStatus(span, err)
 		return nil, err
 	}
-	shared.SetSpanOutputID(span, v.SessionID)
+	shared.SetSpanOutputString(span, "user_id", v.UserID)
 	shared.SetSpanStatus(span, nil)
 	return &v, nil
 }
