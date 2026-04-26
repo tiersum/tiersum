@@ -605,30 +605,24 @@ func (s *queryService) queryColdPath(ctx context.Context, question string, half 
 // and triggers promotion for cold documents that exceed the threshold.
 func (s *queryService) trackDocumentAccess(ctx context.Context, docs []types.Document) {
 	for _, doc := range docs {
-		go func(docID string, status types.DocumentStatus, queryCount int) {
-			bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-
-			if err := s.docRepo.IncrementQueryCount(bgCtx, docID); err != nil {
-				s.logger.Warn("failed to increment query count",
-					zap.String("doc_id", docID),
-					zap.Error(err))
-				return
+		if err := s.docRepo.IncrementQueryCount(ctx, doc.ID); err != nil {
+			s.logger.Warn("failed to increment query count",
+				zap.String("doc_id", doc.ID),
+				zap.Error(err))
+			continue
+		}
+		threshold := config.ColdPromotionThreshold()
+		if doc.Status == types.DocStatusCold && doc.QueryCount+1 >= threshold {
+			select {
+			case job.PromoteQueue <- doc.ID:
+				s.logger.Info("queued cold document for promotion",
+					zap.String("doc_id", doc.ID),
+					zap.Int("query_count", doc.QueryCount+1))
+			default:
+				s.logger.Warn("promotion queue full, document not queued",
+					zap.String("doc_id", doc.ID))
 			}
-
-			threshold := config.ColdPromotionThreshold()
-			if status == types.DocStatusCold && queryCount+1 >= threshold {
-				select {
-				case job.PromoteQueue <- docID:
-					s.logger.Info("queued cold document for promotion",
-						zap.String("doc_id", docID),
-						zap.Int("query_count", queryCount+1))
-				default:
-					s.logger.Warn("promotion queue full, document not queued",
-						zap.String("doc_id", docID))
-				}
-			}
-		}(doc.ID, doc.Status, doc.QueryCount)
+		}
 	}
 }
 
